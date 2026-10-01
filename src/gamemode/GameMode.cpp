@@ -1588,6 +1588,7 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
         return true;
     };
 
+#if RO_ENABLE_QT6_UI
     if (hasArrowBitmap && s_targetArrowTexture) {
         bool queuedAny = false;
 
@@ -1673,6 +1674,7 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
             return true;
         }
     }
+#endif
 
     UnionRect(&overlayRect, &overlayRect, &arrowRect);
 

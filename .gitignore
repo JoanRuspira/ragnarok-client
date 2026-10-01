@@ -6,6 +6,7 @@ HighPriest.exe
 
 .cache/
 .venv/
+.vs/
 .vscode/
 build/
 build64/

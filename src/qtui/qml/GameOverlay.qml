@@ -1050,7 +1050,7 @@ Item {
         width: uiState.shortCutWidth
         height: uiState.shortCutHeight
         radius: 4
-        color: "#d0d0d0"
+        color: "#bf000000"
         border.width: 1
         border.color: "#606060"
         visible: uiState.shortCutVisible
@@ -1061,13 +1061,13 @@ Item {
             delegate: Rectangle {
                 required property int index
                 required property var modelData
-                x: 5 + index * 29
-                y: 4
-                width: 24
-                height: 24
-                color: modelData.hover ? "#d0d8e8" : "#f0f0f0"
+                x: modelData.x
+                y: modelData.y
+                width: modelData.width
+                height: modelData.height
+                color: "transparent"
                 border.width: 1
-                border.color: modelData.isSkill ? "#6a4fb0" : "#6a6a6a"
+                border.color: modelData.hover ? "#c0c0c0" : "#606060"
 
                 Image {
                     id: shortCutIcon
@@ -1082,40 +1082,18 @@ Item {
                 }
 
                 Text {
-                    anchors.centerIn: parent
-                    width: parent.width - 4
-                    text: modelData.occupied ? (modelData.isSkill ? "S" : "I") : ""
-                    visible: !shortCutIcon.visible
-                    color: "#202020"
-                    font.pixelSize: 10
-                    font.bold: true
-                }
-
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 2
-                    anchors.bottom: parent.bottom
-                    text: modelData.count > 0 ? modelData.count : ""
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData.displayText
                     color: "#ffffff"
-                    font.pixelSize: 9
+                    font.pixelSize: 18
                     font.bold: true
                     style: Text.Outline
                     styleColor: "#000000"
                 }
             }
-        }
-
-        Text {
-            x: width - 25
-            y: 16
-            width: 12
-            text: uiState.shortCutPage
-            color: "#ffffff"
-            font.pixelSize: 11
-            font.bold: true
-            style: Text.Outline
-            styleColor: "#000000"
-            horizontalAlignment: Text.AlignRight
         }
     }
 

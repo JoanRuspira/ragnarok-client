@@ -727,6 +727,10 @@ bool InitApp(HINSTANCE hInstance, int nCmdShow)
     }
 
     ShowWindow(g_hMainWnd, nCmdShow);
+    if (windowMode == WindowMode::Windowed) {
+        // Apply after the initial show so launcher startup flags cannot override it.
+        ShowWindow(g_hMainWnd, SW_SHOWMAXIMIZED);
+    }
     UpdateWindow(g_hMainWnd);
 
     GetCurrentDirectoryA(MAX_PATH, g_baseDir3);

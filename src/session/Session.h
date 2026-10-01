@@ -88,9 +88,10 @@ struct SessionFogParameter {
     float density = 0.0f;
 };
 
-constexpr int kShortcutSlotsPerPage = 9;
-constexpr int kShortcutPageCount = 3;
-constexpr int kShortcutSlotCount = kShortcutSlotsPerPage * kShortcutPageCount;
+// Packet 0x02B9 always contains 27 entries, independent of the visible bar layout.
+constexpr int kShortcutSlotCount = 27;
+constexpr int kShortcutSlotsPerPage = 12;
+constexpr int kShortcutPageCount = (kShortcutSlotCount + kShortcutSlotsPerPage - 1) / kShortcutSlotsPerPage;
 
 class CSession
 {

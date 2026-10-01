@@ -1554,11 +1554,18 @@ void PopulateShortCutState(QtUiState* state)
     state->setShortCutHoverSlot(shortCutWnd->GetHoverSlot());
 
     QVariantList shortcutSlots;
-    shortcutSlots.reserve(kShortcutSlotsPerPage);
-    for (int slotIndex = 0; slotIndex < kShortcutSlotsPerPage; ++slotIndex) {
+    shortcutSlots.reserve(UIShortCutWnd::kVisibleSlotCount);
+    for (int slotIndex = 0; slotIndex < UIShortCutWnd::kVisibleSlotCount; ++slotIndex) {
         QVariantMap slotEntry;
         slotEntry.insert(QStringLiteral("index"), slotIndex);
         slotEntry.insert(QStringLiteral("hover"), shortCutWnd->GetHoverSlot() == slotIndex);
+        const RECT slotRect = shortCutWnd->GetSlotRect(slotIndex);
+        slotEntry.insert(QStringLiteral("x"), static_cast<int>(slotRect.left) - shortCutWnd->m_x);
+        slotEntry.insert(QStringLiteral("y"), static_cast<int>(slotRect.top) - shortCutWnd->m_y);
+        slotEntry.insert(QStringLiteral("width"), static_cast<int>(slotRect.right - slotRect.left));
+        slotEntry.insert(QStringLiteral("height"), static_cast<int>(slotRect.bottom - slotRect.top));
+        slotEntry.insert(QStringLiteral("keyLabel"), QStringLiteral("F%1").arg(slotIndex + 1));
+        slotEntry.insert(QStringLiteral("displayText"), ToQString(shortCutWnd->GetSlotDisplayText(slotIndex)));
 
         const SHORTCUT_SLOT* slot = g_session.GetShortcutSlotByVisibleIndex(slotIndex);
         if (slot && slot->id != 0) {

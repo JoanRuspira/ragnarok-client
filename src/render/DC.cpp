@@ -89,12 +89,16 @@ HDC ArgbDibSurface::GetDC() const
 
 void* ArgbDibSurface::GetBits() const
 {
+#if RO_PLATFORM_WINDOWS
+    // Finish GDI reads and writes before exposing the bitmap memory to the CPU.
+    GdiFlush();
+#endif
     return m_bits;
 }
 
 unsigned int* ArgbDibSurface::GetPixels() const
 {
-    return static_cast<unsigned int*>(m_bits);
+    return static_cast<unsigned int*>(GetBits());
 }
 
 int ArgbDibSurface::GetWidth() const
@@ -160,61 +164,6 @@ void AlphaBlendPixel(unsigned int& dst, unsigned int src)
     const unsigned int outB = srcB + (dstB * invA) / 255u;
 
     dst = (outA << 24) | (outR << 16) | (outG << 8) | outB;
-}
-
-bool TryAlphaBlendArgbToDibSection(HDC hdc,
-                                   int dstX,
-                                   int dstY,
-                                   int dstWidth,
-                                   int dstHeight,
-                                   const unsigned int* pixels,
-                                   int pixelWidth,
-                                   int pixelHeight,
-                                   int srcX,
-                                   int srcY,
-                                   int srcWidth,
-                                   int srcHeight)
-{
-    if (!hdc || !pixels || dstWidth != srcWidth || dstHeight != srcHeight) {
-        return false;
-    }
-
-    HGDIOBJ bitmapObject = GetCurrentObject(hdc, OBJ_BITMAP);
-    if (!bitmapObject) {
-        return false;
-    }
-
-    DIBSECTION dibSection{};
-    if (GetObjectA(bitmapObject, sizeof(dibSection), &dibSection) != sizeof(dibSection)) {
-        return false;
-    }
-    if (!dibSection.dsBm.bmBits || dibSection.dsBm.bmBitsPixel != 32 || dibSection.dsBm.bmWidth <= 0 || dibSection.dsBm.bmHeight == 0) {
-        return false;
-    }
-
-    const int targetWidth = dibSection.dsBm.bmWidth;
-    const int targetHeight = std::abs(dibSection.dsBm.bmHeight);
-    if (dstX < 0 || dstY < 0 || dstX + dstWidth > targetWidth || dstY + dstHeight > targetHeight) {
-        return false;
-    }
-
-    const bool topDown = dibSection.dsBmih.biHeight < 0;
-    const int stridePixels = dibSection.dsBm.bmWidthBytes / static_cast<int>(sizeof(unsigned int));
-    if (stridePixels < targetWidth) {
-        return false;
-    }
-
-    unsigned int* targetBits = static_cast<unsigned int*>(dibSection.dsBm.bmBits);
-    for (int row = 0; row < srcHeight; ++row) {
-        const int destRowIndex = topDown ? (dstY + row) : (targetHeight - 1 - (dstY + row));
-        unsigned int* dstRow = targetBits + static_cast<size_t>(destRowIndex) * static_cast<size_t>(stridePixels) + static_cast<size_t>(dstX);
-        const unsigned int* srcRow = pixels + static_cast<size_t>(srcY + row) * static_cast<size_t>(pixelWidth) + static_cast<size_t>(srcX);
-        for (int col = 0; col < srcWidth; ++col) {
-            AlphaBlendPixel(dstRow[col], srcRow[col]);
-        }
-    }
-
-    return true;
 }
 
 void BlitMotionToArgb(unsigned int* dest, int destW, int destH, int baseX, int baseY, CSprRes* sprRes, const CMotion* motion, unsigned int* palette)
@@ -386,21 +335,9 @@ bool AlphaBlendArgbToHdc(HDC hdc,
         return false;
     }
 
-    if (TryAlphaBlendArgbToDibSection(hdc,
-                                      dstX,
-                                      dstY,
-                                      dstWidth,
-                                      dstHeight,
-                                      pixels,
-                                      pixelWidth,
-                                      pixelHeight,
-                                      srcX,
-                                      srcY,
-                                      srcWidth,
-                                      srcHeight)) {
-        return true;
-    }
-
+    // Let GDI handle bitmap orientation and the target DC's clipping/transform.
+    // GetObject can report a positive biHeight even for a top-down DIB, so it
+    // cannot safely determine row order for a direct write into the target.
     static thread_local ArgbDibSurface s_blendSurface;
     if (!s_blendSurface.EnsureSize(pixelWidth, pixelHeight)) {
         return false;

@@ -2294,7 +2294,7 @@ bool UIWindowMgr::HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bo
 
 bool UIWindowMgr::HandleHotkeyAfterFocusedUi(int virtualKey, bool hasFrontMenuUi)
 {
-    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey <= VK_F9) {
+    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey < VK_F1 + UIShortCutWnd::kVisibleSlotCount) {
         g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse, virtualKey - VK_F1, 0, 0);
         return true;
     }

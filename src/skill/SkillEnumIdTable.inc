@@ -46,7 +46,7 @@ static const SkillEnumEntry kSkillEnumEntries[] = {
     {43, "AC_OWL"},
     {44, "AC_VULTURE"},
     {45, "AC_CONCENTRATION"},
-    {46, "AC_DOUBLE"},
+    {46, "SK_AC_DOUBLESTRAFE"},
     {47, "AC_SHOWER"},
     {48, "TF_DOUBLE"},
     {49, "TF_MISS"},

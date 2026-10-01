@@ -2247,7 +2247,8 @@ int CSession::GetShortcutSlotAbsoluteIndex(int visibleSlot) const
     if (visibleSlot < 0 || visibleSlot >= kShortcutSlotsPerPage) {
         return -1;
     }
-    return GetShortcutPage() * kShortcutSlotsPerPage + visibleSlot;
+    const int absoluteIndex = GetShortcutPage() * kShortcutSlotsPerPage + visibleSlot;
+    return absoluteIndex < kShortcutSlotCount ? absoluteIndex : -1;
 }
 
 const SHORTCUT_SLOT* CSession::GetShortcutSlotByAbsoluteIndex(int absoluteIndex) const

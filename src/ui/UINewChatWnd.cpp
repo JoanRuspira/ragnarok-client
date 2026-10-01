@@ -39,7 +39,6 @@ constexpr char kChatActiveTabValue[] = "ActiveTab";
 constexpr char kChatTabMaskPrefix[] = "TabMask";
 
 constexpr size_t kMaxChatLines = 50;
-constexpr int kChatWindowMargin = 12;
 constexpr int kChatDefaultWindowWidth = 486;
 constexpr int kChatTabBarHeight = 34;
 constexpr int kChatLineHeight = 19;
@@ -385,14 +384,10 @@ RECT GetChatLogicalClientRect()
     const float normalizedScale = scaleFactor > 0.0f ? scaleFactor : 1.0f;
     const int rawWidth = clientRect.right - clientRect.left;
     const int rawHeight = clientRect.bottom - clientRect.top;
-    int logicalWidth = (std::max)(1, static_cast<int>(std::floor(static_cast<float>(rawWidth) / normalizedScale)));
-    int logicalHeight = (std::max)(1, static_cast<int>(std::floor(static_cast<float>(rawHeight) / normalizedScale)));
-    if (WINDOW_WIDTH > 0) {
-        logicalWidth = (std::min)(logicalWidth, WINDOW_WIDTH);
-    }
-    if (WINDOW_HEIGHT > 0) {
-        logicalHeight = (std::min)(logicalHeight, WINDOW_HEIGHT);
-    }
+    // Use the current client area for placement, dragging and resizing. The
+    // configured startup resolution can be smaller than a maximized window.
+    const int logicalWidth = (std::max)(1, static_cast<int>(std::floor(static_cast<float>(rawWidth) / normalizedScale)));
+    const int logicalHeight = (std::max)(1, static_cast<int>(std::floor(static_cast<float>(rawHeight) / normalizedScale)));
 
     RECT logicalRect{};
     logicalRect.left = 0;
@@ -641,19 +636,14 @@ UINewChatWnd::UINewChatWnd()
 
     Create(initialWidth, initialHeight);
 
-    int defaultX = kChatWindowMargin;
+    // Always open chat at the bottom-left; dragging changes its position for
+    // the current window's lifetime.
     const RECT logicalClientRect = GetChatLogicalClientRect();
-    int defaultY = logicalClientRect.bottom - initialHeight - kChatWindowMargin;
+    int defaultX = logicalClientRect.left;
+    int defaultY = logicalClientRect.bottom - initialHeight;
     ClampChatWindowPosition(&defaultX, &defaultY, initialWidth, initialHeight);
 
     Move(defaultX, defaultY);
-
-    int savedX = m_x;
-    int savedY = m_y;
-    if (LoadUiWindowPlacement("ChatWnd", &savedX, &savedY)) {
-        ClampChatWindowPosition(&savedX, &savedY, m_w, m_h);
-        Move(savedX, savedY);
-    }
 }
 
 UINewChatWnd::~UINewChatWnd() = default;
@@ -1824,6 +1814,5 @@ void UINewChatWnd::RestorePersistentState(const std::vector<std::string>& inputH
 
 void UINewChatWnd::StoreInfo()
 {
-    SaveUiWindowPlacement("ChatWnd", m_x, m_y);
     SaveSettings();
 }

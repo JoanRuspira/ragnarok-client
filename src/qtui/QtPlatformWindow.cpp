@@ -284,7 +284,7 @@ bool RoQtCreateMainWindow(const char* title,
     if (fullscreen) {
         window->showFullScreen();
     } else {
-        window->show();
+        window->showMaximized();
     }
 
     *outWindow = reinterpret_cast<RoNativeWindowHandle>(window);

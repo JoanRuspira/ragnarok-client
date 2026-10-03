@@ -3664,7 +3664,7 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
         };
 
         auto appendChatBubbleAnchor = [&](CGameActor* actor) {
-            if (!actor || !actor->m_isVisible || !actor->HasActiveChatBubble(now)) {
+            if (!actor || !actor->m_isVisible || !actor->HasActiveChatBubble(now) || actor->HasActiveSkillName(now)) {
                 return;
             }
 
@@ -3679,7 +3679,28 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
                 bubbleBottomY));
         };
 
+        auto appendSkillNameAnchor = [&](CGameActor* actor) {
+            if (!actor || !actor->m_isVisible || !actor->HasActiveSkillName(now)) {
+                return;
+            }
+            int centerX = 0;
+            int bottomY = 0;
+            if (!mode.m_world->GetActorSpeechBubbleAnchor(viewMatrix, actor->m_gid, &centerX, &bottomY)) {
+                return;
+            }
+            QVariantMap anchor = MakeSpeechBubbleAnchor(ToQString(actor->GetSkillNameText()), centerX, bottomY);
+            anchor.insert(QStringLiteral("showBubble"), false);
+            anchor.insert(QStringLiteral("fontPixelSize"), 12);
+            anchor.insert(QStringLiteral("wrap"), false);
+            anchor.insert(QStringLiteral("paddingX"), 4);
+            anchor.insert(QStringLiteral("paddingY"), 4);
+            anchor.insert(QStringLiteral("outline"), true);
+            anchor.insert(QStringLiteral("z"), 2101);
+            anchors.push_back(anchor);
+        };
+
         appendChatBubbleAnchor(mode.m_world->m_player);
+        appendSkillNameAnchor(mode.m_world->m_player);
         for (const auto& runtimeEntry : mode.m_runtimeActors) {
             CGameActor* const actor = runtimeEntry.second;
             if (!actor || actor == mode.m_world->m_player) {
@@ -3687,6 +3708,7 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
             }
             appendPartyHpAnchor(actor);
             appendChatBubbleAnchor(actor);
+            appendSkillNameAnchor(actor);
         }
 
         const bool hasUiItemHover = TryAppendHoveredUiItemAnchor(&anchors);

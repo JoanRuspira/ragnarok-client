@@ -120,10 +120,14 @@ std::vector<std::string> BuildUiAssetCandidates(const char* fileName)
         "texture\\",
         "texture\\interface\\",
         "texture\\interface\\basic_interface\\",
+        "texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\",
+        "texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
         "data\\",
         "data\\texture\\",
         "data\\texture\\interface\\",
         "data\\texture\\interface\\basic_interface\\",
+        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\",
+        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
         nullptr
     };
 
@@ -347,7 +351,7 @@ std::string ResolveSkillIconPath(const SkillMetadata& metadata)
 
 std::string BuildSkillRightText(const PLAYER_SKILL_INFO& skill)
 {
-    if (skill.spcost > 0) {
+    if (skill.type != 0) {
         return "Sp : " + std::to_string(skill.spcost);
     }
     return "Passive";
@@ -363,7 +367,7 @@ HFONT GetUiFont()
     static HFONT s_font = CreateFontA(
         -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
+        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
     return s_font;
 }
 
@@ -372,7 +376,7 @@ HFONT GetUiBoldFont()
     static HFONT s_font = CreateFontA(
         -11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
+        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
     return s_font;
 }
 
@@ -517,7 +521,8 @@ void UISkillListWnd::OnCreate(int x, int y)
         button->SetBitmapName(ResolveUiAssetPath(specs[index].offName).c_str(), 0);
         button->SetBitmapName(ResolveUiAssetPath(specs[index].onName).c_str(), 1);
         button->SetBitmapName(ResolveUiAssetPath(specs[index].onName).c_str(), 2);
-        button->Create(button->m_bitmapWidth, button->m_bitmapHeight);
+        button->Create((std::max)(kQtButtonWidth, button->m_bitmapWidth),
+            (std::max)(kQtButtonHeight, button->m_bitmapHeight));
         button->m_id = specs[index].id;
         button->SetToolTip(specs[index].tooltip);
         AddChild(button);
@@ -603,16 +608,29 @@ void UISkillListWnd::OnDraw()
 
             const std::string skillName = skill->skillName.empty() ? skill->skillIdName : skill->skillName;
             const int textLeft = iconCellRect.right + 12;
+            const int savedTextDc = SaveDC(hdc);
+            if (savedTextDc != 0) {
+                IntersectClipRect(hdc, textLeft, rowRect.top, upgradeRect.left - 4, rowRect.bottom);
+            }
             DrawTextLine(hdc, textLeft, rowRect.top + 3, RGB(0, 0, 0), skillName);
+            if (savedTextDc != 0) {
+                RestoreDC(hdc, savedTextDc);
+            }
             DrawTextLine(hdc, textLeft, rowRect.top + 18, RGB(0, 0, 0),
                 "Lv : " + std::to_string(skill->level));
             DrawTextLine(hdc, rowRect.left + 165, rowRect.top + 18, RGB(0, 0, 0), BuildSkillRightText(*skill));
 
             const bool canUpgrade = skill->upgradable != 0 && g_session.GetPlayerSkillPointCount() > 0;
             if (canUpgrade) {
-                const shopui::BitmapPixels& upgradeBitmap = m_upgradeNormalBitmap;
+                const shopui::BitmapPixels& upgradeBitmap = m_pressedUpgradeSkillId == skill->SKID
+                    ? m_upgradePressedBitmap
+                    : (m_hoveredRow == static_cast<int>(rowIndex) ? m_upgradeHoverBitmap : m_upgradeNormalBitmap);
                 if (upgradeBitmap.IsValid()) {
                     DrawBitmapPixelsStretched(hdc, upgradeBitmap, upgradeRect);
+                } else {
+                    FillRectColor(hdc, upgradeRect, RGB(235, 238, 244));
+                    FrameRectColor(hdc, upgradeRect, RGB(151, 151, 151));
+                    DrawTextLine(hdc, upgradeRect.left + 2, upgradeRect.top, RGB(0, 0, 0), "+");
                 }
             }
         }
@@ -1103,6 +1121,9 @@ void UISkillListWnd::DrawWindowChrome(HDC hdc) const
     HBRUSH whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
     FillRect(hdc, &outer, whiteBrush);
     DeleteObject(whiteBrush);
+    FrameRectColor(hdc, outer, RGB(151, 151, 151));
+    RECT fallbackTitle{ m_x + 1, m_y + 1, m_x + m_w - 1, m_y + kTitleBarHeight };
+    FillRectColor(hdc, fallbackTitle, RGB(227, 231, 238));
 
     if (m_titleBarBitmap.IsValid() && m_w == 280) {
         RECT titleRect{ m_x, m_y, m_x + m_w, m_y + kTitleBarHeight };

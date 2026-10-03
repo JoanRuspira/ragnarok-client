@@ -1819,94 +1819,6 @@ void CSession::ClearInventoryWearLocationMask(int wearMask, unsigned int exceptI
     }
 }
 
-void CSession::RebuildPlayerEquipmentAppearanceFromInventory()
-{
-    int weapon = m_playerWeapon;
-    int shield = m_playerShield;
-    int accessoryBottom = m_playerAccessory;
-    int accessoryTop = m_playerAccessory2;
-    int accessoryMid = m_playerAccessory3;
-    bool hasWeapon = false;
-    bool hasShield = false;
-    bool hasAccessoryBottom = false;
-    bool hasAccessoryTop = false;
-    bool hasAccessoryMid = false;
-
-    for (const ITEM_INFO& item : m_inventoryItems) {
-        if (item.m_wearLocation == 0) {
-            continue;
-        }
-
-        const unsigned int itemId = item.GetItemId();
-        const int viewId = g_ttemmgr.GetVisibleHeadgearViewId(itemId);
-        const bool occupiesRightHand = (item.m_wearLocation & 2) != 0;
-        const bool occupiesLeftHand = (item.m_wearLocation & 32) != 0;
-
-        if (occupiesRightHand) {
-            hasWeapon = true;
-        }
-        if (occupiesLeftHand && !occupiesRightHand) {
-            hasShield = true;
-        }
-        if ((item.m_wearLocation & 1) != 0) {
-            hasAccessoryBottom = true;
-            if (viewId > 0) {
-                accessoryBottom = viewId;
-            }
-        }
-        if ((item.m_wearLocation & 256) != 0) {
-            hasAccessoryTop = true;
-            if (viewId > 0) {
-                accessoryTop = viewId;
-            }
-        }
-        if ((item.m_wearLocation & 512) != 0) {
-            hasAccessoryMid = true;
-            if (viewId > 0) {
-                accessoryMid = viewId;
-            }
-        }
-    }
-
-    if (!hasWeapon) {
-        weapon = 0;
-    }
-    if (!hasShield) {
-        shield = 0;
-    }
-    if (!hasAccessoryBottom) {
-        accessoryBottom = 0;
-    }
-    if (!hasAccessoryTop) {
-        accessoryTop = 0;
-    }
-    if (!hasAccessoryMid) {
-        accessoryMid = 0;
-    }
-
-    m_playerWeapon = weapon;
-    m_playerShield = shield;
-    m_playerAccessory = accessoryBottom;
-    m_playerAccessory2 = accessoryTop;
-    m_playerAccessory3 = accessoryMid;
-
-    if (CHARACTER_INFO* info = GetMutableSelectedCharacterInfo()) {
-        info->weapon = static_cast<s16>(weapon & 0xFFFF);
-        info->shield = static_cast<s16>(shield & 0xFFFF);
-        info->accessory = static_cast<s16>(accessoryBottom & 0xFFFF);
-        info->accessory2 = static_cast<s16>(accessoryTop & 0xFFFF);
-        info->accessory3 = static_cast<s16>(accessoryMid & 0xFFFF);
-    }
-
-    DbgLog("[Session] rebuilt inventory appearance weapon=%d shield=%d accBottom=%d accMid=%d accTop=%d items=%u\n",
-        weapon,
-        shield,
-        accessoryBottom,
-        accessoryMid,
-        accessoryTop,
-        static_cast<unsigned int>(m_inventoryItems.size()));
-}
-
 const std::list<ITEM_INFO>& CSession::GetInventoryItems() const
 {
     return m_inventoryItems;
@@ -3004,6 +2916,16 @@ unsigned int CSession::GetEquippedRightHandWeaponItemId() const
         }
     }
     return 0;
+}
+
+std::vector<std::string> CSession::GetPlayerWeaponJobTokens(int job) const
+{
+    std::vector<std::string> tokens = BuildPlayerBodyJobTokenCandidates(job);
+    std::string baseToken;
+    if (TryGetGeneratedBaseJobToken(job, &baseToken)) {
+        AppendUniqueString(&tokens, baseToken);
+    }
+    return tokens;
 }
 
 bool CSession::IsSecondAttack(int job, int sex, int weaponItemId) const

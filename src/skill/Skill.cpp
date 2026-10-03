@@ -1,11 +1,13 @@
 // Skill.cpp - Skill data and usage logic
 #include "Skill.h"
 
+#include "core/File.h"
+#include "lua/LuaBridge.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -47,13 +49,22 @@ std::string ToLowerAscii(std::string value)
     return value;
 }
 
-bool ReadLines(const std::filesystem::path& path, std::vector<std::string>& outLines)
+bool ReadLines(const char* fileName, std::vector<std::string>& outLines)
 {
     outLines.clear();
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream) {
+    int size = 0;
+    unsigned char* data = g_fileMgr.GetData(fileName, &size);
+    if (!data || size <= 0) {
+        delete[] data;
+        const std::string dataPath = std::string("data\\") + fileName;
+        data = g_fileMgr.GetData(dataPath.c_str(), &size);
+    }
+    if (!data || size <= 0) {
+        delete[] data;
         return false;
     }
+    std::istringstream stream(std::string(reinterpret_cast<const char*>(data), size));
+    delete[] data;
 
     std::string line;
     while (std::getline(stream, line)) {
@@ -64,15 +75,6 @@ bool ReadLines(const std::filesystem::path& path, std::vector<std::string>& outL
     }
 
     return true;
-}
-
-std::filesystem::path GetSkillDataRoot()
-{
-#ifdef RO_SOURCE_ROOT
-    return std::filesystem::path(RO_SOURCE_ROOT) / "Ref" / "GRF-Content" / "data";
-#else
-    return std::filesystem::current_path() / "Ref" / "GRF-Content" / "data";
-#endif
 }
 
 std::vector<std::string> SplitHashTokens(const std::string& line)
@@ -151,6 +153,7 @@ bool CSkillMgr::LoadSkillMetadata()
     LoadSkillDisplayNames();
     LoadSkillDescriptions();
     LoadSkillLevelSpCosts();
+    LoadLuaSkillMetadata();
     return !m_byId.empty();
 }
 
@@ -174,7 +177,7 @@ bool CSkillMgr::BuildSkillIdMapFromNameTable()
 void CSkillMgr::LoadSkillDisplayNames()
 {
     std::vector<std::string> lines;
-    if (!ReadLines(GetSkillDataRoot() / "skillnametable.txt", lines)) {
+    if (!ReadLines("skillnametable.txt", lines)) {
         return;
     }
 
@@ -203,7 +206,7 @@ void CSkillMgr::LoadSkillDisplayNames()
 void CSkillMgr::LoadSkillDescriptions()
 {
     std::vector<std::string> lines;
-    if (!ReadLines(GetSkillDataRoot() / "skilldesctable.txt", lines)) {
+    if (!ReadLines("skilldesctable.txt", lines)) {
         return;
     }
 
@@ -248,7 +251,7 @@ void CSkillMgr::LoadSkillDescriptions()
 void CSkillMgr::LoadSkillLevelSpCosts()
 {
     std::vector<std::string> lines;
-    if (!ReadLines(GetSkillDataRoot() / "leveluseskillspamount.txt", lines)) {
+    if (!ReadLines("leveluseskillspamount.txt", lines)) {
         return;
     }
 
@@ -276,6 +279,47 @@ void CSkillMgr::LoadSkillLevelSpCosts()
         }
 
         currentMetadata->levelSpCosts.push_back(std::atoi(trimmed.c_str()));
+    }
+}
+
+void CSkillMgr::LoadLuaSkillMetadata()
+{
+    const auto loadScript = [](const char* name) {
+        const std::string base = std::string("lua files\\skillinfoz\\") + name;
+        return g_buabridge.LoadRagnarokScriptOnce((base + ".lub").c_str())
+            || g_buabridge.LoadRagnarokScriptOnce((base + ".lua").c_str());
+    };
+    loadScript("skillid");
+    loadScript("jobinheritlist"); // Defines JOBID used by per-class prerequisites.
+    const bool hasInfo = loadScript("skillinfolist");
+    const bool hasDescriptions = loadScript("skilldescript");
+    if (!hasInfo && !hasDescriptions) {
+        return;
+    }
+
+    std::vector<SkillMetadata> entries;
+    if (!g_buabridge.GetSkillMetadata(&entries)) {
+        return;
+    }
+    for (const SkillMetadata& entry : entries) {
+        SkillMetadata& metadata = m_byId[entry.skillId];
+        metadata.skillId = entry.skillId;
+        if (!entry.skillIdName.empty()) {
+            metadata.skillIdName = entry.skillIdName;
+            m_idBySkillName[ToLowerAscii(entry.skillIdName)] = entry.skillId;
+        }
+        if (!entry.displayName.empty()) {
+            metadata.displayName = entry.displayName;
+        }
+        if (entry.maxLevel > 0) {
+            metadata.maxLevel = entry.maxLevel;
+        }
+        if (!entry.descriptionLines.empty()) {
+            metadata.descriptionLines = entry.descriptionLines;
+        }
+        if (!entry.levelSpCosts.empty()) {
+            metadata.levelSpCosts = entry.levelSpCosts;
+        }
     }
 }
 

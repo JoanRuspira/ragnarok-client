@@ -203,6 +203,10 @@ std::vector<std::string> BuildUiAssetCandidates(const char* fileName)
         "data\\texture\\",
         "data\\texture\\interface\\",
         "data\\texture\\interface\\basic_interface\\",
+        "texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\",
+        "texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
+        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\",
+        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
         kExternalSkinDir,
         nullptr
     };
@@ -267,8 +271,23 @@ HFONT GetStatusFont()
 
     s_font = CreateFontA(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
+        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
     return s_font;
+}
+
+void DrawMissingButtonBitmap(HDC hdc, const UIBitmapButton* button)
+{
+    if (!button || button->m_show == 0
+        || button->m_normalBitmap.IsValid()
+        || button->m_mouseonBitmap.IsValid()
+        || button->m_pressedBitmap.IsValid()) {
+        return;
+    }
+
+    const RECT rect{ button->m_x, button->m_y, button->m_x + button->m_w, button->m_y + button->m_h };
+    shopui::FillRectColor(hdc, rect, button->m_state == 1 ? RGB(195, 195, 195) : RGB(235, 235, 235));
+    shopui::FrameRectColor(hdc, rect, RGB(145, 145, 145));
+    shopui::DrawWindowTextRect(hdc, rect, button->m_text, RGB(0, 0, 0), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
 std::string FormatCompositeValue(int primary, int secondary)
@@ -419,12 +438,13 @@ void UIStatusWnd::OnCreate(int x, int y)
         const char* onName;
         int id;
         const char* tooltip;
+        const char* label;
     };
 
     const std::array<ButtonSpec, 3> topButtons = {{
-        { "sys_base_off.bmp", "sys_base_on.bmp", kButtonIdBase, "Base" },
-        { "sys_mini_off.bmp", "sys_mini_on.bmp", kButtonIdMini, "Mini" },
-        { "sys_close_off.bmp", "sys_close_on.bmp", kButtonIdClose, "Close" },
+        { "sys_base_off.bmp", "sys_base_on.bmp", kButtonIdBase, "Base", "+" },
+        { "sys_mini_off.bmp", "sys_mini_on.bmp", kButtonIdMini, "Mini", "_" },
+        { "sys_close_off.bmp", "sys_close_on.bmp", kButtonIdClose, "Close", "x" },
     }};
 
     for (size_t index = 0; index < topButtons.size(); ++index) {
@@ -432,7 +452,8 @@ void UIStatusWnd::OnCreate(int x, int y)
         button->SetBitmapName(ResolveUiAssetPath(topButtons[index].offName).c_str(), 0);
         button->SetBitmapName(ResolveUiAssetPath(topButtons[index].onName).c_str(), 1);
         button->SetBitmapName(ResolveUiAssetPath(topButtons[index].onName).c_str(), 2);
-        button->Create(button->m_bitmapWidth, button->m_bitmapHeight);
+        button->Create((std::max)(kQtButtonWidth, button->m_bitmapWidth), (std::max)(kQtButtonHeight, button->m_bitmapHeight));
+        button->m_text = topButtons[index].label;
         button->m_id = topButtons[index].id;
         button->SetToolTip(topButtons[index].tooltip);
         AddChild(button);
@@ -446,7 +467,8 @@ void UIStatusWnd::OnCreate(int x, int y)
         button->SetBitmapName(arrowOff.c_str(), 0);
         button->SetBitmapName(arrowOn.c_str(), 1);
         button->SetBitmapName(arrowOn.c_str(), 2);
-        button->Create(button->m_bitmapWidth, button->m_bitmapHeight);
+        button->Create((std::max)(kQtButtonWidth, button->m_bitmapWidth), (std::max)(kQtButtonHeight, button->m_bitmapHeight));
+        button->m_text = ">";
         button->m_id = kIncrementButtonIds[index];
         AddChild(button);
         m_incrementButtons[index] = button;
@@ -477,7 +499,12 @@ void UIStatusWnd::OnDraw()
         return;
     }
 
+    const RECT windowRect{ m_x, m_y, m_x + m_w, m_y + m_h };
+    shopui::FillRectColor(hdc, windowRect, RGB(255, 255, 255));
+    shopui::FrameRectColor(hdc, windowRect, RGB(160, 160, 160));
+
     RECT titleRect{ m_x, m_y, m_x + m_w, m_y + kTitleBarHeight };
+    shopui::FillRectColor(hdc, titleRect, RGB(225, 225, 225));
     shopui::DrawBitmapPixelsTransparent(hdc, m_titleBarBitmap, titleRect);
     DrawWindowText(hdc, m_x + 18, m_y + 3, "Status", RGB(255, 255, 255));
     DrawWindowText(hdc, m_x + 17, m_y + 2, "Status", RGB(0, 0, 0));
@@ -488,25 +515,45 @@ void UIStatusWnd::OnDraw()
 
         if (m_page == 0) {
             const DisplayData data = BuildDisplayData();
+            if (!m_pageBackgrounds[0].IsValid()) {
+                constexpr std::array<const char*, 6> labels = { "STR", "AGI", "VIT", "INT", "DEX", "LUK" };
+                for (size_t index = 0; index < labels.size(); ++index) {
+                    DrawWindowText(hdc, m_x + 18, m_y + kStatRows[index] + 16, labels[index], RGB(80, 80, 80));
+                }
+                constexpr std::array<const char*, 4> leftLabels = { "ATK", "MATK", "HIT", "CRIT" };
+                constexpr std::array<const char*, 4> rightLabels = { "DEF", "MDEF", "FLEE", "ASPD" };
+                for (size_t index = 0; index < leftLabels.size(); ++index) {
+                    DrawWindowText(hdc, m_x + 119, m_y + kRightLeftRows[index], leftLabels[index], RGB(80, 80, 80));
+                    DrawWindowText(hdc, m_x + 208, m_y + kRightRightRows[index], rightLabels[index], RGB(80, 80, 80));
+                }
+                DrawWindowText(hdc, m_x + 119, m_y + kRightLeftRows[4], "STATUS POINTS", RGB(80, 80, 80));
+                DrawWindowText(hdc, m_x + 119, m_y + kRightLeftRows[5], "GUILD", RGB(80, 80, 80));
+            }
             for (size_t index = 0; index < data.baseStats.size(); ++index) {
                 const int rowY = m_y + kStatRows[index] + 16;
                 const std::string statText = FormatStatValue(data.baseStats[index], data.plusStats[index]);
-                DrawWindowText(hdc, m_x + 54, rowY, statText.c_str(), RGB(0, 0, 0));
+                DrawRightAlignedValue(hdc, m_x + 40, m_x + 85, rowY, statText);
             }
 
-            DrawRightAlignedValue(hdc, m_x + 192, m_y + kRightLeftRows[0], FormatCompositeValue(data.attack, data.refineAttack));
-            DrawRightAlignedValue(hdc, m_x + 192, m_y + kRightLeftRows[1], FormatMatkValue(data.matkMin, data.matkMax));
-            DrawRightAlignedValue(hdc, m_x + 192, m_y + kRightLeftRows[2], std::to_string(data.hit));
-            DrawRightAlignedValue(hdc, m_x + 192, m_y + kRightLeftRows[3], std::to_string(data.critical));
-            DrawRightAlignedValue(hdc, m_x + 273, m_y + kRightLeftRows[4], std::to_string(data.statusPoint));
+            DrawRightAlignedValue(hdc, m_x + 147, m_x + 192, m_y + kRightLeftRows[0], FormatCompositeValue(data.attack, data.refineAttack));
+            DrawRightAlignedValue(hdc, m_x + 147, m_x + 192, m_y + kRightLeftRows[1], FormatMatkValue(data.matkMin, data.matkMax));
+            DrawRightAlignedValue(hdc, m_x + 147, m_x + 192, m_y + kRightLeftRows[2], std::to_string(data.hit));
+            DrawRightAlignedValue(hdc, m_x + 147, m_x + 192, m_y + kRightLeftRows[3], std::to_string(data.critical));
+            DrawRightAlignedValue(hdc, m_x + 232, m_x + 273, m_y + kRightLeftRows[4], std::to_string(data.statusPoint));
 
-            DrawRightAlignedValue(hdc, m_x + 273, m_y + kRightRightRows[0], FormatCompositeValue(data.itemDef, data.plusDef));
-            DrawRightAlignedValue(hdc, m_x + 273, m_y + kRightRightRows[1], FormatCompositeValue(data.itemMdef, data.plusMdef));
-            DrawRightAlignedValue(hdc, m_x + 273, m_y + kRightRightRows[2], FormatCompositeValue(data.flee, data.plusFlee));
-            DrawRightAlignedValue(hdc, m_x + 273, m_y + kRightRightRows[3], FormatCompositeValue(data.aspd, data.plusAspd));
+            DrawRightAlignedValue(hdc, m_x + 232, m_x + 273, m_y + kRightRightRows[0], FormatCompositeValue(data.itemDef, data.plusDef));
+            DrawRightAlignedValue(hdc, m_x + 232, m_x + 273, m_y + kRightRightRows[1], FormatCompositeValue(data.itemMdef, data.plusMdef));
+            DrawRightAlignedValue(hdc, m_x + 232, m_x + 273, m_y + kRightRightRows[2], FormatCompositeValue(data.flee, data.plusFlee));
+            DrawRightAlignedValue(hdc, m_x + 232, m_x + 273, m_y + kRightRightRows[3], FormatCompositeValue(data.aspd, data.plusAspd));
         }
     }
 
+    for (const UIBitmapButton* button : m_systemButtons) {
+        DrawMissingButtonBitmap(hdc, button);
+    }
+    for (const UIBitmapButton* button : m_incrementButtons) {
+        DrawMissingButtonBitmap(hdc, button);
+    }
     DrawChildrenToHdc(hdc);
     ReleaseDrawTarget(hdc);
 
@@ -930,9 +977,9 @@ void UIStatusWnd::DrawWindowText(HDC hdc, int x, int y, const char* text, COLORR
     SelectObject(hdc, oldFont);
 }
 
-void UIStatusWnd::DrawRightAlignedValue(HDC hdc, int right, int y, const std::string& text) const
+void UIStatusWnd::DrawRightAlignedValue(HDC hdc, int left, int right, int y, const std::string& text) const
 {
-    RECT rect = { m_x, y, right, y + 16 };
+    RECT rect = { left, y, right, y + 16 };
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(0, 0, 0));
     HGDIOBJ oldFont = SelectObject(hdc, GetStatusFont());

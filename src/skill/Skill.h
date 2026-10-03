@@ -8,6 +8,7 @@ struct SkillMetadata {
     int skillId = 0;
     std::string skillIdName;
     std::string displayName;
+    int maxLevel = 0;
     std::vector<std::string> descriptionLines;
     std::vector<int> levelSpCosts;
 };
@@ -28,6 +29,7 @@ private:
     void LoadSkillDisplayNames();
     void LoadSkillDescriptions();
     void LoadSkillLevelSpCosts();
+    void LoadLuaSkillMetadata();
 
     std::unordered_map<int, SkillMetadata> m_byId;
     std::unordered_map<std::string, int> m_idBySkillName;

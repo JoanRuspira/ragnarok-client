@@ -73,11 +73,15 @@ private:
     void ReleaseAssets();
     void SetMiniMode(bool miniMode);
     void UpdateHoveredSlot(int globalX, int globalY);
+    bool HasCostumeEquipment() const;
+    void ToggleCostumeEquipment();
     std::vector<const ITEM_INFO*> BuildSlotAssignments() const;
     const shopui::BitmapPixels* GetItemIcon(const ITEM_INFO& item);
     unsigned long long BuildVisualStateToken() const;
 
     bool m_controlsCreated;
+    bool m_showCostumeEquipment = true;
+    bool m_costumeButtonPressed = false;
     int m_fullHeight;
     std::array<UIBitmapButton*, 3> m_systemButtons;
     shopui::BitmapPixels m_backgroundLeft;

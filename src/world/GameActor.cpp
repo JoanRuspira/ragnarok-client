@@ -265,16 +265,10 @@ int ResolvePcAttackWeaponValue(const CGameActor& actor)
 int ResolvePcAttackAction(const CGameActor& actor)
 {
     const int weaponValue = ResolvePcAttackWeaponValue(actor);
+    if (g_session.ResolvePackedWeaponType(actor.m_job, weaponValue) == 0) {
+        return 40; // Bare-handed attack; 80/88 are weapon attack families.
+    }
     return g_session.IsSecondAttack(actor.m_job, actor.m_sex, weaponValue) ? 88 : 80;
-}
-
-float ResolvePcAttackMotionTiming(const CPc& actor, bool secondAttack)
-{
-    return g_session.GetPCAttackMotion(
-        actor.m_job,
-        actor.m_sex,
-        ResolvePcAttackWeaponValue(actor),
-        secondAttack ? 1 : 0);
 }
 
 bool IsMonsterLikeWaveActor(const CGameActor& actor)
@@ -1763,12 +1757,16 @@ bool IsTransientActionActive(const CGameActor& actor, CActRes* actRes, int actio
     }
 
     const int motionCount = (std::max)(1, actRes->GetMotionCount(resolvedAction));
+    if (actor.m_stateId == kGameActorCastingStateId || actor.m_stateId == kGameActorCastingLoopStateId) {
+        return true;
+    }
     const float actionDelay = actRes->GetDelay(resolvedAction);
-    const bool useScaledAttackTiming = (actor.m_stateId == kAttackStateId || actor.m_stateId == kSecondAttackStateId)
-        && actor.m_attackMotion >= 0.0f
+    const bool useScaledMotionTiming = (actor.m_stateId == kAttackStateId || actor.m_stateId == kSecondAttackStateId
+            || actor.m_stateId == kGameActorSkillStateId || actor.m_stateId == kGameActorDanceStateId
+            || actor.m_stateId == kGameActorSingStateId)
         && actor.m_motionSpeed > 0.0f;
     const bool useDeathTiming = actor.m_stateId == kDeathStateId;
-    const float motionDelay = useScaledAttackTiming
+    const float motionDelay = useScaledMotionTiming
         ? actor.m_motionSpeed
         : (useDeathTiming
             ? (std::max)(kDefaultMotionDelay, actionDelay)
@@ -2387,7 +2385,12 @@ bool ExtractPcOverlayPathParts(const std::string& bodyActName,
     size_t sexSplit = lastSplit;
     size_t sexLength = stem.size() - lastSplit - 1;
     const size_t secondSplit = lastSplit > 0 ? stem.rfind('_', lastSplit - 1) : std::string::npos;
-    if (secondSplit != std::string::npos && secondSplit + 1 < lastSplit) {
+    const auto isSexToken = [](const std::string& token) {
+        return token == "\xB3\xB2" || token == "\xBF\xA9";
+    };
+    if (!isSexToken(stem.substr(lastSplit + 1))
+        && secondSplit != std::string::npos && secondSplit + 1 < lastSplit
+        && isSexToken(stem.substr(secondSplit + 1, lastSplit - secondSplit - 1))) {
         sexSplit = secondSplit;
         sexLength = lastSplit - secondSplit - 1;
     }
@@ -2488,7 +2491,7 @@ int ResolvePcWeaponOverlayType(const CGameActor& actor, int weapon, bool* outDua
     return NormalizePcWeaponOverlayTypeForJob(actor.m_job, weaponType, dualWeapon);
 }
 
-bool BuildWeaponOverlayPath(const CGameActor& actor,
+bool TryBuildWeaponOverlayPath(const CGameActor& actor,
     const std::string& bodyActName,
     int weapon,
     bool secondLayer,
@@ -2543,9 +2546,18 @@ bool BuildWeaponOverlayPath(const CGameActor& actor,
     };
 
     std::string candidate;
+    auto hasSpritePair = [](const std::string& path) {
+        const size_t dot = path.find_last_of('.');
+        if (dot == std::string::npos) {
+            return false;
+        }
+        const std::string stem = path.substr(0, dot);
+        return g_resMgr.IsExist((stem + ".act").c_str())
+            && g_resMgr.IsExist((stem + ".spr").c_str());
+    };
     if ((!dualWeapon || secondLayer) && primaryWeaponItemId > 0) {
         candidate = buildNumericPath(primaryWeaponItemId);
-        if (g_resMgr.IsExist(candidate.c_str())) {
+        if (hasSpritePair(candidate)) {
             *outPath = candidate;
             return true;
         }
@@ -2586,12 +2598,43 @@ bool BuildWeaponOverlayPath(const CGameActor& actor,
         }
 
         candidate.assign(buffer);
-        if (g_resMgr.IsExist(candidate.c_str())) {
+        if (hasSpritePair(candidate)) {
             *outPath = candidate;
             return true;
         }
     }
 
+    return false;
+}
+
+bool BuildWeaponOverlayPath(const CGameActor& actor,
+    const std::string& bodyActName,
+    int weapon,
+    bool secondLayer,
+    const char* extension,
+    std::string* outPath)
+{
+    if (TryBuildWeaponOverlayPath(actor, bodyActName, weapon, secondLayer, extension, outPath)) {
+        return true;
+    }
+    std::string overlayRoot;
+    std::string jobStem;
+    std::string sexToken;
+    if (!ExtractPcOverlayPathParts(bodyActName, &overlayRoot, &jobStem, &sexToken)) {
+        return false;
+    }
+    const size_t fileStart = bodyActName.find_last_of("\\/");
+    const std::string bodyRoot = bodyActName.substr(0, fileStart + 1);
+    for (const std::string& token : g_session.GetPlayerWeaponJobTokens(actor.m_job)) {
+        if (token == jobStem) {
+            continue;
+        }
+        // Transcendent/baby bodies commonly share their base class's weapon sprites.
+        const std::string fallbackBody = bodyRoot + token + "_" + sexToken + ".act";
+        if (TryBuildWeaponOverlayPath(actor, fallbackBody, weapon, secondLayer, extension, outPath)) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -2653,8 +2696,7 @@ CActRes* ResolvePcTransientActRes(const CGameActor& actor, int action)
     CActRes* bodyActRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
 
     const bool isAttackLikeState = actor.m_stateId == kAttackStateId
-        || actor.m_stateId == kSecondAttackStateId
-        || actor.m_stateId == kGameActorCastingLoopStateId;
+        || actor.m_stateId == kSecondAttackStateId;
     const bool isAttackLikeAction = action >= 80 && action < 96;
     const int weaponValue = ResolvePcAttackWeaponValue(actor);
     if ((!isAttackLikeState && !isAttackLikeAction) || weaponValue == 0) {
@@ -4336,6 +4378,30 @@ bool CGameActor::HasActiveChatBubble(u32 now) const
         && static_cast<s32>(m_chatTick - now) > 0;
 }
 
+bool CGameActor::BeginSkillPresentation(int skillId, const std::string& name, u32 now)
+{
+    // Area skills send one damage packet per victim. Keep the caster's action and shout continuous.
+    if (m_lastPresentedSkillId == skillId && now - m_lastSkillPresentationTick < 120) {
+        return false;
+    }
+    m_lastPresentedSkillId = skillId;
+    m_lastSkillPresentationTick = now;
+    if (!name.empty()) {
+        m_skillNameText = name;
+        while (!m_skillNameText.empty() && m_skillNameText.back() == '!') {
+            m_skillNameText.pop_back();
+        }
+        m_skillNameText += "!!";
+        m_skillNameUntilTick = now + 1500;
+    }
+    return true;
+}
+
+bool CGameActor::HasActiveSkillName(u32 now) const
+{
+    return !m_skillNameText.empty() && static_cast<s32>(m_skillNameUntilTick - now) > 0;
+}
+
 void CGameActor::StartHideFade(u32 durationMs)
 {
     const u32 now = timeGetTime();
@@ -4515,6 +4581,8 @@ u8 CGameActor::ProcessState() {
         break;
     }
     case kGameActorSkillStateId:
+    case kGameActorDanceStateId:
+    case kGameActorSingStateId:
         m_isCounter = 0;
         m_isMotionFreezed = 0;
         ProcessMotion();
@@ -4789,8 +4857,17 @@ void CGameActor::SetState(int state) {
         m_path.Reset();
         m_isMotionFinished = 0;
         m_isMotionFreezed = 0;
-        SetAction(80, 3, 1);
+        SetAction(m_isPc != 0 ? 96 : 16, 3, 1);
         m_attackMotion = static_cast<float>(GetAttackMotion());
+        break;
+    case kGameActorDanceStateId:
+    case kGameActorSingStateId:
+        m_isMoving = 0;
+        m_path.Reset();
+        m_isMotionFinished = 0;
+        m_isMotionFreezed = 0;
+        m_attackMotion = -1.0f;
+        SetAction(m_isPc != 0 ? 96 : 16, 3, 1);
         break;
     case kGameActorPickupStateId:
         m_isMoving = 0;
@@ -4818,6 +4895,8 @@ void CGameActor::SetState(int state) {
         m_path.Reset();
         m_isMotionFinished = 0;
         m_isMotionFreezed = 0;
+        m_attackMotion = -1.0f;
+        SetAction(m_isPc != 0 ? 72 : 16, 4, 1);
         break;
     case kGameActorCastingLoopStateId:
         m_isMoving = 0;
@@ -4825,7 +4904,7 @@ void CGameActor::SetState(int state) {
         m_isMotionFinished = 0;
         m_isCounter = 0;
         if (m_isPc != 0) {
-            SetAction(ResolvePcAttackAction(*this), 4, 1);
+            SetAction(72, 4, 1);
         } else {
             SetAction(16, 4, 1);
         }
@@ -5587,12 +5666,15 @@ void CPc::SetState(int state)
         }
         SendMsg(this, 83, 0, 0, 0);
 
-        const bool secondAttack = g_session.IsSecondAttack(
-            m_job,
-            m_sex,
-            ResolvePcAttackWeaponValue(*this));
+        const bool secondAttack = state == kSecondAttackStateId || ResolvePcAttackAction(*this) == 88;
         CGameActor::SetState(secondAttack ? kSecondAttackStateId : kAttackStateId);
-        m_attackMotion = ResolvePcAttackMotionTiming(*this, secondAttack);
+        m_attackMotion = static_cast<float>(GetAttackMotion());
+        if (m_attackMotion > 0.0f && m_modifyFactorOfmotionSpeed2 > 0.0f) {
+            // Align the ACT hit frame with the server's attack motion time.
+            const float attackTimeMs = m_modifyFactorOfmotionSpeed2 / kAttackMotionFactor;
+            m_motionSpeed = (std::max)(kDefaultMotionSpeedFactor,
+                attackTimeMs / (m_attackMotion * 24.0f));
+        }
         break;
     }
     default:

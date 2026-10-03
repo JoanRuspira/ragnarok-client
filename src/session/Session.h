@@ -210,7 +210,6 @@ public:
     void RemoveStorageItem(unsigned int itemIndex, int amount);
     bool SetInventoryItemWearLocation(unsigned int itemIndex, int wearLocation);
     void ClearInventoryWearLocationMask(int wearMask, unsigned int exceptItemIndex = 0);
-    void RebuildPlayerEquipmentAppearanceFromInventory();
     const std::list<ITEM_INFO>& GetInventoryItems() const;
     const ITEM_INFO* GetInventoryItemByIndex(unsigned int itemIndex) const;
     const ITEM_INFO* GetInventoryItemByItemId(unsigned int itemId) const;
@@ -271,6 +270,7 @@ public:
     int ResolvePackedWeaponType(int job, int weaponValue) const;
     int GetCurrentPlayerWeaponValue() const;
     std::string GetPlayerWeaponToken(int weaponType) const;
+    std::vector<std::string> GetPlayerWeaponJobTokens(int job) const;
     bool IsSecondAttack(int job, int sex, int weaponItemId) const;
     float GetPCAttackMotion(int job, int sex, int weaponItemId, int isSecondAttack) const;
     unsigned int GetEquippedLeftHandWeaponItemId() const;

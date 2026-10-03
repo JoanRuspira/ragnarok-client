@@ -76,7 +76,7 @@ private:
     DisplayData BuildDisplayData() const;
     unsigned long long BuildDisplayStateToken() const;
     void DrawWindowText(HDC hdc, int x, int y, const char* text, COLORREF color, UINT format = DT_LEFT | DT_TOP | DT_SINGLELINE) const;
-    void DrawRightAlignedValue(HDC hdc, int right, int y, const std::string& text) const;
+    void DrawRightAlignedValue(HDC hdc, int left, int right, int y, const std::string& text) const;
     void LoadAssets();
     void ReleaseAssets();
 

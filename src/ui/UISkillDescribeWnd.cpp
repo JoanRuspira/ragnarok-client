@@ -244,7 +244,7 @@ void UISkillDescribeWnd::OnDraw()
 
     const std::array<std::string, 3> lines = {
         "Level: " + std::to_string(m_skillInfo.level) + (m_skillInfo.skillMaxLv > 0 ? (" / " + std::to_string(m_skillInfo.skillMaxLv)) : std::string()),
-        (m_skillInfo.spcost > 0 ? ("SP Cost: " + std::to_string(m_skillInfo.spcost)) : std::string("Type: Passive")),
+        (m_skillInfo.type != 0 ? ("SP Cost: " + std::to_string(m_skillInfo.spcost)) : std::string("Type: Passive")),
         (m_skillInfo.attackRange > 0 ? ("Range: " + std::to_string(m_skillInfo.attackRange)) : std::string())
     };
 
@@ -401,7 +401,7 @@ bool UISkillDescribeWnd::GetDisplayDataForQt(DisplayData* outData) const
     outData->name = SanitizeRoText(m_skillInfo.skillName.empty() ? m_skillInfo.skillIdName : m_skillInfo.skillName);
     outData->detailLines = {
         "Level: " + std::to_string(m_skillInfo.level) + (m_skillInfo.skillMaxLv > 0 ? (" / " + std::to_string(m_skillInfo.skillMaxLv)) : std::string()),
-        (m_skillInfo.spcost > 0 ? ("SP Cost: " + std::to_string(m_skillInfo.spcost)) : std::string("Type: Passive")),
+        (m_skillInfo.type != 0 ? ("SP Cost: " + std::to_string(m_skillInfo.spcost)) : std::string("Type: Passive")),
         (m_skillInfo.attackRange > 0 ? ("Range: " + std::to_string(m_skillInfo.attackRange)) : std::string())
     };
     outData->description = BuildDescriptionText();

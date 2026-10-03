@@ -73,6 +73,8 @@ constexpr int kGameActorPickupStateId = 5;
 constexpr int kGameActorSkillStateId = 7;
 constexpr int kGameActorCastingStateId = 8;
 constexpr int kGameActorCastingLoopStateId = 13;
+constexpr int kGameActorDanceStateId = 16;
+constexpr int kGameActorSingStateId = 17;
 
 //===========================================================================
 // Actor Hierarchy
@@ -200,6 +202,9 @@ public:
     void ClearChatBubbleText();
     bool HasActiveChatBubble(u32 now) const;
     const std::string& GetChatBubbleText() const { return m_chatBubbleText; }
+    bool BeginSkillPresentation(int skillId, const std::string& name, u32 now);
+    bool HasActiveSkillName(u32 now) const;
+    const std::string& GetSkillNameText() const { return m_skillNameText; }
 
     int m_moveDestX, m_moveDestY;
     int m_moveSrcX, m_moveSrcY;
@@ -251,6 +256,10 @@ public:
     u32 m_moveEndTime;
     int m_isMoving;
     std::string m_chatBubbleText;
+    std::string m_skillNameText;
+    int m_lastPresentedSkillId = 0;
+    u32 m_lastSkillPresentationTick = 0;
+    u32 m_skillNameUntilTick = 0;
 
     virtual u8   ProcessState();
     virtual void SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t par2, msgparam_t par3) override;

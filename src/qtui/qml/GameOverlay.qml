@@ -267,6 +267,8 @@ Item {
                 color: modelData.foreground
                 font.pixelSize: modelData.fontPixelSize || 14
                 font.bold: modelData.bold !== false
+                style: modelData.outline ? Text.Outline : Text.Normal
+                styleColor: "#000000"
                 wrapMode: parent.wrapText ? Text.Wrap : Text.NoWrap
                 horizontalAlignment: Text.AlignHCenter
             }

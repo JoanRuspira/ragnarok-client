@@ -826,6 +826,7 @@ void HashTokenString(std::uint64_t* hash, const std::string& value)
 
 std::string ResolveGroundItemHoverLabel(const CItem* item);
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc);
+void DrawActorSkillNames(CGameMode& mode, HDC hdc);
 
 bool IsWorldHoverBlockedByUi(int screenX, int screenY)
 {
@@ -853,6 +854,28 @@ std::uint64_t ComputeGameplayOverlayStateToken(
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_MaxHp)));
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_Sp)));
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_MaxSp)));
+
+        const u32 nameNow = timeGetTime();
+        auto hashSkillName = [&](const CGameActor* actor) {
+            if (!actor || !actor->m_isVisible || !actor->HasActiveSkillName(nameNow)) {
+                return;
+            }
+            int centerX = 0;
+            int bottomY = 0;
+            if (mode.m_world->GetActorSpeechBubbleAnchor(mode.m_view->GetViewMatrix(), actor->m_gid,
+                    &centerX, &bottomY)) {
+                HashTokenValue(&hash, actor->m_gid);
+                HashTokenValue(&hash, static_cast<std::uint32_t>(centerX));
+                HashTokenValue(&hash, static_cast<std::uint32_t>(bottomY));
+                HashTokenString(&hash, actor->GetSkillNameText());
+            }
+        };
+        hashSkillName(player);
+        for (const auto& entry : mode.m_runtimeActors) {
+            if (entry.second != player) {
+                hashSkillName(entry.second);
+            }
+        }
 
         const u32 statusNow = g_session.GetServerTime();
         const std::vector<ACTIVE_STATUS_ICON>& activeStatusIcons = g_session.GetActiveStatusIcons();
@@ -2262,6 +2285,7 @@ void DrawGameplayOverlayToHdc(CGameMode& mode, HDC targetDc)
 
     DrawHoveredGroundItemName(mode, targetDc);
     DrawHoveredActorName(mode, targetDc);
+    DrawActorSkillNames(mode, targetDc);
 }
 
 void DrawGameplayFallbackToWindow(
@@ -3408,14 +3432,15 @@ std::string ResolveGroundItemHoverLabel(const CItem* item)
     return amountText;
 }
 
-void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF color = RGB(255, 255, 255))
+void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF color = RGB(255, 255, 255),
+    int fontHeight = kHoverNameFontHeight, bool bold = kHoverNameFontBold)
 {
     if (!hdc || !text || !*text) {
         return;
     }
 
     DrawDC drawDc(hdc);
-    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold);
+    drawDc.SetFont(FONT_DEFAULT, fontHeight, bold);
     SetBkMode(hdc, TRANSPARENT);
 
     const int textLen = static_cast<int>(std::strlen(text));
@@ -3427,6 +3452,37 @@ void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF co
 
     drawDc.SetTextColor(color);
     drawDc.TextOutA(x, y, text, textLen);
+}
+
+void DrawActorSkillNames(CGameMode& mode, HDC hdc)
+{
+    if (!hdc || !mode.m_world || !mode.m_view) {
+        return;
+    }
+    const u32 now = timeGetTime();
+    auto drawName = [&](CGameActor* actor) {
+        if (!actor || !actor->m_isVisible || !actor->HasActiveSkillName(now)) {
+            return;
+        }
+        int centerX = 0;
+        int bottomY = 0;
+        if (!mode.m_world->GetActorSpeechBubbleAnchor(mode.m_view->GetViewMatrix(), actor->m_gid,
+                &centerX, &bottomY)) {
+            return;
+        }
+        const std::string& text = actor->GetSkillNameText();
+        DrawDC drawDc(hdc);
+        drawDc.SetFont(FONT_DEFAULT, 12, false);
+        SIZE size{};
+        drawDc.GetTextExtentPoint32A(text.c_str(), static_cast<int>(text.size()), &size);
+        DrawOutlinedScreenText(hdc, centerX - size.cx / 2, bottomY - size.cy - 2, text.c_str(), RGB(255, 255, 255), 12, false);
+    };
+    drawName(mode.m_world->m_player);
+    for (const auto& entry : mode.m_runtimeActors) {
+        if (entry.second != mode.m_world->m_player) {
+            drawName(entry.second);
+        }
+    }
 }
 
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc)

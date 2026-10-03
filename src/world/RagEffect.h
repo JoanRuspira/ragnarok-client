@@ -69,6 +69,11 @@ struct EffectSegmentState {
 constexpr int kRagEffectPortal = 50001;
 constexpr int kRagEffectReadyPortal = 50002;
 constexpr int kRagEffectWarpZone = 50003;
+constexpr int kRagEffectMetallicSound = 50004;
+constexpr int kRagEffectMetallicSoundHit = 50005;
+constexpr int kRagEffectMetallicSoundGround = 50006;
+constexpr int kRagEffectMetallicFury = 50007;
+constexpr int kRagEffectPerformanceNotes = 50008;
 
 class CRagEffect;
 

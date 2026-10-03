@@ -324,12 +324,46 @@ void CItemMgr::EnsureLoaded()
 	LoadCardPrefixTable();
 	LoadCardPostfixTable();
 	LoadCardItemTable();
+	const char* const itemInfoScripts[] = {
+		"System\\itemInfo_true.lub",
+		"System\\itemInfo_true.lua",
+		"System\\itemInfo.lub",
+		"System\\itemInfo.lua",
+		"lua files\\datainfo\\itemInfo.lub",
+		"lua files\\datainfo\\itemInfo.lua",
+	};
+	for (const char* script : itemInfoScripts) {
+		if (g_buabridge.LoadRagnarokScriptOnce(script)) {
+			m_luaItemInfoLoaded = true;
+			break;
+		}
+	}
 	m_loaded = true;
 }
 
 const ItemMetadata* CItemMgr::GetMetadata(unsigned int itemId)
 {
 	EnsureLoaded();
+	if (m_luaItemInfoLoaded && m_luaMetadataItemIds.insert(itemId).second) {
+		ItemMetadata luaInfo;
+		if (g_buabridge.GetItemInfoByItemId(itemId, &luaInfo)) {
+			// Preserve legacy text-table overrides, filling missing Lua metadata lazily.
+			ItemMetadata& metadata = m_metadata[itemId];
+			const auto fillMissing = [](std::string& target, std::string& fallback) {
+				if (target.empty()) {
+					target = std::move(fallback);
+				}
+			};
+			fillMissing(metadata.unidentifiedDisplayName, luaInfo.unidentifiedDisplayName);
+			fillMissing(metadata.identifiedDisplayName, luaInfo.identifiedDisplayName);
+			fillMissing(metadata.unidentifiedResourceName, luaInfo.unidentifiedResourceName);
+			fillMissing(metadata.identifiedResourceName, luaInfo.identifiedResourceName);
+			fillMissing(metadata.description, luaInfo.description);
+			if (metadata.slotCount == 0) {
+				metadata.slotCount = luaInfo.slotCount;
+			}
+		}
+	}
 	const auto it = m_metadata.find(itemId);
 	return it != m_metadata.end() ? &it->second : nullptr;
 }

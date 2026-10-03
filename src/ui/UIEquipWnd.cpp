@@ -59,6 +59,7 @@ constexpr int kButtonIdBase = 134;
 constexpr int kButtonIdClose = 135;
 constexpr int kButtonIdMini = 136;
 constexpr int kButtonIdCartOff = 137;
+constexpr int kButtonIdCostume = 138;
 constexpr const char* kUiKorPrefix =
     "texture\\"
     "\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA"
@@ -78,14 +79,15 @@ struct EquipSlotDefLocal {
     int wearMask;
     int iconX;
     int iconY;
+    int costumeMask = 0;
 };
 
 constexpr std::array<EquipSlotDefLocal, 10> kEquipSlots = {{
-    { 256, 8, 19 },    // head upper
-    { 1, 8, 51 },      // head lower
-    { 4, 8, 115 },     // garment
+    { 256, 8, 19, 0x0400 },    // head upper / costume head upper
+    { 1, 8, 51, 0x1000 },      // head lower / costume head lower
+    { 4, 8, 115, 0x2000 },     // garment / costume garment
     { 8, 8, 147 },     // accessory left
-    { 512, 240, 19 },  // head mid
+    { 512, 240, 19, 0x0800 },  // head mid / costume head mid
     { 16, 240, 51 },   // armor
     { 32, 240, 83 },   // shield
     { 64, 240, 115 },  // shoes
@@ -186,6 +188,11 @@ bool IsLocalPlayerPushCartEquipped()
 RECT GetCartOffButtonRect(int x, int y)
 {
     return MakeEquipRect(x, y, 213, 2, kQtCartOffButtonWidth, 13);
+}
+
+RECT GetCostumeButtonRect(int x, int y)
+{
+    return MakeEquipRect(x, y, 111, 2, 68, 13);
 }
 
 void AddUniqueCandidate(std::vector<std::string>& out, const std::string& raw)
@@ -1130,6 +1137,9 @@ msgresult_t UIEquipWnd::SendMsg(UIWindow* sender, int msg, msgparam_t wparam, ms
         return 1;
     case kButtonIdCartOff:
         return g_modeMgr.SendMsg(CGameMode::GameMsg_RequestCartOff, 0, 0, 0);
+    case kButtonIdCostume:
+        ToggleCostumeEquipment();
+        return 1;
     case kButtonIdClose:
         SetShow(0);
         return 1;
@@ -1269,6 +1279,14 @@ void UIEquipWnd::OnDraw()
     DrawWindowText(hdc, m_x + 18, m_y + 3, "Equipment", RGB(255, 255, 255));
     DrawWindowText(hdc, m_x + 17, m_y + 2, "Equipment", RGB(0, 0, 0));
 
+    if (!IsMiniMode() && HasCostumeEquipment()) {
+        const RECT costumeRect = GetCostumeButtonRect(m_x, m_y);
+        FillRectColor(hdc, costumeRect, RGB(215, 210, 197));
+        FrameRectColor(hdc, costumeRect, RGB(127, 122, 112));
+        DrawWindowTextRect(hdc, costumeRect, m_showCostumeEquipment ? "Normal" : "Costume",
+            RGB(0, 0, 0), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+
     if (IsLocalPlayerPushCartEquipped()) {
         const RECT cartOffRect = GetCartOffButtonRect(m_x, m_y);
         FillRectColor(hdc, cartOffRect, RGB(170, 76, 58));
@@ -1342,10 +1360,17 @@ void UIEquipWnd::OnDraw()
 
 void UIEquipWnd::OnLBtnDown(int x, int y)
 {
+    m_costumeButtonPressed = false;
     m_dragArmed = false;
     m_dragItemId = 0;
     m_dragItemIndex = 0;
     m_dragItemEquipLocation = 0;
+
+    if (!IsMiniMode() && HasCostumeEquipment()
+        && IsPointInRect(GetCostumeButtonRect(m_x, m_y), x, y)) {
+        m_costumeButtonPressed = true;
+        return;
+    }
 
     if (IsQtUiRuntimeEnabled()) {
         const RECT baseRect = MakeEquipRect(m_x, m_y, 3, 3, kQtButtonWidth, kQtButtonHeight);
@@ -1400,6 +1425,8 @@ void UIEquipWnd::OnLBtnDown(int x, int y)
 
 void UIEquipWnd::OnLBtnUp(int x, int y)
 {
+    const bool costumeButtonPressed = m_costumeButtonPressed;
+    m_costumeButtonPressed = false;
     m_dragArmed = false;
     m_dragItemId = 0;
     m_dragItemIndex = 0;
@@ -1409,6 +1436,12 @@ void UIEquipWnd::OnLBtnUp(int x, int y)
         const bool wasDragging = m_isDragging != 0;
         UIFrameWnd::OnLBtnUp(x, y);
         if (wasDragging) {
+            return;
+        }
+
+        if (costumeButtonPressed && !IsMiniMode() && HasCostumeEquipment()
+            && IsPointInRect(GetCostumeButtonRect(m_x, m_y), x, y)) {
+            SendMsg(this, 6, kButtonIdCostume, 0, 0);
             return;
         }
 
@@ -1439,6 +1472,11 @@ void UIEquipWnd::OnLBtnUp(int x, int y)
 
     const bool wasDragging = m_isDragging != 0;
     UIFrameWnd::OnLBtnUp(x, y);
+    if (costumeButtonPressed && !wasDragging && !IsMiniMode() && HasCostumeEquipment()
+        && IsPointInRect(GetCostumeButtonRect(m_x, m_y), x, y)) {
+        SendMsg(this, 6, kButtonIdCostume, 0, 0);
+        return;
+    }
     if (!wasDragging && IsLocalPlayerPushCartEquipped() && IsPointInRect(GetCartOffButtonRect(m_x, m_y), x, y)) {
         SendMsg(this, 6, kButtonIdCartOff, 0, 0);
     }
@@ -1511,6 +1549,10 @@ void UIEquipWnd::OnMouseHover(int x, int y)
 
 void UIEquipWnd::OnLBtnDblClk(int x, int y)
 {
+    if (!IsMiniMode() && HasCostumeEquipment()
+        && IsPointInRect(GetCostumeButtonRect(m_x, m_y), x, y)) {
+        return;
+    }
     if (y >= m_y && y < m_y + kTitleBarHeight) {
         SetMiniMode(m_h != kMiniHeight);
         return;
@@ -1655,7 +1697,7 @@ bool UIEquipWnd::GetHoveredItemForQt(shopui::ItemHoverInfo* outData) const
 
 int UIEquipWnd::GetQtSystemButtonCount() const
 {
-    return 4;
+    return 5;
 }
 
 bool UIEquipWnd::GetQtSystemButtonDisplayForQt(int index, QtButtonDisplay* outData) const
@@ -1701,6 +1743,17 @@ bool UIEquipWnd::GetQtSystemButtonDisplayForQt(int index, QtButtonDisplay* outDa
         outData->label = "X";
         outData->visible = true;
         return true;
+    case 4: {
+        const RECT costumeRect = GetCostumeButtonRect(m_x, m_y);
+        outData->id = kButtonIdCostume;
+        outData->x = costumeRect.left;
+        outData->y = costumeRect.top;
+        outData->width = costumeRect.right - costumeRect.left;
+        outData->height = costumeRect.bottom - costumeRect.top;
+        outData->label = m_showCostumeEquipment ? "Normal" : "Costume";
+        outData->visible = !IsMiniMode() && HasCostumeEquipment();
+        return true;
+    }
     default:
         return false;
     }
@@ -1875,10 +1928,29 @@ void UIEquipWnd::UpdateHoveredSlot(int globalX, int globalY)
     }
 }
 
+bool UIEquipWnd::HasCostumeEquipment() const
+{
+    const auto& items = g_session.GetInventoryItems();
+    return std::any_of(items.begin(), items.end(), [](const ITEM_INFO& item) {
+        return (item.m_wearLocation & 0x3C00) != 0;
+    });
+}
+
+void UIEquipWnd::ToggleCostumeEquipment()
+{
+    m_showCostumeEquipment = !m_showCostumeEquipment;
+    m_hoveredSlot = -1;
+    Invalidate();
+}
+
 std::vector<const ITEM_INFO*> UIEquipWnd::BuildSlotAssignments() const
 {
     std::vector<const ITEM_INFO*> out(kEquipSlots.size(), nullptr);
     std::vector<const ITEM_INFO*> equipped;
+    const bool showCostume = m_showCostumeEquipment && HasCostumeEquipment();
+    const auto slotMask = [showCostume](const EquipSlotDefLocal& slot) {
+        return showCostume && slot.costumeMask != 0 ? slot.costumeMask : slot.wearMask;
+    };
     const std::list<ITEM_INFO>& items = g_session.GetInventoryItems();
     for (const ITEM_INFO& item : items) {
         if (item.m_wearLocation == 0 || !IsEquipTabType(item.m_itemType)) {
@@ -1888,12 +1960,12 @@ std::vector<const ITEM_INFO*> UIEquipWnd::BuildSlotAssignments() const
     }
 
     // Primary-slot assignment to avoid duplicate rendering (e.g. two-hand weapons).
-    const auto assignByMask = [&](int slotMask) {
+    const auto assignByMask = [&](int wearMask) {
         for (const ITEM_INFO* item : equipped) {
             if (!item) {
                 continue;
             }
-            if ((item->m_wearLocation & slotMask) == 0) {
+            if ((item->m_wearLocation & wearMask) == 0) {
                 continue;
             }
             for (const ITEM_INFO* existing : out) {
@@ -1902,7 +1974,7 @@ std::vector<const ITEM_INFO*> UIEquipWnd::BuildSlotAssignments() const
                 }
             }
             for (size_t i = 0; i < kEquipSlots.size(); ++i) {
-                if (kEquipSlots[i].wearMask == slotMask && !out[i]) {
+                if (slotMask(kEquipSlots[i]) == wearMask && !out[i]) {
                     out[i] = item;
                     return;
                 }
@@ -1911,10 +1983,10 @@ std::vector<const ITEM_INFO*> UIEquipWnd::BuildSlotAssignments() const
     };
 
     // Ref-like priority order.
-    assignByMask(256);
-    assignByMask(512);
-    assignByMask(1);
-    assignByMask(4);
+    assignByMask(showCostume ? 0x0400 : 256);
+    assignByMask(showCostume ? 0x0800 : 512);
+    assignByMask(showCostume ? 0x1000 : 1);
+    assignByMask(showCostume ? 0x2000 : 4);
     assignByMask(8);
     assignByMask(2);
     assignByMask(32);
@@ -1938,7 +2010,7 @@ std::vector<const ITEM_INFO*> UIEquipWnd::BuildSlotAssignments() const
             if (out[i]) {
                 continue;
             }
-            if ((item->m_wearLocation & kEquipSlots[i].wearMask) != 0) {
+            if ((item->m_wearLocation & slotMask(kEquipSlots[i])) != 0) {
                 out[i] = item;
                 break;
             }
@@ -1971,6 +2043,16 @@ unsigned long long UIEquipWnd::BuildVisualStateToken() const
     HashTokenValue(&hash, static_cast<unsigned long long>(m_y));
     HashTokenValue(&hash, static_cast<unsigned long long>(m_w));
     HashTokenValue(&hash, static_cast<unsigned long long>(m_h));
+    HashTokenValue(&hash, static_cast<unsigned long long>(m_showCostumeEquipment));
+    // Sprite-change packets can update the preview without changing inventory.
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.GetSex()));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerJob));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerHead));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerHeadPalette));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerBodyPalette));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerAccessory));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerAccessory2));
+    HashTokenValue(&hash, static_cast<unsigned long long>(g_session.m_playerAccessory3));
     HashTokenValue(&hash, static_cast<unsigned long long>(static_cast<unsigned int>(m_hoveredSlot + 1)));
     if (const CGameMode* gameMode = g_modeMgr.GetCurrentGameMode()) {
         HashTokenValue(&hash, static_cast<unsigned long long>(gameMode->m_dragType));

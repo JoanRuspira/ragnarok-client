@@ -2283,6 +2283,20 @@ void AddXformDelta(KAC_XFORMDATA* target, const KAC_XFORMDATA& delta)
 
 std::string ResolveStrName(int effectId)
 {
+    switch (effectId) {
+    case kRagEffectMetallicSound:
+        return ResolveWorldStrName("new_metalicsound\\new_metalicsound\\new_metalicsound.str");
+    case kRagEffectMetallicSoundHit:
+        return ResolveWorldStrName("new_metalicsound\\new_metalicsound_hit\\new_metalicsound_hit.str");
+    case kRagEffectMetallicSoundGround:
+        return ResolveWorldStrName("new_metalicsound\\new_metalicsound_bottom\\new_metalicsound_bottom.str");
+    case kRagEffectMetallicFury:
+        return ResolveWorldStrName("metalicfury\\metalicfury\\metalicfury.str");
+    case kRagEffectPerformanceNotes:
+        return ResolveWorldStrName("note_1.str");
+    default:
+        break;
+    }
     if (effectId == 49) {
         char buffer[64]{};
         std::snprintf(buffer, sizeof(buffer), "FireHit%d.str", 1 + (rand() % 3));

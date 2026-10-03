@@ -2,6 +2,8 @@
 
 #include "core/File.h"
 #include "DebugLog.h"
+#include "item/Item.h"
+#include "skill/Skill.h"
 
 struct JobNameEntry {
 	int job;
@@ -17,6 +19,7 @@ struct JobNameEntry {
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <cmath>
 
@@ -63,6 +66,13 @@ bool PathEndsWithInsensitive(const std::string& path, const char* suffix)
 
 const char* GetReturnedTableBindingName(const std::string& path)
 {
+	if (PathEndsWithInsensitive(path, "iteminfo.lub")
+		|| PathEndsWithInsensitive(path, "iteminfo.lua")
+		|| PathEndsWithInsensitive(path, "iteminfo_true.lub")
+		|| PathEndsWithInsensitive(path, "iteminfo_true.lua")) {
+		return "OpenMidgardItemInfo";
+	}
+
 	if (PathEndsWithInsensitive(path, "lua files\\datainfo\\jobidentity.lub")
 		|| PathEndsWithInsensitive(path, "lua files\\datainfo\\jobidentity_f.lub")) {
 		return "JobIdentity";
@@ -632,20 +642,22 @@ void EnsureSkillIdTable(lua_State* state)
 	}
 
 	lua_getglobal(state, "SKID");
-	if (lua_istable(state, -1)) {
+	if (!lua_istable(state, -1)) {
 		lua_pop(state, 1);
-		return;
+		lua_newtable(state);
 	}
 
-	lua_pop(state, 1);
-	lua_newtable(state);
 	for (const SkillEnumEntry& entry : kSkillEnumEntries) {
 		if (!entry.name || !*entry.name) {
 			continue;
 		}
-		lua_pushstring(state, entry.name);
-		lua_pushinteger(state, entry.id);
-		lua_settable(state, -3);
+		lua_getfield(state, -1, entry.name);
+		const bool hasMapping = lua_isnumber(state, -1);
+		lua_pop(state, 1);
+		if (!hasMapping) {
+			lua_pushinteger(state, entry.id);
+			lua_setfield(state, -2, entry.name);
+		}
 	}
 	lua_setglobal(state, "SKID");
 }
@@ -876,6 +888,16 @@ bool CLuaBridge::ExecuteBuffer(const unsigned char* bytes, size_t size, const ch
 		lua_pop(m_state, 1);
 
 		if (!alreadyBound) {
+			// Item-info scripts commonly assign tbl instead of returning it.
+			if (std::strcmp(returnedTableGlobalName, "OpenMidgardItemInfo") == 0) {
+				lua_getglobal(m_state, "tbl");
+				if (lua_istable(m_state, -1)) {
+					lua_setglobal(m_state, returnedTableGlobalName);
+				} else {
+					lua_pop(m_state, 1);
+				}
+			}
+
 			const int resultCount = lua_gettop(m_state);
 			for (int index = 1; index <= resultCount; ++index) {
 				if (!lua_istable(m_state, index)) {
@@ -908,6 +930,14 @@ bool CLuaBridge::LoadRagnarokScript(const char* relativePath)
 
 	if (IsAccessoryNameTableScript(normalized)) {
 		LoadRagnarokScriptOnce("lua files\\datainfo\\accessoryid.lub");
+	}
+	if (PathEndsWithInsensitive(normalized, "skillinfoz\\skillinfolist.lub")
+		|| PathEndsWithInsensitive(normalized, "skillinfoz\\skillinfolist.lua")
+		|| PathEndsWithInsensitive(normalized, "skillinfoz\\skilldescript.lub")
+		|| PathEndsWithInsensitive(normalized, "skillinfoz\\skilldescript.lua")) {
+		// Custom ID tables may omit legacy aliases still used by their metadata.
+		// Keep their explicit mappings and fill only missing known names.
+		EnsureSkillIdTable(m_state);
 	}
 
 	if (PathEndsWithInsensitive(normalized, "lua files\\datainfo\\jobname.lub")
@@ -1137,6 +1167,169 @@ bool CLuaBridge::GetGlobalTableNestedStringByIntegerKey(const char* tableName,
 	return true;
 }
 
+bool CLuaBridge::GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo)
+{
+	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	if (!outInfo || itemId == 0 || !Initialize()) {
+		return false;
+	}
+	*outInfo = ItemMetadata{};
+
+	lua_getglobal(m_state, "OpenMidgardItemInfo");
+	if (!lua_istable(m_state, -1)) {
+		lua_settop(m_state, 0);
+		return false;
+	}
+	lua_pushnumber(m_state, static_cast<lua_Number>(itemId));
+	lua_gettable(m_state, -2);
+	if (!lua_istable(m_state, -1)) {
+		lua_settop(m_state, 0);
+		return false;
+	}
+
+	const int entryIndex = lua_gettop(m_state);
+	const auto readString = [&](const char* key, std::string& out) {
+		lua_getfield(m_state, entryIndex, key);
+		if (lua_isstring(m_state, -1)) {
+			size_t length = 0;
+			const char* value = lua_tolstring(m_state, -1, &length);
+			out.assign(value, length);
+		}
+		lua_pop(m_state, 1);
+	};
+	readString("unidentifiedDisplayName", outInfo->unidentifiedDisplayName);
+	readString("identifiedDisplayName", outInfo->identifiedDisplayName);
+	readString("unidentifiedResourceName", outInfo->unidentifiedResourceName);
+	readString("identifiedResourceName", outInfo->identifiedResourceName);
+
+	lua_getfield(m_state, entryIndex, "slotCount");
+	if (lua_isnumber(m_state, -1)) {
+		outInfo->slotCount = (std::max)(0, static_cast<int>(lua_tointeger(m_state, -1)));
+	}
+	lua_pop(m_state, 1);
+
+	const auto readDescription = [&](const char* key) {
+		lua_getfield(m_state, entryIndex, key);
+		if (lua_istable(m_state, -1)) {
+			const size_t count = lua_objlen(m_state, -1);
+			for (size_t index = 1; index <= count; ++index) {
+				lua_rawgeti(m_state, -1, static_cast<int>(index));
+				if (lua_isstring(m_state, -1)) {
+					if (index > 1) {
+						outInfo->description += '\n';
+					}
+					size_t length = 0;
+					const char* value = lua_tolstring(m_state, -1, &length);
+					outInfo->description.append(value, length);
+				}
+				lua_pop(m_state, 1);
+			}
+		}
+		lua_pop(m_state, 1);
+	};
+	readDescription("identifiedDescriptionName");
+	if (outInfo->description.empty()) {
+		readDescription("unidentifiedDescriptionName");
+	}
+
+	lua_settop(m_state, 0);
+	m_lastError.clear();
+	return true;
+}
+
+bool CLuaBridge::GetSkillMetadata(std::vector<SkillMetadata>* outSkills)
+{
+	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	if (!outSkills || !Initialize()) {
+		return false;
+	}
+	outSkills->clear();
+	std::unordered_map<int, SkillMetadata> entries;
+
+	lua_getglobal(m_state, "SKID");
+	if (lua_istable(m_state, -1)) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			if (lua_type(m_state, -2) == LUA_TSTRING && lua_isnumber(m_state, -1)) {
+				const int id = static_cast<int>(lua_tointeger(m_state, -1));
+				if (id > 0) {
+					SkillMetadata& metadata = entries[id];
+					metadata.skillId = id;
+					metadata.skillIdName = lua_tostring(m_state, -2);
+				}
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_pop(m_state, 1);
+
+	lua_getglobal(m_state, "SKILL_INFO_LIST");
+	if (lua_istable(m_state, -1)) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			if (lua_isnumber(m_state, -2) && lua_istable(m_state, -1)) {
+				const int id = static_cast<int>(lua_tointeger(m_state, -2));
+				if (id > 0) {
+					SkillMetadata& metadata = entries[id];
+					metadata.skillId = id;
+					const int entryIndex = lua_gettop(m_state);
+					lua_rawgeti(m_state, entryIndex, 1);
+					if (lua_isstring(m_state, -1)) {
+						metadata.skillIdName = lua_tostring(m_state, -1);
+					}
+					lua_pop(m_state, 1);
+					lua_getfield(m_state, entryIndex, "SkillName");
+					if (lua_isstring(m_state, -1)) {
+						metadata.displayName = lua_tostring(m_state, -1);
+					}
+					lua_pop(m_state, 1);
+					TryGetLuaTableIntegerField(m_state, entryIndex, "MaxLv", &metadata.maxLevel);
+					TryGetLuaTableIntegerArrayField(m_state, entryIndex, "SpAmount", &metadata.levelSpCosts);
+				}
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_pop(m_state, 1);
+
+	lua_getglobal(m_state, "SKILL_DESCRIPT");
+	if (lua_istable(m_state, -1)) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			if (lua_isnumber(m_state, -2) && lua_istable(m_state, -1)) {
+				const int id = static_cast<int>(lua_tointeger(m_state, -2));
+				if (id > 0) {
+					SkillMetadata& metadata = entries[id];
+					metadata.skillId = id;
+					const int entryIndex = lua_gettop(m_state);
+					const size_t count = lua_objlen(m_state, entryIndex);
+					for (size_t index = 1; index <= count; ++index) {
+						lua_rawgeti(m_state, entryIndex, static_cast<int>(index));
+						if (lua_isstring(m_state, -1)) {
+							if (index == 1) {
+								if (metadata.displayName.empty()) {
+									metadata.displayName = lua_tostring(m_state, -1);
+								}
+							} else {
+								metadata.descriptionLines.emplace_back(lua_tostring(m_state, -1));
+							}
+						}
+						lua_pop(m_state, 1);
+					}
+				}
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_pop(m_state, 1);
+
+	for (auto& entry : entries) {
+		outSkills->push_back(std::move(entry.second));
+	}
+	m_lastError.clear();
+	return !outSkills->empty();
+}
+
 bool CLuaBridge::GetGlobalTableStringByIntegerKey(const char* tableName, int numericKey, std::string* outValue)
 {
 	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -1233,6 +1426,7 @@ bool CLuaBridge::GetGlobalTableStringByStringKey(const char* tableName, const ch
 
 bool CLuaBridge::GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* outInfo)
 {
+	std::lock_guard<std::recursive_mutex> lock(m_mutex);
 	if (outInfo) {
 		*outInfo = LuaSkillEffectInfo{};
 	}
@@ -1286,25 +1480,58 @@ bool CLuaBridge::GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* ou
 
 	LuaSkillEffectInfo info;
 	bool found = false;
-	lua_pushnil(m_state);
-	while (lua_next(m_state, -2) != 0) {
-		if (lua_istable(m_state, -1)) {
-			int entrySkillId = 0;
-			if (TryGetLuaTableIntegerField(m_state, -1, "SKID", &entrySkillId) && entrySkillId == skillId) {
-				info.hasBeginEffectId = TryGetLuaTableIntegerField(m_state, -1, "beginEffectID", &info.beginEffectId);
-				info.hasBeginMotionType = TryGetLuaTableIntegerField(m_state, -1, "beginMotionType", &info.beginMotionType);
-				info.hasTargetEffectId = TryGetLuaTableIntegerField(m_state, -1, "targetEffectID", &info.targetEffectId);
-				info.hasGroundEffectId = TryGetLuaTableIntegerField(m_state, -1, "groundEffectID", &info.groundEffectId);
+	auto readEntry = [&]() {
+		info.hasBeginEffectId = TryGetLuaTableIntegerField(m_state, -1, "beginEffectID", &info.beginEffectId);
+		info.hasBeginMotionType = TryGetLuaTableIntegerField(m_state, -1, "beginMotionType", &info.beginMotionType);
+		info.hasTargetEffectId = TryGetLuaTableIntegerField(m_state, -1, "targetEffectID", &info.targetEffectId);
+		if (!TryGetLuaTableIntegerArrayField(m_state, -1, "targetEffectID", &info.targetEffectIds) && info.hasTargetEffectId) {
+			info.targetEffectIds.push_back(info.targetEffectId);
+		}
+		if (!info.targetEffectIds.empty()) {
+			info.hasTargetEffectId = true;
+			info.targetEffectId = info.targetEffectIds.front();
+		}
+		info.hasGroundEffectId = TryGetLuaTableIntegerField(m_state, -1, "groundEffectID", &info.groundEffectId);
+		if (!TryGetLuaTableIntegerArrayField(m_state, -1, "groundEffectID", &info.groundEffectIds) && info.hasGroundEffectId) {
+			info.groundEffectIds.push_back(info.groundEffectId);
+		}
+		if (!info.groundEffectIds.empty()) {
+			info.hasGroundEffectId = true;
+			info.groundEffectId = info.groundEffectIds.front();
+		}
+		if (!TryGetLuaTableIntegerArrayField(m_state, -1, "effectID", &info.effectIds)) {
+			int effectId = -1;
+			if (TryGetLuaTableIntegerField(m_state, -1, "effectID", &effectId)) {
+				info.effectIds.push_back(effectId);
+			} else {
 				TryGetLuaTableIntegerArrayField(m_state, -1, "effectIDs", &info.effectIds);
-				info.hasOnTarget = TryGetLuaTableBooleanField(m_state, -1, "onTarget", &info.onTarget);
-				info.hasLaunchUseSkill = TryGetLuaTableBooleanField(m_state, -1, "LaunchZC_USE_SKILL", &info.launchUseSkill);
-				found = true;
+			}
+		}
+		info.hasOnTarget = TryGetLuaTableBooleanField(m_state, -1, "onTarget", &info.onTarget);
+		info.hasLaunchUseSkill = TryGetLuaTableBooleanField(m_state, -1, "LaunchZC_USE_SKILL", &info.launchUseSkill);
+		found = true;
+	};
+
+	// Current clients key this table by SKID; older custom lists store SKID in each entry.
+	lua_rawgeti(m_state, -1, skillId);
+	int embeddedSkillId = 0;
+	if (lua_istable(m_state, -1)
+		&& (!TryGetLuaTableIntegerField(m_state, -1, "SKID", &embeddedSkillId) || embeddedSkillId == skillId)) {
+		readEntry();
+	}
+	lua_pop(m_state, 1);
+	if (!found) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			int entrySkillId = 0;
+			if (lua_istable(m_state, -1)
+				&& TryGetLuaTableIntegerField(m_state, -1, "SKID", &entrySkillId) && entrySkillId == skillId) {
+				readEntry();
 				lua_pop(m_state, 1);
 				break;
 			}
+			lua_pop(m_state, 1);
 		}
-
-		lua_pop(m_state, 1);
 	}
 
 	lua_settop(m_state, 0);

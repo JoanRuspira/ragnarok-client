@@ -77,6 +77,8 @@ private:
     bool ParseIdSetTable(const char* fileName, std::unordered_set<unsigned int>& outSet);
 
     bool m_loaded;
+    bool m_luaItemInfoLoaded = false;
+    std::unordered_set<unsigned int> m_luaMetadataItemIds;
     std::unordered_map<unsigned int, ItemMetadata> m_metadata;
     std::unordered_map<int, std::string> m_visibleHeadgearResourceNamesByViewId;
     std::unordered_map<std::string, int> m_visibleHeadgearViewIdsByResourceName;

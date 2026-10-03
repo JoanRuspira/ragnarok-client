@@ -162,6 +162,12 @@ std::vector<std::string> BuildUiAssetCandidates(const char* fileName)
         AddUniqueCandidate(out, std::string(prefixes[index]) + filenameOnly);
     }
 
+    const std::string koreanUiPrefix(kUiKorPrefix);
+    AddUniqueCandidate(out, koreanUiPrefix + filenameOnly);
+    AddUniqueCandidate(out, koreanUiPrefix + "basic_interface\\" + filenameOnly);
+    AddUniqueCandidate(out, "data\\" + koreanUiPrefix + filenameOnly);
+    AddUniqueCandidate(out, "data\\" + koreanUiPrefix + "basic_interface\\" + filenameOnly);
+
     return out;
 }
 
@@ -791,10 +797,21 @@ void UIItemWnd::OnDraw()
     DrawWindowText(hdc, m_x + 18, m_y + 3, titleText, RGB(255, 255, 255));
     DrawWindowText(hdc, m_x + 17, m_y + 2, titleText, RGB(0, 0, 0));
 
-    RECT activeTabStrip{ m_x, m_y + kGridTop, m_x + kTabWidth, m_y + kGridTop + kTabHeight };
-    DrawBitmapPixelsStretched(hdc, m_tabBitmaps[m_currentTab], activeTabStrip);
-
     if (m_h > kMiniHeight) {
+        RECT activeTabStrip{ m_x, m_y + kGridTop, m_x + kTabWidth, m_y + kGridTop + kTabHeight };
+        if (m_tabBitmaps[m_currentTab].IsValid()) {
+            DrawBitmapPixelsStretched(hdc, m_tabBitmaps[m_currentTab], activeTabStrip);
+        } else {
+            for (int index = 0; index < kTabCount; ++index) {
+                QtButtonDisplay tab{};
+                GetQtTabDisplayForQt(index, &tab);
+                RECT tabRect{ tab.x, tab.y, tab.x + tab.width, tab.y + tab.height };
+                FillRectColor(hdc, tabRect, tab.active ? RGB(235, 231, 219) : RGB(201, 194, 178));
+                FrameRectColor(hdc, tabRect, RGB(140, 133, 120));
+                DrawWindowTextRect(hdc, tabRect, tab.label, RGB(0, 0, 0), DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
+        }
+
         const int columns = GetItemColumns();
 
         for (size_t drawIndex = 0; drawIndex < m_visibleItems.size(); ++drawIndex) {
@@ -1402,9 +1419,9 @@ bool UIItemWnd::GetQtTabDisplayForQt(int index, QtButtonDisplay* outData) const
 
     outData->id = index;
     outData->x = m_x;
-    outData->y = m_y + 17 + index * 27;
+    outData->y = m_y + kGridTop + (index * kTabHeight) / kTabCount;
     outData->width = kTabWidth;
-    outData->height = 27;
+    outData->height = ((index + 1) * kTabHeight) / kTabCount - (index * kTabHeight) / kTabCount;
     outData->label = kTabLabels[static_cast<size_t>(index)];
     outData->visible = !IsMiniMode();
     outData->active = index == m_currentTab;
@@ -1476,6 +1493,7 @@ void UIItemWnd::SetCurrentTab(int tabIndex)
         m_currentTab = clamped;
         m_viewOffset = 0;
         m_hoveredItemIndex = -1;
+        Invalidate();
     }
 }
 
@@ -1554,7 +1572,14 @@ int UIItemWnd::GetTabAtPoint(int globalX, int globalY) const
     if (localY < 0 || localY >= kTabHeight) {
         return m_currentTab;
     }
-    return std::min((localY * kTabCount) / kTabHeight, kTabCount - 1);
+    for (int index = 0; index < kTabCount; ++index) {
+        QtButtonDisplay tab{};
+        if (GetQtTabDisplayForQt(index, &tab)
+            && globalY >= tab.y && globalY < tab.y + tab.height) {
+            return index;
+        }
+    }
+    return m_currentTab;
 }
 
 int UIItemWnd::GetItemColumns() const

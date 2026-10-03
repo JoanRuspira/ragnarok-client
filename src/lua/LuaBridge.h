@@ -7,6 +7,8 @@
 #include <vector>
 
 struct lua_State;
+struct ItemMetadata;
+struct SkillMetadata;
 
 struct LuaSkillEffectInfo {
     bool hasBeginEffectId = false;
@@ -18,6 +20,8 @@ struct LuaSkillEffectInfo {
     bool hasGroundEffectId = false;
     int groundEffectId = -1;
     std::vector<int> effectIds;
+    std::vector<int> targetEffectIds;
+    std::vector<int> groundEffectIds;
     bool hasOnTarget = false;
     bool onTarget = false;
     bool hasLaunchUseSkill = false;
@@ -42,6 +46,8 @@ public:
     bool GetGlobalTableNestedStringByIntegerKey(const char* tableName, int numericKey, const char* nestedStringKey, std::string* outValue);
     bool GetGlobalTableStringByIntegerKey(const char* tableName, int numericKey, std::string* outValue);
     bool GetGlobalTableStringByStringKey(const char* tableName, const char* stringKey, std::string* outValue);
+    bool GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo);
+    bool GetSkillMetadata(std::vector<SkillMetadata>* outSkills);
     bool GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* outInfo);
 
     const std::string& GetLastError() const;

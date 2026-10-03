@@ -522,7 +522,9 @@ float ResolveActorHeight(const CWorld* world, float worldX, float worldZ);
 float PacketDirToRotationDegrees(int dir);
 bool ApplySelfStatusUpdate(CGameMode& mode, u32 statusType, u32 value);
 void ClearAttachedSkillEffects(CGameActor* actor, int preserveBeginEffectId = -1);
-void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs);
+CRagEffect* SpawnWorldSkillEffect(CGameMode& mode, int effectId, const vector3d& position);
+void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
+    u16 skillId = 0, CGameActor* targetActor = nullptr);
 
 int ResolveHealVisualEffectId(u32 amount)
 {
@@ -671,29 +673,6 @@ u32 ResolveLocalJobLevelUpEffectId(const CGameMode& mode)
         return kEffectIdJobLevelUpSuperNovice;
     }
     return kEffectIdJobLevelUp;
-}
-
-void SyncSessionAppearanceToLocalPlayer(CGameMode& mode)
-{
-    if (!mode.m_world || !mode.m_world->m_player) {
-        return;
-    }
-
-    CPlayer* player = mode.m_world->m_player;
-    player->m_job = g_session.m_playerJob;
-    player->m_headType = g_session.m_playerHead;
-    player->m_bodyPalette = g_session.m_playerBodyPalette;
-
-    if (CPc* pcActor = dynamic_cast<CPc*>(player)) {
-        pcActor->m_head = g_session.m_playerHead;
-        pcActor->m_headPalette = g_session.m_playerHeadPalette;
-        pcActor->m_weapon = g_session.m_playerWeapon;
-        pcActor->m_shield = g_session.m_playerShield;
-        pcActor->m_accessory = g_session.m_playerAccessory;
-        pcActor->m_accessory2 = g_session.m_playerAccessory2;
-        pcActor->m_accessory3 = g_session.m_playerAccessory3;
-        pcActor->InvalidateBillboard();
-    }
 }
 
 CGameActor* ResolveNotifyEffectActor(CGameMode& mode, u32 actorId)
@@ -1672,12 +1651,15 @@ void ApplySkillMetadata(PLAYER_SKILL_INFO& skillInfo)
     const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillInfo.SKID);
     if (!metadata) {
         if (skillInfo.skillName.empty()) {
-            skillInfo.skillName = "Unknown Skill";
+            skillInfo.skillName = skillInfo.skillIdName.empty()
+                ? "Skill " + std::to_string(skillInfo.SKID) : skillInfo.skillIdName;
         }
         return;
     }
 
-    skillInfo.skillIdName = metadata->skillIdName;
+    if (skillInfo.skillIdName.empty()) {
+        skillInfo.skillIdName = metadata->skillIdName;
+    }
     if (skillInfo.skillName.empty()) {
         skillInfo.skillName = metadata->displayName.empty() ? metadata->skillIdName : metadata->displayName;
     }
@@ -1685,12 +1667,8 @@ void ApplySkillMetadata(PLAYER_SKILL_INFO& skillInfo)
         skillInfo.descriptionLines = metadata->descriptionLines;
     }
     if (skillInfo.skillMaxLv <= 0) {
-        skillInfo.skillMaxLv = static_cast<int>(metadata->levelSpCosts.size());
-    }
-    if (skillInfo.spcost <= 0 &&
-        skillInfo.level > 0 &&
-        skillInfo.level <= static_cast<int>(metadata->levelSpCosts.size())) {
-        skillInfo.spcost = metadata->levelSpCosts[skillInfo.level - 1];
+        skillInfo.skillMaxLv = metadata->maxLevel > 0
+            ? metadata->maxLevel : static_cast<int>(metadata->levelSpCosts.size());
     }
 }
 
@@ -1707,15 +1685,14 @@ bool BuildPlayerSkillListEntry(const u8* entry, PLAYER_SKILL_INFO& outSkill)
     outSkill.level = static_cast<int>(ReadLE16(entry + 6));
     outSkill.spcost = static_cast<int>(ReadLE16(entry + 8));
     outSkill.attackRange = static_cast<int>(ReadLE16(entry + 10));
+    size_t nameLength = 0;
+    while (nameLength < 24 && entry[12 + nameLength] != 0) {
+        ++nameLength;
+    }
+    outSkill.skillIdName.assign(reinterpret_cast<const char*>(entry + 12), nameLength);
     outSkill.upgradable = static_cast<int>(entry[36]);
     ApplySkillMetadata(outSkill);
     return outSkill.SKID != 0;
-}
-
-// Matches Ref Zc_Skillinfo_List filtering for ZC_SKILLINFO_LIST (0x010F) player skills.
-static bool IsPlayerSkillTreeSkid(int skid)
-{
-    return skid > 0 && skid < 0x40F;
 }
 
 static bool IsHomunSkillTreeSkid(int skid)
@@ -1764,9 +1741,7 @@ static void HandleSkillInfoListByTarget(CGameMode&, const PacketView& packet, Sk
         }
         const int skid = skillInfo.SKID;
         if (target == SkillInfoListTarget::Player) {
-            if (!IsPlayerSkillTreeSkid(skid)) {
-                continue;
-            }
+            // The server supplies this character's tree, including custom and newer IDs.
             g_session.SetSkillItem(skillInfo);
         } else if (target == SkillInfoListTarget::Homun) {
             if (!IsHomunSkillTreeSkid(skid)) {
@@ -1995,7 +1970,7 @@ void HandleNormalInventoryList(CGameMode&, const PacketView& packet)
     }
 }
 
-void HandleEquipInventoryList(CGameMode& mode, const PacketView& packet)
+void HandleEquipInventoryList(CGameMode&, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 4) {
         return;
@@ -2019,8 +1994,8 @@ void HandleEquipInventoryList(CGameMode& mode, const PacketView& packet)
         }
         g_session.AddInventoryItem(itemInfo);
     }
-    g_session.RebuildPlayerEquipmentAppearanceFromInventory();
-    SyncSessionAppearanceToLocalPlayer(mode);
+    // Item IDs and wear masks do not describe the server's visible appearance.
+    // Keep the character-selection look until actor sprite-change packets update it.
 }
 
 bool BuildStorageItemFromAddPacket(const PacketView& packet, ITEM_INFO& outItem)
@@ -2412,8 +2387,6 @@ void HandleEquipItemAck(CGameMode& mode, const PacketView& packet)
 
     g_session.ClearInventoryWearLocationMask(wearLocation, itemIndex);
     g_session.SetInventoryItemWearLocation(itemIndex, wearLocation);
-    g_session.RebuildPlayerEquipmentAppearanceFromInventory();
-    SyncSessionAppearanceToLocalPlayer(mode);
     DbgLog("[GameMode] equip ack index=%u wear=0x%04X ok=%d\n",
         itemIndex,
         static_cast<unsigned int>(wearLocation),
@@ -2442,8 +2415,6 @@ void HandleUnequipItemAck(CGameMode& mode, const PacketView& packet)
     }
 
     g_session.SetInventoryItemWearLocation(itemIndex, 0);
-    g_session.RebuildPlayerEquipmentAppearanceFromInventory();
-    SyncSessionAppearanceToLocalPlayer(mode);
     DbgLog("[GameMode] unequip ack index=%u wear=0x%04X ok=%d\n",
         itemIndex,
         static_cast<unsigned int>(wearLocation),
@@ -3512,6 +3483,7 @@ constexpr u8 kNotifyActMultiHitEndure = 9;
 constexpr u8 kNotifyActCriticalDamage = 10;
 constexpr u8 kNotifyActLuckyDodge = 11;
 constexpr int kDefaultAttackMotionTime = 1440;
+constexpr int kDefaultSkillMotionTime = 450;
 constexpr u32 kRefDoubleAttackTermMs = 200;
 
 struct ScheduledAttackHit {
@@ -3908,8 +3880,8 @@ u16 ResolveDisplayedSkillHitCount(u16 skillId, u16 level, u16 div)
     }
 
     switch (skillId) {
-    case 17: // MG_FIREBOLT
-    case 19: // MG_COLDBOLT
+    case 14: // MG_COLDBOLT
+    case 19: // MG_FIREBOLT
     case 20: // MG_LIGHTNINGBOLT
         return level > 1 ? level : 1;
     default:
@@ -3932,8 +3904,8 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
     }
 
     LuaSkillEffectInfo luaInfo;
-    if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && !luaInfo.effectIds.empty()) {
-        for (int effectId : luaInfo.effectIds) {
+    if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && !luaInfo.targetEffectIds.empty()) {
+        for (int effectId : luaInfo.targetEffectIds) {
             if (effectId > 0) {
                 targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
             }
@@ -3942,8 +3914,22 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
     }
 
     switch (skillId) {
-    case 17: // MG_FIREBOLT
+    case 17: // MG_FIREBALL
+    case 19: // MG_FIREBOLT
         targetActor->LaunchEffect(49, vector3d{}, 0.0f);
+        break;
+    case 14: // MG_COLDBOLT
+        targetActor->LaunchEffect(135, vector3d{}, 0.0f);
+        break;
+    case 20: // MG_LIGHTNINGBOLT
+        targetActor->LaunchEffect(29, vector3d{}, 0.0f);
+        break;
+    case 2413: // WM_METALICSOUND / custom BA_METALLICSOUND
+        targetActor->LaunchEffect(kRagEffectMetallicSoundHit, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kRagEffectMetallicSoundGround, vector3d{}, 0.0f);
+        break;
+    case 864: // Custom CL_METALLICFURY
+        targetActor->LaunchEffect(kRagEffectMetallicFury, vector3d{}, 0.0f);
         break;
     case kSkillIdGrimtooth:
         targetActor->LaunchEffect(static_cast<int>(kEffectIdGrimtoothImpact), vector3d{}, 0.0f);
@@ -3955,7 +3941,8 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
 
 void EmitSkillImpactEffects(CGameActor* targetActor, u16 skillId, u16 hitCountRaw)
 {
-    const int hitCount = (std::max)(1, static_cast<int>(hitCountRaw));
+    const bool isBolt = skillId == 14 || skillId == 19 || skillId == 20;
+    const int hitCount = isBolt ? (std::max)(1, static_cast<int>(hitCountRaw)) : 1;
     for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex) {
         EmitSkillImpactEffect(targetActor, skillId);
     }
@@ -4606,6 +4593,7 @@ struct UseSkillPacketInfo {
     int motionType = 7;
     int targetEffectId = -1;
     std::vector<int> impactEffectIds;
+    std::vector<int> sourceEffectIds;
     bool useTargetSlot = false;
     bool launchUseSkill = true;
 };
@@ -4618,13 +4606,25 @@ UseSkillPacketInfo ResolveUseSkillPacketInfo(u16 skillId)
     if (skillId == 24) { // AL_RUWACH
         info.launchUseSkill = false;
     }
+    if (skillId == 2422) { // WM_LULLABY_DEEPSLEEP / custom CL_DEEPSLEEPLULLABY
+        info.motionType = kGameActorSingStateId;
+        info.beginEffectId = -1;
+        info.targetEffectId = kRagEffectPerformanceNotes;
+    }
 
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo)) {
+        if (luaInfo.hasBeginEffectId) {
+            info.beginEffectId = luaInfo.beginEffectId;
+        }
+        if (luaInfo.hasBeginMotionType) {
+            info.motionType = luaInfo.beginMotionType;
+        }
         if (luaInfo.hasTargetEffectId) {
             info.targetEffectId = luaInfo.targetEffectId;
         }
-        info.impactEffectIds = luaInfo.effectIds;
+        info.impactEffectIds = luaInfo.targetEffectIds;
+        info.sourceEffectIds = luaInfo.effectIds;
         if (luaInfo.hasOnTarget) {
             info.useTargetSlot = luaInfo.onTarget;
         }
@@ -4731,14 +4731,27 @@ void MaybeStartGrimtoothSourcePresentation(CGameActor* sourceActor, u32 srcGid, 
         return;
     }
 
-    StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultAttackMotionTime);
+    StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultAttackMotionTime, kSkillIdGrimtooth);
     StartDirectedSkillBeginEffect(sourceActor, static_cast<int>(kEffectIdGrimtooth), targetPos);
 }
 
-void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs)
+void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
+    u16 skillId, CGameActor* targetActor)
 {
     if (!actor) {
         return;
+    }
+
+    const UseSkillPacketInfo packetInfo = skillId != 0 ? ResolveUseSkillPacketInfo(skillId) : UseSkillPacketInfo{};
+    if (skillId != 0) {
+        g_skillMgr.EnsureLoaded();
+        const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillId);
+        const PLAYER_SKILL_INFO* learned = g_session.GetSkillItemBySkillId(skillId);
+        const std::string name = metadata && !metadata->displayName.empty()
+            ? metadata->displayName : (learned ? learned->skillName : std::string());
+        if (!actor->BeginSkillPresentation(skillId, name, timeGetTime())) {
+            return;
+        }
     }
 
     actor->m_isSitting = 0;
@@ -4747,26 +4760,51 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     if (targetPos) {
         FaceActorTowardPosition(actor, *targetPos);
     }
-    actor->SetModifyFactorOfmotionSpeed(attackMotionMs > 0 ? attackMotionMs : kDefaultAttackMotionTime);
-    actor->SetState(kGameActorAttackStateId);
+    actor->SendMsg(actor, 83, 0, 0, 0);
+    const int durationMs = attackMotionMs > 0 ? attackMotionMs : kDefaultSkillMotionTime;
+    actor->SetModifyFactorOfmotionSpeed(durationMs);
+    int motionType = skillId != 0 ? packetInfo.motionType : kGameActorAttackStateId;
+    switch (motionType) {
+    case 0:
+    case kGameActorAttackStateId:
+    case 9:
+    case kGameActorSkillStateId:
+    case kGameActorDanceStateId:
+    case kGameActorSingStateId:
+        break;
+    default:
+        motionType = kGameActorSkillStateId;
+        break;
+    }
+    actor->SetState(motionType);
+    if ((motionType == kGameActorSkillStateId || motionType == kGameActorDanceStateId
+            || motionType == kGameActorSingStateId) && actor->m_actRes) {
+        const int frames = (std::max)(1, actor->m_actRes->GetMotionCount(actor->m_curAction));
+        actor->m_motionSpeed = (std::max)(1.0f, static_cast<float>(durationMs) / (24.0f * frames));
+    }
     actor->ProcessMotion();
     InvalidateActorBillboard(actor);
-}
 
-void StartSkillStateAnimation(CGameActor* actor, int stateId, u32 targetGid, const vector3d* targetPos)
-{
-    if (!actor) {
-        return;
+    if (packetInfo.launchUseSkill) {
+        CGameActor* effectActor = packetInfo.useTargetSlot && targetActor ? targetActor : actor;
+        for (int effectId : packetInfo.sourceEffectIds) {
+            if (effectId <= 0) {
+                continue;
+            }
+            if (CRagEffect* effect = effectActor->LaunchEffect(effectId, vector3d{}, 0.0f)) {
+                if (targetPos) {
+                    effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(targetPos), 0, 0);
+                }
+            }
+        }
+        if (skillId == 2413) {
+            actor->LaunchEffect(kRagEffectMetallicSound, vector3d{}, 0.0f);
+        } else if (skillId == 17 && targetActor && targetActor != actor) { // MG_FIREBALL
+            if (CRagEffect* effect = actor->LaunchEffect(24, vector3d{}, 0.0f)) {
+                effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(&targetActor->m_pos), 0, 0);
+            }
+        }
     }
-
-    actor->m_isSitting = 0;
-    actor->m_targetGid = targetGid;
-    StopActorMovementForAction(actor);
-    if (targetPos) {
-        FaceActorTowardPosition(actor, *targetPos);
-    }
-    actor->SetState(stateId);
-    InvalidateActorBillboard(actor);
 }
 
 vector3d ResolveSkillCellWorldPosition(const CWorld* world, int cellX, int cellY)
@@ -4814,7 +4852,24 @@ int ResolveGroundSkillEffectId(u16 skillId, u16 level)
         return 497;
     case 694: return 91;
     default:
-        return static_cast<int>(skillId);
+        return -1;
+    }
+}
+
+void EmitGroundSkillEffects(CGameMode& mode, u16 skillId, u16 level, const vector3d& position)
+{
+    LuaSkillEffectInfo luaInfo;
+    if (g_buabridge.GetSkillEffectInfoBySkillId(skillId, &luaInfo) && !luaInfo.groundEffectIds.empty()) {
+        for (int effectId : luaInfo.groundEffectIds) {
+            if (effectId > 0) {
+                SpawnWorldSkillEffect(mode, effectId, position);
+            }
+        }
+        return;
+    }
+    const int effectId = ResolveGroundSkillEffectId(skillId, level);
+    if (effectId > 0) {
+        SpawnWorldSkillEffect(mode, effectId, position);
     }
 }
 
@@ -5036,8 +5091,6 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     const int cellX = static_cast<int>(ReadLE16(packet.data + 10));
     const int cellY = static_cast<int>(ReadLE16(packet.data + 12));
     const u16 skillId = ReadLE16(packet.data + 14);
-    const PLAYER_SKILL_INFO* castSkillInfo = g_session.GetSkillItemBySkillId(static_cast<int>(skillId));
-    const u16 castLevel = static_cast<u16>(castSkillInfo && castSkillInfo->level > 0 ? castSkillInfo->level : 1);
     const u32 property = ReadLE32(packet.data + 16);
     const int castTimeMs = static_cast<int>(ReadLE32(packet.data + 20));
 
@@ -5054,6 +5107,14 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     const vector3d targetPos = targetActor
         ? targetActor->m_pos
         : ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
+
+    // Instant skills receive their action/effects from the successful-use packet.
+    if (castTimeMs <= 0) {
+        DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
+            srcGid, dstGid, static_cast<unsigned int>(skillId), static_cast<unsigned int>(property),
+            castTimeMs, cellX, cellY);
+        return;
+    }
 
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
@@ -5077,7 +5138,7 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     int motion = motionType;
     if (motion == 0 && castTimeMs > 0) {
         motion = kGameActorCastingStateId;
-    } else if ((motion == 5 || motion == 11 || motion == 12) && castTimeMs > 0) {
+    } else if ((motion == 5 || motion == 11 || motion == 12 || motion == kGameActorSkillStateId) && castTimeMs > 0) {
         motion = kGameActorCastingStateId;
     }
 
@@ -5100,7 +5161,7 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         } else {
             sourceActor->m_targetGid = dstGid;
             int motionToApply = motion;
-            // State 8 never calls SetAction; timed casts need the loop pose (13) so motion/granny state matches Ref.
+            // Hold the casting pose until the server releases or cancels the skill.
             if (castTimeMs > 0 && motionToApply == kGameActorCastingStateId) {
                 motionToApply = kGameActorCastingLoopStateId;
             }
@@ -5117,23 +5178,6 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     if (dstGid != 0 && targetActor && targetActor != sourceActor) {
         sourceActor->SendMsg(sourceActor, 81, dstGid, 0, 0);
         targetActor->SendMsg(targetActor, 86, 60, castTimeMs >> 4, 0);
-    }
-
-    // Ground timed casts: defer cell effect until server sends damage / ZC_SKILL_ENTRY / etc., not cast-start ack.
-    if (dstGid == 0 && castTimeMs <= 0) {
-        const int groundFx = ResolveGroundSkillEffectId(skillId, castLevel);
-        if (groundFx > 0) {
-            SpawnWorldSkillEffect(mode, groundFx, targetPos);
-        }
-    }
-
-    if (skillId == 17 && targetActor && targetActor != sourceActor) { // MG_FIREBOLT
-        if (CRagEffect* effect = sourceActor->LaunchEffect(24, vector3d{}, 0.0f)) {
-            effect->SendMsg(effect, 44, castLevel > 0 ? castLevel : 1, 0, 0);
-            effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(&targetActor->m_pos), 0, 0);
-        }
-    } else if (skillId == kSkillIdGrimtooth) {
-        MaybeStartGrimtoothSourcePresentation(sourceActor, srcGid, targetPos);
     }
 
     DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
@@ -5201,7 +5245,7 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
             return;
         }
     } else {
-        StartSkillSourceAnimation(sourceActor, &targetActor->m_pos, attackMT);
+        StartSkillSourceAnimation(sourceActor, &targetActor->m_pos, attackMT, skillId, targetActor);
     }
     QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
     EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
@@ -5265,7 +5309,7 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
                 cellY);
             MaybeStartGrimtoothSourcePresentation(sourceActor, srcGid, impactPos);
         } else {
-            StartSkillSourceAnimation(sourceActor, &impactPos, attackMT);
+            StartSkillSourceAnimation(sourceActor, &impactPos, attackMT, skillId, targetActor);
         }
     }
     if (skillId == kSkillIdGrimtooth && damage == -30000) {
@@ -5284,7 +5328,7 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
         EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
     }
 
-    SpawnWorldSkillEffect(mode, ResolveGroundSkillEffectId(skillId, level), impactPos);
+    EmitGroundSkillEffects(mode, skillId, level, impactPos);
     PlayGroundSkillImpactSound(skillId, impactPos);
     DbgLog("[GameMode] skill damage pos src=%u dst=%u skill=%u level=%u damage=%d div=%u cell=(%d,%d)\n",
         srcGid,
@@ -5315,16 +5359,11 @@ void HandleGroundSkillNotify(CGameMode& mode, const PacketView& packet)
 
     CGameActor* sourceActor = ResolveCombatActor(mode, srcGid, true);
     const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
-    const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
     if (sourceActor) {
         ClearAttachedSkillEffects(sourceActor);
-        if (packetInfo.motionType == kGameActorAttackStateId) {
-            StartSkillSourceAnimation(sourceActor, &worldPos, kDefaultAttackMotionTime);
-        } else if (packetInfo.motionType >= 0) {
-            StartSkillStateAnimation(sourceActor, packetInfo.motionType, 0, &worldPos);
-        }
+        StartSkillSourceAnimation(sourceActor, &worldPos, kDefaultSkillMotionTime, skillId);
     }
-    SpawnWorldSkillEffect(mode, ResolveGroundSkillEffectId(skillId, level), worldPos);
+    EmitGroundSkillEffects(mode, skillId, level, worldPos);
     PlayGroundSkillImpactSound(skillId, worldPos);
 
     DbgLog("[GameMode] ground skill src=%u skill=%u level=%u cell=(%d,%d)\n",
@@ -5354,9 +5393,10 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     CGameActor* sourceActor = srcGid != 0 ? ResolveCombatActor(mode, srcGid, true) : nullptr;
     CGameActor* targetActor = ResolveCombatActor(mode, dstGid, true);
     const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
-    if (sourceActor && targetActor && packetInfo.motionType >= 0) {
+    if (sourceActor && result != 0) {
         ClearAttachedSkillEffects(sourceActor);
-        StartSkillStateAnimation(sourceActor, packetInfo.motionType, dstGid, &targetActor->m_pos);
+        StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
+            kDefaultSkillMotionTime, skillId, targetActor);
     }
 
     if (targetActor && result != 0 && skillId == kSkillIdHeal) {
@@ -5366,21 +5406,24 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
             targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
         }
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
-        const int effectId = ResolveSkillVisibleEffectId(skillId, packetInfo, levelOrAmount);
-        const bool selfCast = sourceActor && sourceActor == targetActor;
-        const bool useTargetSlot = !selfCast
-            && (packetInfo.useTargetSlot || packetInfo.targetEffectId >= 0);
-        if (selfCast && effectId >= 0) {
-            targetActor->SendMsg(targetActor, 85, effectId, 0, 0);
-            if (skillId == 138) {
-                targetActor->LaunchEffect(493, vector3d{}, 0.0f);
+        if (!packetInfo.impactEffectIds.empty()) {
+            for (int effectId : packetInfo.impactEffectIds) {
+                if (effectId > 0) {
+                    targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
+                }
             }
         } else {
-            ClearAttachedSkillEffects(targetActor);
-            targetActor->SendMsg(targetActor, 86,
-                effectId >= 0 ? effectId : ResolveGroundSkillEffectId(skillId, levelOrAmount),
-                0,
-                0);
+            const int effectId = ResolveSkillVisibleEffectId(skillId, packetInfo, levelOrAmount);
+            const bool selfCast = sourceActor && sourceActor == targetActor;
+            if (selfCast && effectId >= 0) {
+                targetActor->SendMsg(targetActor, 85, effectId, 0, 0);
+                if (skillId == 138) {
+                    targetActor->LaunchEffect(493, vector3d{}, 0.0f);
+                }
+            } else if (effectId >= 0) {
+                ClearAttachedSkillEffects(targetActor);
+                targetActor->SendMsg(targetActor, 86, effectId, 0, 0);
+            }
         }
     }
 

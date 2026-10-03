@@ -35,7 +35,7 @@ std::string ReadFixedString(const unsigned char* buffer, int size, size_t* offse
     return value;
 }
 
-bool ResolveEffectTextureName(const std::string& rawName, std::string* outPath)
+bool ResolveEffectTextureName(const std::string& rawName, std::string* outPath, const char* effectFile = nullptr)
 {
     if (!outPath) {
         return false;
@@ -52,16 +52,25 @@ bool ResolveEffectTextureName(const std::string& rawName, std::string* outPath)
         candidate += ".bmp";
     }
 
-    const std::string prefixed = std::string("effect\\") + candidate;
-    if (g_fileMgr.IsDataExist(prefixed.c_str())) {
-        *outPath = prefixed;
-        return true;
+    std::vector<std::string> paths;
+    if (effectFile) {
+        std::string directory(effectFile);
+        std::replace(directory.begin(), directory.end(), '/', '\\');
+        const size_t separator = directory.find_last_of('\\');
+        if (separator != std::string::npos) {
+            paths.push_back(directory.substr(0, separator + 1) + candidate);
+        }
     }
-    if (g_fileMgr.IsDataExist(candidate.c_str())) {
-        *outPath = candidate;
-        return true;
+    paths.push_back(candidate);
+    paths.push_back(std::string("data\\texture\\effect\\") + candidate);
+    paths.push_back(std::string("effect\\") + candidate);
+    for (const std::string& path : paths) {
+        if (g_fileMgr.IsDataExist(path.c_str())) {
+            *outPath = path;
+            return true;
+        }
     }
-    *outPath = prefixed;
+    *outPath = std::string("effect\\") + candidate;
     return true;
 }
 
@@ -182,7 +191,10 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
 
         layer.m_ownedTexNames.reserve(static_cast<size_t>(layer.cTex));
         for (int texIndex = 0; texIndex < layer.cTex; ++texIndex) {
-            layer.m_ownedTexNames.push_back(ReadFixedString(buffer, size, &offset, 128));
+            const std::string rawName = ReadFixedString(buffer, size, &offset, 128);
+            std::string texturePath;
+            ResolveEffectTextureName(rawName, &texturePath, fName);
+            layer.m_ownedTexNames.push_back(texturePath);
         }
         for (int texIndex = 0; texIndex < layer.cTex; ++texIndex) {
             layer.m_texName[static_cast<size_t>(texIndex)] = layer.m_ownedTexNames[static_cast<size_t>(texIndex)].c_str();

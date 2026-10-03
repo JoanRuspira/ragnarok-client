@@ -27,6 +27,8 @@ struct GraphicsSettings {
     int textureUpscaleFactor;
     int anisotropicLevel;
     AntiAliasingMode antiAliasing;
+    int frameRate; // 0 follows the current monitor; otherwise an explicit FPS cap.
+    bool verticalSync;
 };
 
 GraphicsSettings LoadGraphicsSettings();

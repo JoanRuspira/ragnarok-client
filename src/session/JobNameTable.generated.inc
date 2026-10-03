@@ -1624,6 +1624,7 @@ static constexpr JobNameEntry kGeneratedJobNames[] = {
     { 0x4E2F, "EVENT_NPC_20015" },
     { 0x4E30, "EVENT_NPC_20016" },
     { 0x4E31, "EVENT_NPC_END" },
+    { 0x51A2, "MD_UNDEAD_MAGICIAN" },
     { 0x61A8, "EVENT_MON_BEGIN" },
     { 0x61A9, "EVENT_MON_25001" },
     { 0x61AA, "EVENT_MON_25002" },

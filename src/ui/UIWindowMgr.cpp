@@ -1603,7 +1603,7 @@ void UIWindowMgr::OnDraw() {
             g_renderer.Clear(0);
             RenderWallPaper();
             g_renderer.DrawScene();
-            g_renderer.Flip(false);
+            g_renderer.Flip();
             return;
         }
 
@@ -1635,7 +1635,7 @@ void UIWindowMgr::OnDraw() {
                     g_renderer.Clear(0);
                     RenderWallPaper();
                     g_renderer.DrawScene();
-                    g_renderer.Flip(false);
+                    g_renderer.Flip();
                     return;
                 }
             }
@@ -1685,7 +1685,7 @@ void UIWindowMgr::OnDraw() {
             clientHeight,
             clientWidth * static_cast<int>(sizeof(unsigned int)));
         if (presentedModernUiFrame) {
-            g_renderer.Flip(false);
+            g_renderer.Flip();
         }
     }
 

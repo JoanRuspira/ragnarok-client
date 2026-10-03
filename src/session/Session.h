@@ -278,6 +278,7 @@ public:
     const char* GetPlayerName() const;
     const char* GetJobDisplayName(int job) const;
     const char* GetJobName(int job) const;
+    const char* GetNonPcSpriteName(int job) const;
     const char* GetAttrWaveName(int attr) const;
     const char* GetJobHitWaveName(int job) const;
     const char* GetWeaponHitWaveName(int weapon) const;
@@ -319,6 +320,8 @@ private:
     std::list<PLAYER_SKILL_INFO> m_mercSkillItems;
     mutable std::mutex m_jobDisplayNameMutex;
     mutable std::unordered_map<int, std::string> m_jobDisplayNameCache;
+    mutable std::mutex m_nonPcSpriteNameMutex;
+    mutable std::unordered_map<int, std::string> m_nonPcSpriteNameCache;
     std::vector<ACTIVE_STATUS_ICON> m_activeStatusIcons;
     bool m_fogParameterTableLoaded;
     std::unordered_map<std::string, SessionFogParameter> m_fogParameterTable;

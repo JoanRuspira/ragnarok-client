@@ -9466,7 +9466,6 @@ int  CGameMode::OnRun() {
     const DWORD processUiEnd = GetTickCount();
     if (mapLoadingWasActive && !IsMapLoadingActive(*this)) {
         DbgLog("[GameMode] deferring first gameplay render after map loading transition for world '%s'\n", m_rswName);
-        Sleep(1);
         return 1;
     }
     if (IsMapLoadingActive(*this)) {
@@ -9478,7 +9477,7 @@ int  CGameMode::OnRun() {
             if (queuedLoadingOverlay) {
                 QueueCursorOverlayQuad(m_cursorActNum, m_mouseAnimStartTick);
                 g_renderer.DrawScene();
-                g_renderer.Flip(false);
+                g_renderer.Flip();
             } else {
                 g_windowMgr.OnDraw();
             }
@@ -9486,7 +9485,6 @@ int  CGameMode::OnRun() {
             g_windowMgr.OnDraw();
             DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
         }
-        Sleep(1);
         return 1;
     }
 
@@ -9498,7 +9496,6 @@ int  CGameMode::OnRun() {
         }
         DrawBootstrapScene(g_hMainWnd, *this);
         DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
-        Sleep(1);
         return 1;
     }
 
@@ -9560,7 +9557,7 @@ int  CGameMode::OnRun() {
     if (hasLegacyDevice) {
         const DWORD flipStart = GetTickCount();
         const double flipStartMs = trackMovePerfFrame ? QpcNowMs() : 0.0;
-        g_renderer.Flip(false);
+        g_renderer.Flip();
         const DWORD flipEnd = GetTickCount();
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.flipMs += QpcNowMs() - flipStartMs;
@@ -9590,7 +9587,7 @@ int  CGameMode::OnRun() {
         bool composedModernOverlayFrame = queuedModernOverlayFrame;
         const DWORD flipStart = GetTickCount();
         const double flipStartMs = trackMovePerfFrame ? QpcNowMs() : 0.0;
-        g_renderer.Flip(false);
+        g_renderer.Flip();
         const DWORD flipEnd = GetTickCount();
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.flipMs += QpcNowMs() - flipStartMs;
@@ -9651,9 +9648,6 @@ int  CGameMode::OnRun() {
         g_overlayMovePerfStats = OverlayMovePerfStats{};
     }
 
-    if (!isVulkanBackend) {
-        Sleep(1);
-    }
     return 1;
 }
 void CGameMode::OnUpdate() {
@@ -9710,8 +9704,9 @@ void CGameMode::OnUpdate() {
             SetRuntimeActorCameraLongitude(m_view ? m_view->GetCameraLongitude() : 0.0f);
             for (int step = 0; step < worldStepCount; ++step) {
                 m_world->UpdateActors();
-                CleanupPendingActorDespawns(*this);
             }
+            m_world->UpdateActorStates();
+            CleanupPendingActorDespawns(*this);
             if (m_view && m_world) {
                 m_world->ProcessActorSkillRechargeGages(m_view->GetViewMatrix(), m_view->GetCameraLongitude());
             }
@@ -9735,14 +9730,10 @@ void CGameMode::OnUpdate() {
         SetRuntimeActorCameraLongitude(m_view ? m_view->GetCameraLongitude() : 0.0f);
         for (int step = 0; step < worldStepCount; ++step) {
             m_world->UpdateActors();
-            CleanupPendingActorDespawns(*this);
         }
+        m_world->UpdateActorStates();
+        CleanupPendingActorDespawns(*this);
         if (m_world->m_player) {
-            // Present the local player at the current frame time even when the
-            // wider world simulation remains budgeted on the coarser step. The
-            // self actor now bypasses the shared billboard helper cache, so this
-            // no longer drags cached UI/billboard data around with it.
-            m_world->m_player->ProcessState();
             EnsureMapWeatherEffects(*this);
         }
         actorUpdateEnd = GetTickCount();

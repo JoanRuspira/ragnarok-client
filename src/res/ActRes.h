@@ -4,6 +4,9 @@
 #include <vector>
 #include <string>
 
+// ACT frame delays are stored in units of 25 milliseconds.
+constexpr float kActDelayUnitMs = 25.0f;
+
 struct CSprClip {
     int x;
     int y;

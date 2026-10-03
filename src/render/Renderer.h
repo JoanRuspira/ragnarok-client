@@ -143,6 +143,7 @@ public:
     bool DrawScene();
     void Clear(int color);
     void ClearBackground();
+    void Flip();
     void Flip(bool vertSync);
     
     void SetSize(int w, int h);

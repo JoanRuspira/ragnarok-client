@@ -5329,13 +5329,22 @@ void CWorld::UpdateBillboardActorFingerprint()
         if (!pc || IsPortalActorJob(pc->m_job)) {
             return;
         }
-        // Match coarse billboard tagging: 0.5 * pos → ~2 world-unit buckets so
-        // walking does not invalidate the cache every frame.
-        mix(static_cast<u64>(static_cast<u32>(std::lround(a->m_pos.x * 0.5f))));
-        mix(static_cast<u64>(static_cast<u32>(std::lround(a->m_pos.z * 0.5f))));
+        // Hover bounds must follow the same position and pose as the sprite.
+        auto mixFloat = [&](float value) {
+            u32 bits = 0;
+            std::memcpy(&bits, &value, sizeof(bits));
+            mix(bits);
+        };
+        mixFloat(a->m_pos.x);
+        mixFloat(a->m_pos.y);
+        mixFloat(a->m_pos.z);
+        mixFloat(a->m_roty);
         mix(static_cast<u64>(a->m_gid));
         mix(static_cast<u64>(static_cast<u32>(a->m_isMoving)));
         mix(static_cast<u64>(static_cast<u32>(a->m_curAction)));
+        mix(static_cast<u64>(static_cast<u32>(a->m_curMotion)));
+        mix(static_cast<u64>(static_cast<u32>(a->m_stateId)));
+        mix(static_cast<u64>(static_cast<u32>(a->m_isSitting)));
     };
     for (CGameActor* actor : m_actorList) {
         if (actor && actor != m_player) {
@@ -5854,14 +5863,27 @@ void CWorld::UpdateActors()
     }
 
     if (m_player) {
+        m_player->ProcessStatusEffects();
+    }
+
+    for (CGameActor* actor : m_actorList) {
+        if (!actor || actor == m_player) {
+            continue;
+        }
+        actor->ProcessStatusEffects();
+    }
+}
+
+void CWorld::UpdateActorStates()
+{
+    if (m_player) {
         m_player->ProcessState();
     }
 
     for (CGameActor* actor : m_actorList) {
-        if (!actor) {
-            continue;
+        if (actor && actor != m_player) {
+            actor->ProcessState();
         }
-        actor->ProcessState();
     }
 
     UpdateBillboardActorFingerprint();

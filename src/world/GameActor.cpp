@@ -71,13 +71,15 @@ constexpr int kPlayerBillboardComposeHeight = 128;
 constexpr int kPlayerBillboardAnchorX = 64;
 constexpr int kPlayerBillboardAnchorY = 110;
 constexpr int kSharedPlayerWarmupMotionLimit = 32;
-constexpr int kSharedNonPcWarmupMotionLimit = 32;
 constexpr int kItemBillboardComposeWidth = 96;
 constexpr int kItemBillboardComposeHeight = 96;
 constexpr int kItemBillboardAnchorX = 48;
 constexpr int kItemBillboardAnchorY = 72;
 constexpr float kGroundItemScreenScale = 1.6f;
 constexpr bool kLogActLoad = false;
+constexpr bool kLogMotionProgress = false;
+constexpr bool kLogBillboardDiagnostics = false;
+constexpr size_t kSharedBillboardCacheBudget = 64u * 1024u * 1024u;
 constexpr int kJobWarpNpc = 0x2D;
 constexpr int kJobWarpPortal = 0x80;
 constexpr int kJobPreWarpPortal = 0x81;
@@ -102,6 +104,7 @@ constexpr int kJobHiddenWarpNpc = 0x8B;
 constexpr const char* kLegacyMonsterSpriteRoot = "data\\sprite\\\xB8\xF3\xBD\xBA\xC5\xCD\\";
 constexpr float kDefaultMotionDelay = 4.0f;
 constexpr float kDefaultMotionSpeedFactor = 1.0f;
+constexpr float kMinimumMotionDelay = 1.0f / kActDelayUnitMs;
 constexpr float kAttackMotionFactor = 0.0023148148f;
 constexpr int kMoveStateId = 1;
 constexpr int kAttackStateId = kGameActorAttackStateId;
@@ -109,8 +112,10 @@ constexpr int kDeathStateId = kGameActorDeathStateId;
 constexpr int kSecondAttackStateId = 9;
 constexpr int kHitReactionStateId = 4;
 constexpr int kDeathAction = 64;
+constexpr int kNonPcDeathAction = 32;
 constexpr int kDeathMotion = 4;
 constexpr int kHitReactionAction = 48;
+constexpr int kNonPcHitReactionAction = 24;
 constexpr int kHitReactionMotion = 5;
 constexpr u32 kHitReactionDurationMs = 200;
 constexpr float kHitReactionKnockbackDist = 6.0f;
@@ -507,9 +512,9 @@ void ProcessRenderMotionWaveEvents(CRenderObject* object, CActRes* actRes, int a
 
     int previousMotion = object->m_oldMotion;
     if (object->m_oldBaseAction != motionWaveBaseAction) {
-        previousMotion = 0;
+        previousMotion = -1;
     }
-    previousMotion = (std::max)(0, (std::min)(previousMotion, motionCount - 1));
+    previousMotion = (std::max)(-1, (std::min)(previousMotion, motionCount - 1));
 
     PlayMotionWaveEvents(object, actRes, action, previousMotion, clampedMotion);
     object->m_oldBaseAction = motionWaveBaseAction;
@@ -571,11 +576,6 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
         return;
     }
 
-    if (hitInfo.attackedMotionTime > 0) {
-        actor.m_motionSpeed = (std::max)(kDefaultMotionSpeedFactor,
-            static_cast<float>(hitInfo.attackedMotionTime) * kAttackMotionFactor);
-    }
-
     if (hitInfo.damage != 0 && hitInfo.damageKind != 0) {
         actor.SendMsg(sourceActor,
             88,
@@ -589,6 +589,12 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
     }
 
     actor.SetState(kHitReactionStateId);
+    if (actor.m_stateId == kHitReactionStateId && hitInfo.attackedMotionTime > 0) {
+        const int frames = actor.m_actRes
+            ? (std::max)(1, actor.m_actRes->GetMotionCount(actor.m_curAction)) : 1;
+        actor.m_motionSpeed = (std::max)(kMinimumMotionDelay,
+            static_cast<float>(hitInfo.attackedMotionTime) / (static_cast<float>(frames) * kActDelayUnitMs));
+    }
 }
 
 bool IsPortalFallbackJob(int job)
@@ -1180,7 +1186,8 @@ struct SharedNonPcBillboardKey {
 };
 
 struct SharedNonPcBillboardValue {
-    CTexture* texture = nullptr;
+    std::shared_ptr<CTexture> texture;
+    u64 lastUsed = 0;
     tagRECT opaqueBounds{};
     int width = 0;
     int height = 0;
@@ -1188,25 +1195,47 @@ struct SharedNonPcBillboardValue {
     int anchorY = kPlayerBillboardAnchorY;
 };
 
-struct SharedNonPcBillboardStripKey {
-    int job = 0;
+u64 NextBillboardCacheUse()
+{
+    static u64 use = 0;
+    return ++use;
+}
 
-    bool operator<(const SharedNonPcBillboardStripKey& other) const
-    {
-        return job < other.job;
+template<typename Key>
+void TrimSharedBillboardCache(std::map<Key, SharedNonPcBillboardValue>& cache)
+{
+    size_t bytes = 0;
+    u64 newestUse = 0;
+    for (const auto& entry : cache) {
+        if (entry.second.texture) {
+            bytes += static_cast<size_t>(entry.second.texture->m_w)
+                * entry.second.texture->m_h * sizeof(unsigned int);
+        }
+        newestUse = (std::max)(newestUse, entry.second.lastUsed);
     }
-};
+    while (bytes > kSharedBillboardCacheBudget) {
+        auto oldest = cache.end();
+        for (auto it = cache.begin(); it != cache.end(); ++it) {
+            // Actors retain shared ownership of displayed poses. Never evict a
+            // live texture, or the new pose before its caller can acquire it.
+            if (it->second.texture.use_count() == 1 && it->second.lastUsed < newestUse
+                && (oldest == cache.end() || it->second.lastUsed < oldest->second.lastUsed)) {
+                oldest = it;
+            }
+        }
+        if (oldest == cache.end()) {
+            break;
+        }
+        bytes -= static_cast<size_t>(oldest->second.texture->m_w)
+            * oldest->second.texture->m_h * sizeof(unsigned int);
+        cache.erase(oldest);
+    }
+}
 
 std::map<SharedNonPcBillboardKey, SharedNonPcBillboardValue>& GetSharedNonPcBillboardCache()
 {
     static std::map<SharedNonPcBillboardKey, SharedNonPcBillboardValue> cache;
     return cache;
-}
-
-std::set<SharedNonPcBillboardStripKey>& GetPrimedNonPcBillboardStrips()
-{
-    static std::set<SharedNonPcBillboardStripKey> strips;
-    return strips;
 }
 
 struct SharedPlayerBillboardKey {
@@ -1462,7 +1491,9 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
     frameKey.motion = motionIndex;
 
     auto& sharedCache = GetSharedPlayerBillboardCache();
-    if (sharedCache.find(frameKey) != sharedCache.end()) {
+    const auto existing = sharedCache.find(frameKey);
+    if (existing != sharedCache.end()) {
+        existing->second.lastUsed = NextBillboardCacheUse();
         return true;
     }
 
@@ -1524,13 +1555,15 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
         kPlayerBillboardComposeWidth * static_cast<int>(sizeof(unsigned int)));
 
     SharedPlayerBillboardValue stripValue{};
-    stripValue.texture = stripTexture;
+    stripValue.texture.reset(stripTexture);
+    stripValue.lastUsed = NextBillboardCacheUse();
     stripValue.opaqueBounds = stripOpaqueBounds;
     stripValue.width = kPlayerBillboardComposeWidth;
     stripValue.height = kPlayerBillboardComposeHeight;
     stripValue.anchorX = kPlayerBillboardAnchorX;
     stripValue.anchorY = kPlayerBillboardAnchorY;
     sharedCache[frameKey] = stripValue;
+    TrimSharedBillboardCache(sharedCache);
     return true;
 }
 
@@ -1616,6 +1649,7 @@ void ReleaseActorBillboardTexture(CPc& actor)
         delete actor.m_billboardTexture;
     }
     actor.m_billboardTexture = nullptr;
+    actor.m_sharedBillboardTexture.reset();
     actor.m_billboardTextureOwned = 0;
 }
 
@@ -1624,6 +1658,13 @@ void ReleaseActorBillboardTexture(CPc& actor)
 void SetRuntimeActorCameraLongitude(float longitude)
 {
     g_runtimeActorCameraLongitude = longitude;
+}
+
+void ClearSharedActorBillboardCaches()
+{
+    GetSharedPlayerBillboardCache().clear();
+    GetSharedNonPcBillboardCache().clear();
+    GetPrimedPlayerBillboardStrips().clear();
 }
 
 int CGameObject::Get8Dir(float rot)
@@ -1639,6 +1680,35 @@ int CGameActor::Get8Dir(float rot)
 }
 
 namespace {
+
+float ResolveActorMotionProgress(const CRenderObject& object, CActRes* actRes, int action)
+{
+    const CGameActor* actor = dynamic_cast<const CGameActor*>(&object);
+    const float actionDelay = actRes ? actRes->GetDelay(action) : kDefaultMotionDelay;
+    if (actor && actor->m_isMoving && (action & ~7) == 8) {
+        // Keep the walk cycle tied to distance, including across path updates.
+        return (std::max)(0.0f, actor->m_dist) * 1.48f / actionDelay;
+    }
+
+    const float delay = object.m_motionType == 1 ? object.m_motionSpeed : actionDelay;
+    const float safeDelay = std::isfinite(delay) && delay > 0.0f
+        ? (std::max)(kMinimumMotionDelay, delay)
+        : kDefaultMotionDelay;
+    const u32 elapsedMs = timeGetTime() - object.m_stateStartTick;
+    return static_cast<float>(elapsedMs) / (safeDelay * kActDelayUnitMs);
+}
+
+int ResolveMotionFrame(float progress, int motionCount, bool holdLastFrame)
+{
+    if (motionCount <= 1 || !std::isfinite(progress) || progress <= 0.0f) {
+        return 0;
+    }
+    if (holdLastFrame && progress >= static_cast<float>(motionCount)) {
+        return motionCount - 1;
+    }
+    // Reduce before converting to int, even for long-lived looping actors.
+    return static_cast<int>(std::fmod(progress, static_cast<float>(motionCount)));
+}
 
 int ResolvePcMotionIndex(const CPc* actor, int action, const std::string& bodyActName)
 {
@@ -1656,12 +1726,7 @@ int ResolvePcMotionIndex(const CPc* actor, int action, const std::string& bodyAc
         return 0;
     }
 
-    const float motionDelay = (std::max)(0.0001f, bodyActRes->GetDelay(action));
-    const int motion = static_cast<int>(actor->m_dist * 1.48f / motionDelay);
-    if (motion < 0) {
-        return 0;
-    }
-    return motion % motionCount;
+    return ResolveMotionFrame(ResolveActorMotionProgress(*actor, bodyActRes, action), motionCount, false);
 }
 
 int ResolveAvailableActionIndex(CActRes* actRes, int action)
@@ -1704,29 +1769,11 @@ int ResolveTimedMotionIndex(const CGameActor& actor, CActRes* actRes, int action
         return 0;
     }
 
-    const u32 startTick = actor.m_stateStartTick != 0 ? actor.m_stateStartTick : timeGetTime();
-    const u32 elapsedMs = timeGetTime() - startTick;
-    const float stateTicks = static_cast<float>(elapsedMs) * 0.041666668f;
-    const float actionDelay = actRes->GetDelay(resolvedAction);
-    const bool useScaledAttackTiming = (actor.m_stateId == kAttackStateId || actor.m_stateId == kSecondAttackStateId)
-        && actor.m_attackMotion >= 0.0f
-        && actor.m_motionSpeed > 0.0f;
-    const bool useDeathTiming = actor.m_stateId == kDeathStateId;
-    const float motionDelay = useScaledAttackTiming
-        ? actor.m_motionSpeed
-        : (useDeathTiming
-            ? (std::max)(kDefaultMotionDelay, actionDelay)
-            : (std::max)(0.0001f, actionDelay));
-    const int motion = static_cast<int>(stateTicks / motionDelay);
-    if (motion < 0) {
-        return 0;
+    if (actor.m_isMotionFreezed || (actor.m_isMotionFinished && actor.m_motionType == 1)) {
+        return (std::max)(0, (std::min)(actor.m_curMotion, motionCount - 1));
     }
-
-    if (useDeathTiming) {
-        return (std::min)(motion, motionCount - 1);
-    }
-
-    return motion % motionCount;
+    return ResolveMotionFrame(ResolveActorMotionProgress(actor, actRes, resolvedAction),
+        motionCount, actor.m_motionType == 1);
 }
 
 bool IsTransientActionActive(const CGameActor& actor, CActRes* actRes, int action)
@@ -1756,30 +1803,16 @@ bool IsTransientActionActive(const CGameActor& actor, CActRes* actRes, int actio
         return false;
     }
 
-    const int motionCount = (std::max)(1, actRes->GetMotionCount(resolvedAction));
-    if (actor.m_stateId == kGameActorCastingStateId || actor.m_stateId == kGameActorCastingLoopStateId) {
-        return true;
-    }
-    const float actionDelay = actRes->GetDelay(resolvedAction);
-    const bool useScaledMotionTiming = (actor.m_stateId == kAttackStateId || actor.m_stateId == kSecondAttackStateId
-            || actor.m_stateId == kGameActorSkillStateId || actor.m_stateId == kGameActorDanceStateId
-            || actor.m_stateId == kGameActorSingStateId)
-        && actor.m_motionSpeed > 0.0f;
-    const bool useDeathTiming = actor.m_stateId == kDeathStateId;
-    const float motionDelay = useScaledMotionTiming
-        ? actor.m_motionSpeed
-        : (useDeathTiming
-            ? (std::max)(kDefaultMotionDelay, actionDelay)
-            : (std::max)(0.0001f, actionDelay));
-    const float totalDurationMs = static_cast<float>(motionCount) * motionDelay * 24.0f;
-    const u32 startTick = actor.m_stateStartTick != 0 ? actor.m_stateStartTick : timeGetTime();
-    const u32 elapsedMs = timeGetTime() - startTick;
-
-    if (useDeathTiming) {
+    if (actor.m_stateId == kDeathStateId) {
         return actor.m_vanishTime == 0 || timeGetTime() < actor.m_vanishTime;
     }
-
-    return static_cast<float>(elapsedMs) <= totalDurationMs + 50.0f;
+    if (actor.m_stateId != 0) {
+        // State processing owns completion, including freezes and recovery.
+        return true;
+    }
+    // The player's ready stance briefly follows the completed action.
+    const int motionCount = (std::max)(1, actRes->GetMotionCount(resolvedAction));
+    return ResolveActorMotionProgress(actor, actRes, resolvedAction) < static_cast<float>(motionCount);
 }
 
 int ResolveSpriteMotionIndex(const CGameActor& actor, CActRes* actRes, int action)
@@ -1790,7 +1823,7 @@ int ResolveSpriteMotionIndex(const CGameActor& actor, CActRes* actRes, int actio
 
     int resolvedAction = action;
     int motionCount = actRes->GetMotionCount(resolvedAction);
-    if (motionCount <= 1 && resolvedAction >= 8) {
+    if (motionCount <= 0 && resolvedAction >= 8) {
         resolvedAction -= 8;
         motionCount = actRes->GetMotionCount(resolvedAction);
     }
@@ -1802,12 +1835,7 @@ int ResolveSpriteMotionIndex(const CGameActor& actor, CActRes* actRes, int actio
         return ResolveTimedMotionIndex(actor, actRes, resolvedAction);
     }
 
-    const float motionDelay = (std::max)(0.0001f, actRes->GetDelay(resolvedAction));
-    const int motion = static_cast<int>(actor.m_dist * 1.48f / motionDelay);
-    if (motion < 0) {
-        return 0;
-    }
-    return motion % motionCount;
+    return ResolveMotionFrame(ResolveActorMotionProgress(actor, actRes, resolvedAction), motionCount, false);
 }
 
 int ResolvePcBodyActionFromView(float cameraLongitude, float actorRotationDegrees)
@@ -1926,23 +1954,8 @@ void ResolveTransientSpriteState(const CGameActor& actor,
         return;
     }
 
-    const u32 startTick = actor.m_stateStartTick != 0 ? actor.m_stateStartTick : timeGetTime();
-    const float stateTicks = static_cast<float>(timeGetTime() - startTick) * 0.041666668f;
-    const float motionSpeed = (std::max)(kDefaultMotionSpeedFactor, actor.m_motionSpeed);
-
-    if (actor.m_motionType == 1) {
-        const float motionProgress = stateTicks / motionSpeed;
-        int resolvedMotion = static_cast<int>(motionProgress) % motionCount;
-
-        const float loopProgress = motionProgress / static_cast<float>(motionCount);
-        if (loopProgress >= 1.0f) {
-            resolvedMotion = motionCount - 1;
-        }
-        *outMotion = resolvedMotion;
-        return;
-    }
-
-    *outMotion = static_cast<int>(stateTicks / motionSpeed) % motionCount;
+    *outMotion = ResolveMotionFrame(ResolveActorMotionProgress(actor, actRes, resolvedAction),
+        motionCount, actor.m_motionType == 1);
 }
 
 void LogDeathBillboardSelectionOnce(const CGameActor& actor,
@@ -2728,7 +2741,7 @@ CActRes* ResolvePcTransientActRes(const CGameActor& actor, int action)
     std::string secondaryOverlayActName;
     if (CActRes* secondaryOverlayActRes = tryOverlayAct(true, &secondaryOverlayActName)) {
         const bool isLocalPlayer = actor.m_gid != 0 && (actor.m_gid == g_session.m_gid || actor.m_gid == g_session.m_aid);
-        if (isLocalPlayer) {
+        if (kLogBillboardDiagnostics && isLocalPlayer) {
             static std::map<u32, std::string> loggedSecondaryAttackActs;
             const std::string logKey = std::to_string(action) + ":" + secondaryOverlayActName;
             if (loggedSecondaryAttackActs[actor.m_gid] != logKey) {
@@ -3061,7 +3074,7 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
 
     const bool isLocalPlayer = actor.m_gid != 0
         && (actor.m_gid == g_session.m_gid || actor.m_gid == g_session.m_aid);
-    if (isLocalPlayer) {
+    if (kLogBillboardDiagnostics && isLocalPlayer) {
         static std::map<u32, std::string> loggedBillboardResources;
         char logKey[2048] = {};
         std::snprintf(logKey,
@@ -3315,12 +3328,17 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
 
 bool ResolveNonPcSpritePaths(int job, char* actPath, char* sprPath)
 {
-    const char* const jobName = g_session.GetJobName(job);
-    if (!jobName || !*jobName || !actPath || !sprPath) {
+    if (!actPath || !sprPath) {
         return false;
     }
 
-    const char* const spriteName = ResolveNonPcSpriteAlias(job, jobName);
+    const char* spriteName = g_session.GetNonPcSpriteName(job);
+    if (!spriteName) {
+        spriteName = ResolveNonPcSpriteAlias(job, g_session.GetJobName(job));
+    }
+    if (!spriteName || !*spriteName) {
+        return false;
+    }
 
     if (job >= 1000) {
         if (job >= 6001 && job <= 6047) {
@@ -3336,6 +3354,10 @@ bool ResolveNonPcSpritePaths(int job, char* actPath, char* sprPath)
             return true;
         }
         if (TryResolveNonPcSpritePaths(kLegacyMonsterSpriteRoot, spriteName, actPath, sprPath)) {
+            return true;
+        }
+        // Modern NPC view IDs also occupy the range above 1000.
+        if (TryResolveNonPcSpritePaths("data\\sprite\\NPC\\", spriteName, actPath, sprPath)) {
             return true;
         }
         if (TryResolveNonPcSpritePaths("data\\sprite\\", spriteName, actPath, sprPath)) {
@@ -3433,7 +3455,9 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
 {
     SharedNonPcBillboardKey frameKey{ displayJob, bodyAction, motion };
     auto& sharedCache = GetSharedNonPcBillboardCache();
-    if (sharedCache.find(frameKey) != sharedCache.end()) {
+    const auto existing = sharedCache.find(frameKey);
+    if (existing != sharedCache.end()) {
+        existing->second.lastUsed = NextBillboardCacheUse();
         return true;
     }
 
@@ -3495,42 +3519,16 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
         composeConfig.width * static_cast<int>(sizeof(unsigned int)));
 
     SharedNonPcBillboardValue value{};
-    value.texture = texture;
+    value.texture.reset(texture);
+    value.lastUsed = NextBillboardCacheUse();
     value.opaqueBounds = opaqueBounds;
     value.width = composeConfig.width;
     value.height = composeConfig.height;
     value.anchorX = composeConfig.anchorX;
     value.anchorY = composeConfig.anchorY;
     sharedCache[frameKey] = value;
+    TrimSharedBillboardCache(sharedCache);
     return true;
-}
-
-void PrimeNonPcBillboardStrip(CPc& actor, int displayJob, int bodyAction)
-{
-    CActRes* actRes = nullptr;
-    CSprRes* sprRes = nullptr;
-    if (!ResolveCachedNonPcResourcesForActor(actor, &actRes, &sprRes) || !actRes || !sprRes) {
-        return;
-    }
-
-    SharedNonPcBillboardStripKey stripKey{ displayJob };
-    std::set<SharedNonPcBillboardStripKey>& primedStrips = GetPrimedNonPcBillboardStrips();
-    const bool inserted = primedStrips.insert(stripKey).second;
-    if (!inserted) {
-        return;
-    }
-
-    const int actionCount = static_cast<int>(actRes->actions.size());
-    for (int actionIndex = 0; actionIndex < actionCount; ++actionIndex) {
-        const int motionCount = actRes->GetMotionCount(actionIndex);
-        if (motionCount <= 1 || motionCount > kSharedNonPcWarmupMotionLimit) {
-            continue;
-        }
-
-        for (int motion = 0; motion < motionCount; ++motion) {
-            PopulateSharedNonPcBillboardFrame(actor, displayJob, actionIndex, motion);
-        }
-    }
 }
 
 bool FindOpaqueBounds(const unsigned int* pixels, int width, int height, tagRECT* outBounds)
@@ -3889,7 +3887,8 @@ float CActRes::GetDelay(int actionIndex) const {
     if (actionIndex < 0 || actionIndex >= static_cast<int>(m_delay.size())) {
         return kDefaultMotionDelay;
     }
-    return m_delay[actionIndex];
+    const float delay = m_delay[actionIndex];
+    return std::isfinite(delay) && delay > 0.0f ? (std::max)(kMinimumMotionDelay, delay) : kDefaultMotionDelay;
 }
 
 int CActRes::GetMotionCount(int actionIndex) const {
@@ -4012,14 +4011,15 @@ void CRenderObject::SetAction(int act, int mot, int type) {
         }
     }
     const float baseDelay = actRes ? actRes->GetDelay(act) : kDefaultMotionDelay;
-    const float clampedDelay = (std::max)(kDefaultMotionSpeedFactor, baseDelay);
+    const float clampedDelay = (std::max)(kMinimumMotionDelay, baseDelay);
 
     m_baseAction = act;
     m_curAction = act;
     m_curMotion = 0;
     m_oldBaseAction = act;
-    m_oldMotion = 0;
+    m_oldMotion = -1;
     m_motionType = type;
+    m_stateStartTick = timeGetTime();
     m_motionSpeed = clampedDelay * (m_modifyFactorOfmotionSpeed > 0.0f
         ? m_modifyFactorOfmotionSpeed
         : kDefaultMotionSpeedFactor);
@@ -4033,7 +4033,7 @@ void CRenderObject::SetAction(int act, int mot, int type) {
     if (CGameActor* actor = dynamic_cast<CGameActor*>(this)) {
         const bool isLocalPlayer = actor->m_gid != 0
             && (actor->m_gid == g_session.m_gid || actor->m_gid == g_session.m_aid);
-        if (isLocalPlayer && (act == 24 || act == 80 || act == 88)) {
+        if (kLogBillboardDiagnostics && isLocalPlayer && (act == 24 || act == 80 || act == 88)) {
             DbgLog("[ActorTrace] SetAction gid=%u state=%d act=%d mot=%d type=%d delay=%.3f motionSpeed=%.3f\n",
                 actor->m_gid,
                 actor->m_stateId,
@@ -4060,11 +4060,10 @@ void CRenderObject::ProcessMotion() {
     }
 
     const CGameActor* actorForMotionWaveTracking = dynamic_cast<CGameActor*>(this);
-    const bool trackMotionWaveEventsInProcessMotion = actorForMotionWaveTracking
-        && actorForMotionWaveTracking->m_isPc != 0;
+    const bool trackMotionWaveEventsInProcessMotion = actorForMotionWaveTracking != nullptr;
 
     if (trackMotionWaveEventsInProcessMotion && m_oldBaseAction != m_baseAction) {
-        m_oldMotion = 0;
+        m_oldMotion = -1;
     }
 
     const int resolvedAction = m_baseAction + Get8Dir(m_roty);
@@ -4075,7 +4074,7 @@ void CRenderObject::ProcessMotion() {
     if (CGameActor* actor = dynamic_cast<CGameActor*>(this)) {
         const bool isLocalPlayer = actor->m_gid != 0
             && (actor->m_gid == g_session.m_gid || actor->m_gid == g_session.m_aid);
-        if (isLocalPlayer && (actor->m_stateId == kAttackStateId
+        if (kLogMotionProgress && isLocalPlayer && (actor->m_stateId == kAttackStateId
                 || actor->m_stateId == kSecondAttackStateId
                 || actor->m_stateId == kGameActorPickupStateId)) {
             DbgLog("[ActorTrace] ProcessMotion gid=%u state=%d base=%d dir=%d resolved=%d available=%d cur=%d\n",
@@ -4109,15 +4108,13 @@ void CRenderObject::ProcessMotion() {
     }
 
     const int previousMotion = trackMotionWaveEventsInProcessMotion
-        ? (std::max)(0, (std::min)(m_oldMotion, motionCount - 1))
+        ? (std::max)(-1, (std::min)(m_oldMotion, motionCount - 1))
         : 0;
 
-    const float stateTicks = static_cast<float>(timeGetTime() - m_stateStartTick) * 0.041666668f;
-    const float motionSpeed = (std::max)(kDefaultMotionSpeedFactor, m_motionSpeed);
+    const float motionProgress = ResolveActorMotionProgress(*this, actRes, m_curAction);
 
     if (m_motionType == 1) {
-        const float motionProgress = stateTicks / motionSpeed;
-        m_curMotion = static_cast<int>(motionProgress) % motionCount;
+        m_curMotion = ResolveMotionFrame(motionProgress, motionCount, true);
 
         const float loopProgress = motionProgress / static_cast<float>(motionCount);
         if (loopProgress >= 1.0f) {
@@ -4134,7 +4131,7 @@ void CRenderObject::ProcessMotion() {
         return;
     }
 
-    m_curMotion = static_cast<int>(stateTicks / motionSpeed) % motionCount;
+    m_curMotion = ResolveMotionFrame(motionProgress, motionCount, false);
     if (trackMotionWaveEventsInProcessMotion) {
         PlayMotionWaveEvents(this, actRes, m_curAction, previousMotion, m_curMotion);
         m_oldBaseAction = m_baseAction;
@@ -4435,19 +4432,8 @@ u32 CGameActor::GetHideFadeAlpha(u32 now) const
     return (std::min)(255u, (remaining * 255u) / total);
 }
 
-u8 CGameActor::ProcessState() {
-    ProcessWillBeAttacked();
-
-    if (m_hideFadeEndTick != 0 && timeGetTime() >= m_hideFadeEndTick) {
-        const bool hiding = (m_effectState & kEffectStateHidingMask) != 0;
-        const bool specialHiding = (m_effectState & kEffectStateSpecialHidingMask) != 0;
-        const bool burrow = (m_effectState & kEffectStateBurrowMask) != 0;
-        CancelHideFade();
-        m_isVisibleBody = (!(hiding || specialHiding || burrow)) ? 1 : 0;
-        m_isVisible = (!(hiding || specialHiding)) ? 1 : 0;
-        m_shadowOn = (!(hiding || specialHiding || burrow)) ? 1 : 0;
-    }
-
+void CGameActor::ProcessStatusEffects()
+{
     if (m_effectState == 0) {
         m_effectLaunchCnt = 36000;
     } else {
@@ -4459,6 +4445,20 @@ u8 CGameActor::ProcessState() {
         }
 
         ++m_effectLaunchCnt;
+    }
+}
+
+u8 CGameActor::ProcessState() {
+    ProcessWillBeAttacked();
+
+    if (m_hideFadeEndTick != 0 && timeGetTime() >= m_hideFadeEndTick) {
+        const bool hiding = (m_effectState & kEffectStateHidingMask) != 0;
+        const bool specialHiding = (m_effectState & kEffectStateSpecialHidingMask) != 0;
+        const bool burrow = (m_effectState & kEffectStateBurrowMask) != 0;
+        CancelHideFade();
+        m_isVisibleBody = (!(hiding || specialHiding || burrow)) ? 1 : 0;
+        m_isVisible = (!(hiding || specialHiding)) ? 1 : 0;
+        m_shadowOn = (!(hiding || specialHiding || burrow)) ? 1 : 0;
     }
 
     if (m_isMoving) {
@@ -4548,9 +4548,17 @@ u8 CGameActor::ProcessState() {
     }
 
     switch (m_stateId) {
+    case 0:
+        // Player idle/sit motions select head poses, rather than animation frames.
+        if (!m_isPc || m_baseAction == 32) {
+            ProcessMotion();
+        }
+        break;
     case kMoveStateId:
         if (!m_isMoving) {
             SetState(0);
+        } else {
+            ProcessMotion();
         }
         break;
     case kGameActorPickupStateId:
@@ -4575,8 +4583,7 @@ u8 CGameActor::ProcessState() {
         }
         ProcessMotion();
         if (m_isMotionFinished && m_freezeEndTick == 0) {
-            m_stateId = 0;
-            m_attackMotion = -1.0f;
+            SetState(0);
         }
         break;
     }
@@ -4640,11 +4647,14 @@ u8 CGameActor::ProcessState() {
         ProcessMotion();
 
         const u32 elapsedMs = timeGetTime() - m_stateStartTick;
-        const float ratio = (std::min)(1.0f, static_cast<float>(elapsedMs) / static_cast<float>(kHitReactionDurationMs));
+        const int frames = m_actRes ? (std::max)(1, m_actRes->GetMotionCount(m_curAction)) : 1;
+        const float reactionDurationMs = (std::max)(1.0f,
+            static_cast<float>(frames) * m_motionSpeed * kActDelayUnitMs);
+        const float ratio = (std::min)(1.0f, static_cast<float>(elapsedMs) / reactionDurationMs);
         m_pos.x = m_moveStartPos.x + (m_moveEndPos.x - m_moveStartPos.x) * ratio;
         m_pos.z = m_moveStartPos.z + (m_moveEndPos.z - m_moveStartPos.z) * ratio;
 
-        if (m_isMotionFinished || elapsedMs >= kHitReactionDurationMs) {
+        if (m_isMotionFinished || static_cast<float>(elapsedMs) >= reactionDurationMs) {
             m_pos.x = m_moveEndPos.x;
             m_pos.z = m_moveEndPos.z;
             m_targetGid = 0;
@@ -4828,6 +4838,10 @@ void CGameActor::SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t 
 }
 
 void CGameActor::SetState(int state) {
+    if (state == kMoveStateId && m_stateId == kMoveStateId && m_baseAction == 8 && m_isMoving) {
+        // A path extension continues the current stride and sound event cursor.
+        return;
+    }
     if (m_stateId == kHitReactionStateId) {
         m_pos.x = m_damageDestX;
         m_pos.z = m_damageDestZ;
@@ -4842,7 +4856,7 @@ void CGameActor::SetState(int state) {
         m_attackMotion = -1.0f;
         m_isMotionFreezed = 0;
         SetAction(0, 4, 0);
-        m_isMotionFinished = 1;
+        m_isMotionFinished = m_isPc != 0;
         break;
     case kMoveStateId:
         m_attackMotion = -1.0f;
@@ -4920,7 +4934,7 @@ void CGameActor::SetState(int state) {
         m_targetGid = 0;
         m_isMotionFinished = 0;
         m_isMotionFreezed = 0;
-        SetAction(kHitReactionAction, kHitReactionMotion, 1);
+        SetAction(m_isPc != 0 ? kHitReactionAction : kNonPcHitReactionAction, kHitReactionMotion, 1);
         break;
     case kDeathStateId:
         m_isMoving = 0;
@@ -4934,13 +4948,37 @@ void CGameActor::SetState(int state) {
         m_isLieOnGround = 1;
         m_isMotionFinished = 0;
         m_isMotionFreezed = 0;
-        SetAction(kDeathAction, kDeathMotion, 1);
+        SetAction(m_isPc != 0 ? kDeathAction : kNonPcDeathAction, kDeathMotion, 1);
         break;
     default:
         return;
     }
 
     m_curAction = m_baseAction + Get8Dir(m_roty);
+    if (state == kHitReactionStateId) {
+        const int frames = m_actRes ? (std::max)(1, m_actRes->GetMotionCount(m_curAction)) : 1;
+        m_motionSpeed = static_cast<float>(kHitReactionDurationMs) / (static_cast<float>(frames) * kActDelayUnitMs);
+    }
+    if (state == kAttackStateId || state == kSecondAttackStateId) {
+        // Apply the same server timing to players and monsters. Use the ACT
+        // impact marker from the selected direction/weapon, including fast ASPD.
+        m_attackMotion = static_cast<float>(GetAttackMotion());
+        if (m_modifyFactorOfmotionSpeed2 > 0.0f) {
+            CActRes* actRes = ResolveRuntimeActorActRes(this);
+            if (m_isPc) {
+                if (CActRes* transientActRes = ResolvePcTransientActRes(*this, m_curAction)) {
+                    actRes = transientActRes;
+                }
+            }
+            const int attackAction = actRes ? ResolveAvailableActionIndex(actRes, m_curAction) : m_curAction;
+            const int motionCount = actRes ? actRes->GetMotionCount(attackAction) : 1;
+            const float timingFrames = m_attackMotion > 0.0f
+                ? m_attackMotion : static_cast<float>((std::max)(1, motionCount));
+            const float attackTimeMs = m_modifyFactorOfmotionSpeed2 / kAttackMotionFactor;
+            m_motionSpeed = (std::max)(kMinimumMotionDelay,
+                attackTimeMs / (timingFrames * kActDelayUnitMs));
+        }
+    }
     if (m_stateId == 0 || m_stateId == 6) {
         m_oldstateId = m_stateId;
     }
@@ -4948,7 +4986,7 @@ void CGameActor::SetState(int state) {
     m_stateStartTick = timeGetTime();
 
     const bool isLocalPlayer = m_gid != 0 && (m_gid == g_session.m_gid || m_gid == g_session.m_aid);
-    if (isLocalPlayer && (state == kAttackStateId || state == kSecondAttackStateId || state == kGameActorPickupStateId)) {
+    if (kLogBillboardDiagnostics && isLocalPlayer && (state == kAttackStateId || state == kSecondAttackStateId || state == kGameActorPickupStateId)) {
         DbgLog("[ActorTrace] SetState gid=%u state=%d base=%d cur=%d motion=%d roty=%.1f dir=%d atkMotion=%.1f weapon=%d shield=%d isPc=%d\n",
             m_gid,
             state,
@@ -5041,13 +5079,19 @@ void CGameActor::SetModifyFactorOfmotionSpeed(int attackMT)
 int CGameActor::GetAttackMotion()
 {
     CActRes* actRes = ResolveRuntimeActorActRes(this);
+    if (m_isPc) {
+        if (CActRes* transientActRes = ResolvePcTransientActRes(*this, m_curAction)) {
+            actRes = transientActRes;
+        }
+    }
     if (!actRes) {
         return 0;
     }
 
-    const int motionCount = actRes->GetMotionCount(m_curAction);
+    const int action = ResolveAvailableActionIndex(actRes, m_curAction);
+    const int motionCount = actRes->GetMotionCount(action);
     for (int motionIndex = 0; motionIndex < motionCount; ++motionIndex) {
-        const CMotion* motion = actRes->GetMotion(m_curAction, motionIndex);
+        const CMotion* motion = actRes->GetMotion(action, motionIndex);
         if (!motion || motion->eventId < 0) {
             continue;
         }
@@ -5586,6 +5630,9 @@ CPc::CPc()
     , m_cachedBillboardHeadPalette(-1)
     , m_cachedBillboardWeapon(-1)
     , m_cachedBillboardShield(-1)
+    , m_cachedBillboardAccessory(-1)
+    , m_cachedBillboardAccessory2(-1)
+    , m_cachedBillboardAccessory3(-1)
     , m_cachedNonPcResourceJob(-1)
     , m_cachedNonPcActRes(nullptr)
     , m_cachedNonPcSprRes(nullptr)
@@ -5648,6 +5695,7 @@ void CPc::SetState(int state)
             || m_pkState
             || previousState == kGameActorCastingStateId) {
             SetAction(32, 4, 0);
+            m_curAction = m_baseAction + Get8Dir(m_roty);
         }
         break;
     case kMoveStateId:
@@ -5668,13 +5716,6 @@ void CPc::SetState(int state)
 
         const bool secondAttack = state == kSecondAttackStateId || ResolvePcAttackAction(*this) == 88;
         CGameActor::SetState(secondAttack ? kSecondAttackStateId : kAttackStateId);
-        m_attackMotion = static_cast<float>(GetAttackMotion());
-        if (m_attackMotion > 0.0f && m_modifyFactorOfmotionSpeed2 > 0.0f) {
-            // Align the ACT hit frame with the server's attack motion time.
-            const float attackTimeMs = m_modifyFactorOfmotionSpeed2 / kAttackMotionFactor;
-            m_motionSpeed = (std::max)(kDefaultMotionSpeedFactor,
-                attackTimeMs / (m_attackMotion * 24.0f));
-        }
         break;
     }
     default:
@@ -5711,6 +5752,9 @@ void CPc::InvalidateBillboard()
     m_cachedBillboardHeadPalette = -1;
     m_cachedBillboardWeapon = -1;
     m_cachedBillboardShield = -1;
+    m_cachedBillboardAccessory = -1;
+    m_cachedBillboardAccessory2 = -1;
+    m_cachedBillboardAccessory3 = -1;
     const int displayJob = ResolveDisplayJob(*this);
     if ((!m_isPc || displayJob != m_job) && m_cachedNonPcResourceJob != displayJob) {
         m_cachedNonPcResourceJob = -1;
@@ -5803,6 +5847,7 @@ CActRes* ResolveRuntimeActorActRes(CRenderObject* object)
 bool CPc::EnsureBillboardTexture(float cameraLongitude)
 {
     const bool isVulkanBackend = GetRenderDevice().GetBackendType() == RenderBackendType::Vulkan;
+    const bool useSharedBillboardCache = GetRenderDevice().GetBackendType() != RenderBackendType::LegacyDirect3D7;
 
     const float actorRotationDegrees = std::isfinite(m_roty)
         ? NormalizeAngle360(m_roty)
@@ -5890,8 +5935,11 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         && m_cachedBillboardBodyPalette == (usePlayerStyleBillboard ? m_bodyPalette : 0)
         && m_cachedBillboardHeadPalette == (usePlayerStyleBillboard ? m_headPalette : 0)
         && m_cachedBillboardWeapon == (usePlayerStyleBillboard ? m_weapon : 0)
-        && m_cachedBillboardShield == (usePlayerStyleBillboard ? m_shield : 0)) {
-        if (isLocalPlayer) {
+        && m_cachedBillboardShield == (usePlayerStyleBillboard ? m_shield : 0)
+        && m_cachedBillboardAccessory == (usePlayerStyleBillboard ? m_accessory : 0)
+        && m_cachedBillboardAccessory2 == (usePlayerStyleBillboard ? m_accessory2 : 0)
+        && m_cachedBillboardAccessory3 == (usePlayerStyleBillboard ? m_accessory3 : 0)) {
+        if (kLogBillboardDiagnostics && isLocalPlayer) {
             static std::map<u32, u32> loggedBillboardCacheHits;
             const u32 cacheKey = (static_cast<u32>(displayJob & 0xFFFF) << 16)
                 ^ (static_cast<u32>(bodyAction & 0xFF) << 8)
@@ -5917,17 +5965,18 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
 
     const bool isTransientBillboard = bodyAction < baseBodyAction || bodyAction >= baseBodyAction + 8;
 
-    if (isVulkanBackend && !usePlayerStyleBillboard) {
-        PrimeNonPcBillboardStrip(*this, displayJob, bodyAction);
+    if (useSharedBillboardCache && !usePlayerStyleBillboard) {
+        PopulateSharedNonPcBillboardFrame(*this, displayJob, bodyAction, headMotion);
 
         const SharedNonPcBillboardKey sharedKey{ displayJob, bodyAction, headMotion };
         const auto& sharedCache = GetSharedNonPcBillboardCache();
         const auto sharedIt = sharedCache.find(sharedKey);
         if (sharedIt != sharedCache.end() && sharedIt->second.texture) {
-            if (m_billboardTexture != sharedIt->second.texture) {
+            if (m_billboardTexture != sharedIt->second.texture.get()) {
                 ReleaseActorBillboardTexture(*this);
             }
-            m_billboardTexture = sharedIt->second.texture;
+            m_sharedBillboardTexture = sharedIt->second.texture;
+            m_billboardTexture = m_sharedBillboardTexture.get();
             m_billboardTextureOwned = 0;
             m_billboardTextureWidth = sharedIt->second.width;
             m_billboardTextureHeight = sharedIt->second.height;
@@ -5943,12 +5992,15 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardHeadPalette = 0;
             m_cachedBillboardWeapon = 0;
             m_cachedBillboardShield = 0;
+            m_cachedBillboardAccessory = 0;
+            m_cachedBillboardAccessory2 = 0;
+            m_cachedBillboardAccessory3 = 0;
             return true;
         }
     }
 
-    if (isVulkanBackend && usePlayerStyleBillboard) {
-        PrimePlayerBillboardStrip(*this, sharedPlayerKey, displayJob, sex, bodyAction);
+    if (useSharedBillboardCache && usePlayerStyleBillboard) {
+        PopulateSharedPlayerBillboardFrame(*this, sharedPlayerKey, displayJob, sex, bodyAction, headMotion);
 
         SharedPlayerBillboardKey sharedKey = sharedPlayerKey;
         sharedKey.action = bodyAction;
@@ -5956,10 +6008,11 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         const auto& sharedCache = GetSharedPlayerBillboardCache();
         const auto sharedIt = sharedCache.find(sharedKey);
         if (sharedIt != sharedCache.end() && sharedIt->second.texture) {
-            if (m_billboardTexture != sharedIt->second.texture) {
+            if (m_billboardTexture != sharedIt->second.texture.get()) {
                 ReleaseActorBillboardTexture(*this);
             }
-            m_billboardTexture = sharedIt->second.texture;
+            m_sharedBillboardTexture = sharedIt->second.texture;
+            m_billboardTexture = m_sharedBillboardTexture.get();
             m_billboardTextureOwned = 0;
             m_billboardTextureWidth = sharedIt->second.width;
             m_billboardTextureHeight = sharedIt->second.height;
@@ -5975,6 +6028,9 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardHeadPalette = m_headPalette;
             m_cachedBillboardWeapon = m_weapon;
             m_cachedBillboardShield = m_shield;
+            m_cachedBillboardAccessory = m_accessory;
+            m_cachedBillboardAccessory2 = m_accessory2;
+            m_cachedBillboardAccessory3 = m_accessory3;
             return true;
         }
     }
@@ -6027,7 +6083,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         return false;
     }
 
-    if (isLocalPlayer) {
+    if (kLogBillboardDiagnostics && isLocalPlayer) {
         static std::map<u32, u32> loggedBillboardCompose;
         const u32 composeKey = (static_cast<u32>(displayJob & 0xFFFF) << 16)
             ^ (static_cast<u32>(bodyAction & 0xFF) << 8)
@@ -6130,10 +6186,15 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     m_cachedBillboardHeadPalette = resolvedHeadPalette;
     m_cachedBillboardWeapon = usePlayerStyleBillboard ? m_weapon : 0;
     m_cachedBillboardShield = usePlayerStyleBillboard ? m_shield : 0;
+    m_cachedBillboardAccessory = usePlayerStyleBillboard ? m_accessory : 0;
+    m_cachedBillboardAccessory2 = usePlayerStyleBillboard ? m_accessory2 : 0;
+    m_cachedBillboardAccessory3 = usePlayerStyleBillboard ? m_accessory3 : 0;
 
-    if (isVulkanBackend && !usePlayerStyleBillboard && m_billboardTexture) {
+    if (useSharedBillboardCache && !usePlayerStyleBillboard && m_billboardTexture) {
         SharedNonPcBillboardValue value{};
-        value.texture = m_billboardTexture;
+        m_sharedBillboardTexture.reset(m_billboardTexture);
+        value.texture = m_sharedBillboardTexture;
+        value.lastUsed = NextBillboardCacheUse();
         value.opaqueBounds = opaqueBounds;
         value.width = m_billboardTextureWidth;
         value.height = m_billboardTextureHeight;
@@ -6142,11 +6203,14 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
 
         GetSharedNonPcBillboardCache()[SharedNonPcBillboardKey{ displayJob, bodyAction, headMotion }] = value;
         m_billboardTextureOwned = 0;
+        TrimSharedBillboardCache(GetSharedNonPcBillboardCache());
     }
 
-    if (isVulkanBackend && usePlayerStyleBillboard && m_billboardTexture) {
+    if (useSharedBillboardCache && usePlayerStyleBillboard && m_billboardTexture) {
         SharedPlayerBillboardValue value{};
-        value.texture = m_billboardTexture;
+        m_sharedBillboardTexture.reset(m_billboardTexture);
+        value.texture = m_sharedBillboardTexture;
+        value.lastUsed = NextBillboardCacheUse();
         value.opaqueBounds = opaqueBounds;
         value.width = m_billboardTextureWidth;
         value.height = m_billboardTextureHeight;
@@ -6158,6 +6222,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         sharedKey.motion = headMotion;
         GetSharedPlayerBillboardCache()[sharedKey] = value;
         m_billboardTextureOwned = 0;
+        TrimSharedBillboardCache(GetSharedPlayerBillboardCache());
     }
 
     return true;

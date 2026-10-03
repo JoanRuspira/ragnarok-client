@@ -792,33 +792,37 @@ void C3dActor::SetFrame(int frame)
 
     m_node->SetFrame(frame);
     m_curMotion = frame;
+    m_animationFrame = static_cast<double>(frame);
+    m_lastAnimationTime = std::chrono::steady_clock::now();
     m_isMatrixNeedUpdate = 1;
 }
 
 void C3dActor::AdvanceFrame()
 {
-    if (!m_node || m_animType == 0) {
+    const auto now = std::chrono::steady_clock::now();
+    const double elapsedSeconds = std::chrono::duration<double>(now - m_lastAnimationTime).count();
+    m_lastAnimationTime = now;
+    if (!m_node || m_animType == 0 || !std::isfinite(m_animSpeed) || m_animSpeed <= 0.0f) {
         return;
     }
 
-    const int frame = m_curMotion;
-    SetFrame(frame);
-
-    int nextFrame = frame + static_cast<int>(m_animSpeed * 100.0f);
-    if (nextFrame == frame) {
-        nextFrame = frame + 1;
+    // Match the previous 60 Hz animation speed while allowing fractional steps
+    // and retaining elapsed time when distant background updates are skipped.
+    const double frameStep = (std::max)(1.0, static_cast<double>(m_animSpeed) * 100.0);
+    m_animationFrame += elapsedSeconds * 60.0 * frameStep;
+    if (m_animType == 2) {
+        m_animationFrame = std::fmod(m_animationFrame, static_cast<double>((std::max)(1, m_animLen)));
+    } else {
+        m_animationFrame = (std::min)(m_animationFrame,
+            static_cast<double>((std::max)(0, m_animLen - 1)));
     }
 
-    if (m_animType == 1) {
-        if (m_animLen > 0 && nextFrame >= m_animLen) {
-            nextFrame = frame;
-        }
-    } else if (m_animType == 2) {
-        const int animLen = m_animLen > 0 ? m_animLen : 1;
-        nextFrame %= animLen;
+    const int frame = static_cast<int>(m_animationFrame);
+    if (frame != m_curMotion) {
+        m_node->SetFrame(frame);
+        m_curMotion = frame;
+        m_isMatrixNeedUpdate = 1;
     }
-
-    m_curMotion = nextFrame;
 }
 
 void C3dActor::UpdateMatrix()

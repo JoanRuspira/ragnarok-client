@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include "render3d/RenderDevice.h"
+#include "render3d/GraphicsSettings.h"
 #include "render3d/Device.h"
 #include "render3d/D3dutil.h"
 #include "res/Bitmap.h"
@@ -828,6 +829,10 @@ bool CRenderer::DrawScene() {
 
     m_renderDevice->EndScene();
     return true;
+}
+
+void CRenderer::Flip() {
+    Flip(GetCachedGraphicsSettings().verticalSync);
 }
 
 void CRenderer::Flip(bool vertSync) {

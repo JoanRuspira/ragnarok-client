@@ -36,6 +36,8 @@ constexpr DefaultIniValue kDefaultIniValues[] = {
     { "Graphics", "TextureUpscale", "1" },
     { "Graphics", "AnisotropicLevel", "1" },
     { "Graphics", "AntiAliasing", "0" },
+    { "Graphics", "FrameRate", "0" },
+    { "Graphics", "VerticalSync", "1" },
     { "OptionWnd", "X", "0" },
     { "OptionWnd", "Y", "0" },
     { "OptionWnd", "W", "308" },

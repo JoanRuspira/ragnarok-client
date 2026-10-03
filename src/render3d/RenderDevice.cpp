@@ -1772,13 +1772,15 @@ public:
         m_hwnd = hwnd;
 
         DXGI_SWAP_CHAIN_DESC swapChainDesc{};
-        swapChainDesc.BufferCount = 1;
+        swapChainDesc.BufferCount = 2;
         swapChainDesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swapChainDesc.OutputWindow = hwnd;
         swapChainDesc.SampleDesc.Count = 1;
         swapChainDesc.Windowed = TRUE;
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        // Native UI fallbacks draw through GDI on the HWND. Keep the compatible
+        // bitblt model; flip-model presentation would hide that interface.
 
         D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
         const D3D_FEATURE_LEVEL featureLevels[] = {
@@ -1826,6 +1828,16 @@ public:
                 *outResult = result;
             }
             return false;
+        }
+
+        IDXGIDevice1* dxgiDevice = nullptr;
+        if (SUCCEEDED(m_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)))) {
+            const HRESULT latencyHr = dxgiDevice->SetMaximumFrameLatency(1);
+            if (FAILED(latencyHr)) {
+                DbgLog("[Render] D3D11 frame-latency limit failed hr=0x%08X.\n",
+                    static_cast<unsigned int>(latencyHr));
+            }
+            SafeRelease(dxgiDevice);
         }
 
         if (!RefreshRenderTarget() || !CreatePipelineResources()) {
@@ -2757,6 +2769,11 @@ private:
         if (!m_swapChain || m_renderWidth <= 0 || m_renderHeight <= 0) {
             return;
         }
+        // The context also owns references to bound views. Release those before
+        // ResizeBuffers, otherwise a live back-buffer binding prevents resizing.
+        m_context->OMSetRenderTargets(0, nullptr, nullptr);
+        ID3D11ShaderResourceView* clearViews[2] = { nullptr, nullptr };
+        m_context->PSSetShaderResources(0, 2, clearViews);
         SafeRelease(m_depthStencilView);
         SafeRelease(m_depthStencilTexture);
         SafeRelease(m_renderTargetView);

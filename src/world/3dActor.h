@@ -4,6 +4,7 @@
 #include "res/ModelRes.h"
 
 #include <array>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -79,4 +80,8 @@ public:
     bool m_forceDoubleSided;
     std::string m_debugModelPath;
     std::string m_debugNodeName;
+
+private:
+    double m_animationFrame = 0.0;
+    std::chrono::steady_clock::time_point m_lastAnimationTime{};
 };

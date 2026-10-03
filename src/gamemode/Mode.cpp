@@ -3,16 +3,94 @@
 #include "GameMode.h"
 #include "DebugLog.h"
 #include "core/ClientInfoLocale.h"
+#include "core/Timer.h"
 #include "qtui/QtUiRuntime.h"
 #include "render/Renderer.h"
 #include "render3d/RenderDevice.h"
+#include "render3d/GraphicsSettings.h"
 #include "res/Texture.h"
 #include "ui/UIWindowMgr.h"
 #include "main/WinMain.h"
+#include "world/GameActor.h"
 #include <cstring>
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <windows.h>
 
 namespace {
+
+void RefreshFrameRate()
+{
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point nextRefresh{};
+    static unsigned int activeFrameRate = 0;
+    const auto now = Clock::now();
+    if (now < nextRefresh) {
+        return;
+    }
+    nextRefresh = now + std::chrono::seconds(1);
+
+    const int requestedFrameRate = GetCachedGraphicsSettings().frameRate;
+    unsigned int frameRate = requestedFrameRate > 0
+        ? static_cast<unsigned int>(requestedFrameRate) : 60u;
+#if RO_PLATFORM_WINDOWS
+    if (requestedFrameRate == 0) {
+        MONITORINFOEXW monitorInfo{};
+        monitorInfo.cbSize = sizeof(monitorInfo);
+        DEVMODEW displayMode{};
+        displayMode.dmSize = sizeof(displayMode);
+        const HMONITOR monitor = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
+        if (GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&monitorInfo))
+            && EnumDisplaySettingsW(monitorInfo.szDevice, ENUM_CURRENT_SETTINGS, &displayMode)
+            && displayMode.dmDisplayFrequency > 1) {
+            frameRate = (std::max)(24u, (std::min)(360u,
+                static_cast<unsigned int>(displayMode.dmDisplayFrequency)));
+        }
+    }
+#endif
+    if (frameRate != activeFrameRate) {
+        InitTimer(frameRate);
+        activeFrameRate = frameRate;
+        DbgLog("[Mode] Frame pacing target=%u FPS (%s), verticalSync=%d\n",
+            frameRate, requestedFrameRate == 0 ? "automatic" : "configured",
+            GetCachedGraphicsSettings().verticalSync ? 1 : 0);
+    }
+}
+
+void RecordFramePacing()
+{
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point previousFrame{};
+    static Clock::time_point reportStart{};
+    static std::array<double, 2048> intervals{};
+    static size_t count = 0;
+    const auto now = Clock::now();
+    if (previousFrame == Clock::time_point{}) {
+        previousFrame = now;
+        reportStart = now;
+        return;
+    }
+    const double intervalMs = std::chrono::duration<double, std::milli>(now - previousFrame).count();
+    previousFrame = now;
+    if (count < intervals.size()) {
+        intervals[count++] = intervalMs;
+    }
+    if (now - reportStart < std::chrono::seconds(5)) {
+        return;
+    }
+    double totalMs = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        totalMs += intervals[i];
+    }
+    std::sort(intervals.begin(), intervals.begin() + count);
+    const double meanMs = totalMs / static_cast<double>(count);
+    DbgLog("[FramePacing] frames=%zu fps=%.2f mean=%.3fms p95=%.3fms p99=%.3fms max=%.3fms\n",
+        count, 1000.0 / meanMs, meanMs, intervals[(count - 1) * 95 / 100],
+        intervals[(count - 1) * 99 / 100], intervals[count - 1]);
+    count = 0;
+    reportStart = now;
+}
 
 std::string ChooseRandomLoadingWallpaper()
 {
@@ -99,6 +177,8 @@ bool QueueLoadingMenuOverlayQuad(int width, int height)
 
 void DrawLoadingScreenFrame(const char* message, float progress)
 {
+    RefreshFrameRate();
+    WaitForNextFrame();
     const std::string wallpaperName = ChooseRandomLoadingWallpaper();
     g_windowMgr.ShowLoadingScreen(wallpaperName, message ? message : "Loading...", progress);
     g_windowMgr.OnProcess();
@@ -113,7 +193,7 @@ void DrawLoadingScreenFrame(const char* message, float progress)
             g_renderer.Clear(0);
             if (QueueLoadingMenuOverlayQuad(clientWidth, clientHeight)) {
                 g_renderer.DrawScene();
-                g_renderer.Flip(false);
+                g_renderer.Flip();
             } else {
                 g_windowMgr.OnDraw();
             }
@@ -233,8 +313,14 @@ void CModeMgr::Run(int startMode, const char* worldName)
     MSG msg{};
     while (m_loopCond)
     {
-        if (PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE))
-        {
+        RefreshFrameRate();
+        WaitForNextFrame();
+        RecordFramePacing();
+
+        // Pump input after the wait so this frame sees the latest events.
+        // Bound the work so continuous mouse/window messages cannot starve rendering.
+        for (unsigned int messages = 0; m_loopCond && messages < 256
+            && PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE); ++messages) {
             if (msg.message == WM_QUIT) {
                 m_loopCond = 0;
                 break;
@@ -242,7 +328,10 @@ void CModeMgr::Run(int startMode, const char* worldName)
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
         }
-        else {
+        if (!m_loopCond) {
+            break;
+        }
+        {
             const bool reloadCurrentMode = m_curMode
                 && m_curModeType == m_nextModeType
                 && std::strncmp(m_curModeName, m_nextModeName, sizeof(m_curModeName)) != 0;
@@ -268,10 +357,10 @@ void CModeMgr::Run(int startMode, const char* worldName)
 
             if (m_curMode) {
                 ProcessQtUiRuntimeEvents();
-                m_curMode->OnRun();
-                RecordMainWindowFrame();
-            } else {
-                Sleep(1);
+                if (m_loopCond) {
+                    m_curMode->OnRun();
+                    RecordMainWindowFrame();
+                }
             }
         }
     }
@@ -292,4 +381,5 @@ void CModeMgr::Run(int startMode, const char* worldName)
             m_curModeName);
         m_curMode = nullptr;
     }
+    ClearSharedActorBillboardCaches();
 }

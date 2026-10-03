@@ -1343,7 +1343,7 @@ void CLoginMode::OnUpdate() {
         if (queuedUi) {
             QueueMenuCursorOverlayQuad(m_cursorActNum, m_mouseAnimStartTick);
             g_renderer.DrawScene();
-            g_renderer.Flip(false);
+            g_renderer.Flip();
         } else {
             g_windowMgr.OnDraw();
             if (!IsQtUiRuntimeEnabled()) {
@@ -1357,7 +1357,6 @@ void CLoginMode::OnUpdate() {
         DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
     }
 
-    Sleep(1);
 }
 
 msgresult_t CLoginMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra) {

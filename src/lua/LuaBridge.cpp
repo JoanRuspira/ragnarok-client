@@ -154,6 +154,15 @@ bool TryGetLuaTableIntegerField(lua_State* state, int tableIndex, const char* fi
 	return true;
 }
 
+bool TryGetLuaJobEnumValue(lua_State* state, const char* name, int* outValue)
+{
+	lua_getglobal(state, "jobtbl");
+	const bool found = lua_istable(state, -1)
+		&& TryGetLuaTableIntegerField(state, -1, name, outValue);
+	lua_pop(state, 1);
+	return found || TryGetLuaGlobalInteger(state, name, outValue);
+}
+
 bool TryGetLuaTableBooleanField(lua_State* state, int tableIndex, const char* fieldName, bool* outValue)
 {
 	if (!state || !fieldName || !*fieldName || !outValue) {
@@ -400,7 +409,7 @@ void PopulateJobEnumCompatibilityGlobals(lua_State* state, const std::vector<uns
 
 		if (seenTokens.insert(token).second && std::strncmp(token.c_str(), "JT_", 3) == 0) {
 			int existingValue = 0;
-			if (!TryGetLuaGlobalInteger(state, token.c_str(), &existingValue)) {
+			if (!TryGetLuaJobEnumValue(state, token.c_str(), &existingValue)) {
 				int value = 0;
 				if (!TryGetGeneratedJobIdFromGlobalName(token.c_str(), &value)) {
 					value = AllocateSyntheticLuaTableValue("JT_ENUM", token.c_str());
@@ -414,6 +423,7 @@ void PopulateJobEnumCompatibilityGlobals(lua_State* state, const std::vector<uns
 						value);
 				}
 			} else {
+				SetLuaGlobalInteger(state, token.c_str(), existingValue);
 				SetJobTblEntry(state, token.c_str(), existingValue);
 			}
 		}
@@ -542,10 +552,13 @@ void MergeGeneratedJobCompatibility(lua_State* state)
 		std::string globalName = "JT_";
 		globalName += entry.name;
 
-		SetLuaGlobalInteger(state, globalName.c_str(), entry.job);
+		// Archive identities take precedence over compiled compatibility defaults.
+		int value = entry.job;
+		TryGetLuaJobEnumValue(state, globalName.c_str(), &value);
+		SetLuaGlobalInteger(state, globalName.c_str(), value);
 
-		SetJobTblEntry(state, globalName.c_str(), entry.job);
-		SetPcJobTbl2Entry(state, globalName.c_str(), entry.job);
+		SetJobTblEntry(state, globalName.c_str(), value);
+		SetPcJobTbl2Entry(state, globalName.c_str(), value);
 	}
 }
 
@@ -963,6 +976,8 @@ bool CLuaBridge::LoadRagnarokScript(const char* relativePath)
 
 	if (PathEndsWithInsensitive(normalized, "lua files\\datainfo\\jobname.lub")
 		|| PathEndsWithInsensitive(normalized, "lua files\\datainfo\\jobname_f.lub")) {
+		// JobNameTable is indexed by the real IDs from this archive's jobtbl.
+		LoadRagnarokScriptOnce("lua files\\datainfo\\npcidentity.lub");
 		PrepareJobNameCompatibility(m_state);
 	}
 

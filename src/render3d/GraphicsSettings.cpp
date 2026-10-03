@@ -16,6 +16,8 @@ constexpr char kGraphicsWindowModeValue[] = "WindowMode";
 constexpr char kGraphicsTextureUpscaleValue[] = "TextureUpscale";
 constexpr char kGraphicsAnisotropicValue[] = "AnisotropicLevel";
 constexpr char kGraphicsAntiAliasingValue[] = "AntiAliasing";
+constexpr char kGraphicsFrameRateValue[] = "FrameRate";
+constexpr char kGraphicsVerticalSyncValue[] = "VerticalSync";
 constexpr int kMinWidth = 640;
 constexpr int kMinHeight = 480;
 constexpr int kMaxWidth = 7680;
@@ -46,6 +48,8 @@ GraphicsSettings GetDefaultGraphicsSettings()
     settings.textureUpscaleFactor = 1;
     settings.anisotropicLevel = 1;
     settings.antiAliasing = AntiAliasingMode::None;
+    settings.frameRate = 0;
+    settings.verticalSync = true;
     return settings;
 }
 
@@ -66,6 +70,9 @@ void SanitizeGraphicsSettings(GraphicsSettings* settings)
 
     settings->textureUpscaleFactor = (std::max)(1, (std::min)(4, settings->textureUpscaleFactor));
     settings->anisotropicLevel = ClampToAllowedAnisotropy(settings->anisotropicLevel);
+    settings->frameRate = settings->frameRate <= 0
+        ? 0
+        : (std::max)(30, (std::min)(360, settings->frameRate));
     if (settings->antiAliasing != AntiAliasingMode::None
         && settings->antiAliasing != AntiAliasingMode::FXAA
         && settings->antiAliasing != AntiAliasingMode::SMAA) {
@@ -83,6 +90,8 @@ GraphicsSettings LoadGraphicsSettings()
     settings.textureUpscaleFactor = LoadSettingsIniInt(kGraphicsSection, kGraphicsTextureUpscaleValue, settings.textureUpscaleFactor);
     settings.anisotropicLevel = LoadSettingsIniInt(kGraphicsSection, kGraphicsAnisotropicValue, settings.anisotropicLevel);
     settings.antiAliasing = static_cast<AntiAliasingMode>(LoadSettingsIniInt(kGraphicsSection, kGraphicsAntiAliasingValue, static_cast<int>(settings.antiAliasing)));
+    settings.frameRate = LoadSettingsIniInt(kGraphicsSection, kGraphicsFrameRateValue, settings.frameRate);
+    settings.verticalSync = LoadSettingsIniInt(kGraphicsSection, kGraphicsVerticalSyncValue, settings.verticalSync ? 1 : 0) != 0;
 
     SanitizeGraphicsSettings(&settings);
     return settings;
@@ -98,7 +107,9 @@ bool SaveGraphicsSettings(const GraphicsSettings& rawSettings)
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsWindowModeValue, static_cast<int>(settings.windowMode))
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsTextureUpscaleValue, settings.textureUpscaleFactor)
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsAnisotropicValue, settings.anisotropicLevel)
-        && SaveSettingsIniInt(kGraphicsSection, kGraphicsAntiAliasingValue, static_cast<int>(settings.antiAliasing));
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsAntiAliasingValue, static_cast<int>(settings.antiAliasing))
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsFrameRateValue, settings.frameRate)
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsVerticalSyncValue, settings.verticalSync ? 1 : 0);
 }
 
 const GraphicsSettings& GetCachedGraphicsSettings()

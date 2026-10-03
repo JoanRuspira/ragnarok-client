@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.h"
+#include <chrono>
 
 class CWorld;
 
@@ -70,6 +71,7 @@ private:
     matrix m_viewMatrix;
     matrix m_invViewMatrix;
     bool m_initialized;
+    std::chrono::steady_clock::time_point m_lastInterpolationTime{};
     u64 m_viewRevision;
     u64 m_viewSnapTag;
     int m_hoverAttrX;

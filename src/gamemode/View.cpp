@@ -757,6 +757,7 @@ void CView::ClampCameraState(CameraState* state) const
 void CView::InterpolateViewInfo()
 {
     const double perfStartMs = IsMovePerfActive(m_world) ? QpcNowMs() : 0.0;
+    const auto now = std::chrono::steady_clock::now();
     const bool wrapLongitude = !m_constraints.lockLongitude
         && (!m_constraints.constrainLongitude || (m_constraints.maxLongitude - m_constraints.minLongitude) >= 360.0f);
 
@@ -768,9 +769,16 @@ void CView::InterpolateViewInfo()
             WrapLongitude0To360InPlace(&m_cur.longitude);
         }
         m_initialized = true;
+        m_lastInterpolationTime = now;
         return;
     }
 
+    const double elapsedSeconds = std::chrono::duration<double>(now - m_lastInterpolationTime).count();
+    m_lastInterpolationTime = now;
+    // Preserve the reference response at 60 Hz, including through uneven frames.
+    // Exponential damping composes by elapsed time instead of frame count.
+    const float interpolateFactor = static_cast<float>(-std::expm1(
+        std::log1p(-static_cast<double>(kRefInterpolateViewFactor)) * 60.0 * elapsedSeconds));
     ClampCameraState(&m_dest);
 
     if (wrapLongitude) {
@@ -783,19 +791,18 @@ void CView::InterpolateViewInfo()
         deltaLongitude = NormalizeLongitudeDelta(deltaLongitude);
     }
 
-    // Ref applies the same 0.1 factor to longitude delta, latitude, and distance.
-    m_cur.longitude += deltaLongitude * kRefInterpolateViewFactor;
+    m_cur.longitude += deltaLongitude * interpolateFactor;
     if (wrapLongitude) {
         WrapLongitude0To360InPlace(&m_cur.longitude);
     } else {
         m_cur.longitude = ClampLongitude(m_cur.longitude);
     }
 
-    m_cur.at.x += (m_dest.at.x - m_cur.at.x) * kRefInterpolateViewFactor;
-    m_cur.at.y += (m_dest.at.y - m_cur.at.y) * kRefInterpolateViewFactor;
-    m_cur.at.z += (m_dest.at.z - m_cur.at.z) * kRefInterpolateViewFactor;
-    m_cur.latitude += (m_dest.latitude - m_cur.latitude) * kRefInterpolateViewFactor;
-    m_cur.distance += (m_dest.distance - m_cur.distance) * kRefInterpolateViewFactor;
+    m_cur.at.x += (m_dest.at.x - m_cur.at.x) * interpolateFactor;
+    m_cur.at.y += (m_dest.at.y - m_cur.at.y) * interpolateFactor;
+    m_cur.at.z += (m_dest.at.z - m_cur.at.z) * interpolateFactor;
+    m_cur.latitude += (m_dest.latitude - m_cur.latitude) * interpolateFactor;
+    m_cur.distance += (m_dest.distance - m_cur.distance) * interpolateFactor;
     ClampCameraState(&m_cur);
     if (perfStartMs != 0.0) {
         g_viewMovePerfStats.interpolateMs += QpcNowMs() - perfStartMs;

@@ -3545,7 +3545,7 @@ u16 ResolveAttackRepeatHitCount(u8 actionType, u16 div)
 
 u32 ResolveAttackImpactDelayMs(const CGameActor& actor)
 {
-    u32 delayMs = static_cast<u32>((std::max)(0.0f, actor.m_attackMotion * actor.m_motionSpeed * 24.0f));
+    u32 delayMs = static_cast<u32>((std::max)(0.0f, actor.m_attackMotion * actor.m_motionSpeed * kActDelayUnitMs));
     switch (actor.m_job) {
     case 1016:
     case 1420:
@@ -4214,7 +4214,7 @@ void StartSitStandAnimation(CGameActor* actor, bool sitting)
     actor->m_attackMotion = -1.0f;
     actor->m_isSitting = sitting ? 1 : 0;
     actor->m_stateId = 0;
-    actor->m_stateStartTick = 0;
+    actor->m_stateStartTick = timeGetTime();
     actor->m_isMotionFinished = 0;
     actor->m_isMotionFreezed = 0;
     actor->m_motionType = 0;
@@ -4780,7 +4780,8 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     if ((motionType == kGameActorSkillStateId || motionType == kGameActorDanceStateId
             || motionType == kGameActorSingStateId) && actor->m_actRes) {
         const int frames = (std::max)(1, actor->m_actRes->GetMotionCount(actor->m_curAction));
-        actor->m_motionSpeed = (std::max)(1.0f, static_cast<float>(durationMs) / (24.0f * frames));
+        actor->m_motionSpeed = (std::max)(1.0f / kActDelayUnitMs,
+            static_cast<float>(durationMs) / (kActDelayUnitMs * frames));
     }
     actor->ProcessMotion();
     InvalidateActorBillboard(actor);
@@ -6861,8 +6862,6 @@ void UpdateRuntimeActorPosition(CGameMode& mode, u32 gid, int tileX, int tileY, 
         actor->SetState(1);
         if (CPc* pcActor = dynamic_cast<CPc*>(actor)) {
             pcActor->m_headDir = 0;
-            pcActor->m_curMotion = 0;
-            pcActor->m_oldMotion = 0;
             pcActor->InvalidateBillboard();
         }
     }

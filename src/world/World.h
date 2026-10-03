@@ -294,7 +294,10 @@ public:
     void UpdateGameObjects();
     void RenderGameObjects(const matrix& viewMatrix, u32* outRenderedObjects = nullptr, u32* outRenderedFixedEffects = nullptr) const;
     void UpdateBackgroundObjects(const matrix* viewMatrix);
+    // Tick game objects, items and status effects at the world simulation rate.
     void UpdateActors();
+    // Advance timestamp-based movement and animation once per rendered frame.
+    void UpdateActorStates();
     void ProcessActorSkillRechargeGages(const matrix& viewMatrix, float cameraLongitude);
     void RenderSky(const matrix& viewMatrix, const vector3d& cameraPos, float cameraLongitude, float cameraLatitude);
     void RenderActors(const matrix& viewMatrix, float cameraLongitude);

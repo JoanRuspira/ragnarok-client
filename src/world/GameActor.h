@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <list>
+#include <memory>
 
 // Forward declarations
 class CGameObject;
@@ -262,6 +263,7 @@ public:
     u32 m_skillNameUntilTick = 0;
 
     virtual u8   ProcessState();
+    void ProcessStatusEffects();
     virtual void SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t par2, msgparam_t par3) override;
     virtual int  Get8Dir(float rot) override;
     virtual void SetState(int state);
@@ -324,6 +326,8 @@ public:
 };
 
 void SetRuntimeActorCameraLongitude(float longitude);
+// Call after actors are destroyed and before shutting down the render device.
+void ClearSharedActorBillboardCaches();
 
 class CGrannyPc : public CGameActor {
 public:
@@ -407,6 +411,7 @@ public:
     std::vector<CSprRes*> m_sprResList;
     std::vector<CActRes*> m_actResList;
     CTexture* m_billboardTexture;
+    std::shared_ptr<CTexture> m_sharedBillboardTexture;
     int m_billboardTextureOwned;
     int m_billboardTextureWidth;
     int m_billboardTextureHeight;
@@ -422,6 +427,9 @@ public:
     int m_cachedBillboardHeadPalette;
     int m_cachedBillboardWeapon;
     int m_cachedBillboardShield;
+    int m_cachedBillboardAccessory;
+    int m_cachedBillboardAccessory2;
+    int m_cachedBillboardAccessory3;
     int m_cachedNonPcResourceJob;
     CActRes* m_cachedNonPcActRes;
     CSprRes* m_cachedNonPcSprRes;

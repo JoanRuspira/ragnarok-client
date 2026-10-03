@@ -2366,6 +2366,23 @@ const char* CSession::GetJobName(int job) const
     return LookupGeneratedJobName(job);
 }
 
+const char* CSession::GetNonPcSpriteName(int job) const
+{
+    const std::lock_guard<std::mutex> lock(m_nonPcSpriteNameMutex);
+    auto cached = m_nonPcSpriteNameCache.find(job);
+    if (cached == m_nonPcSpriteNameCache.end()) {
+        std::string spriteName;
+        if (g_buabridge.LoadRagnarokScriptOnce("lua files\\datainfo\\jobname.lub")) {
+            g_buabridge.GetGlobalTableStringByIntegerKey("JobNameTable", job, &spriteName);
+        }
+        cached = m_nonPcSpriteNameCache.emplace(job, std::move(spriteName)).first;
+        if (!cached->second.empty()) {
+            DbgLog("[Session] Cached nonpc sprite name job=%d name='%s'\n", job, cached->second.c_str());
+        }
+    }
+    return cached->second.empty() ? nullptr : cached->second.c_str();
+}
+
 const char* CSession::GetAttrWaveName(int attr) const
 {
     switch (attr) {

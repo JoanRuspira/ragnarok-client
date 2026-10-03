@@ -14,7 +14,7 @@
 namespace {
 
 constexpr float kDragLongitudePerPixel = 0.4f;
-constexpr float kWheelDistancePerNotch = -60.0f;
+constexpr float kWheelDistancePerNotch = 60.0f; // Scroll up zooms out; down zooms in.
 // Ref\View.cpp CView::InterpolateViewInfo (~0x5097f0): each sub-step,
 //   cur += (dest - cur) * 0.1
 // for longitude (shortest arc), latitude, and distance. The decompile copies

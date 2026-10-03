@@ -24,23 +24,27 @@ struct FontInfo {
     int fontHeight;
     int fontCharset;
     unsigned char fontBold;
+    unsigned char fontQuality;
     HFONT hFont;
 
-    FontInfo(int type = 0, int height = 0, int charset = 0, unsigned char bold = 0)
-        : fontType(type), fontHeight(height), fontCharset(charset), fontBold(bold), hFont(NULL) {}
+    FontInfo(int type = 0, int height = 0, int charset = 0, unsigned char bold = 0,
+        unsigned char quality = ANTIALIASED_QUALITY)
+        : fontType(type), fontHeight(height), fontCharset(charset), fontBold(bold), fontQuality(quality), hFont(NULL) {}
 
     bool operator<(const FontInfo& other) const {
         if (fontType != other.fontType) return fontType < other.fontType;
         if (fontHeight != other.fontHeight) return fontHeight < other.fontHeight;
         if (fontCharset != other.fontCharset) return fontCharset < other.fontCharset;
-        return fontBold < other.fontBold;
+        if (fontBold != other.fontBold) return fontBold < other.fontBold;
+        return fontQuality < other.fontQuality;
     }
 
     bool operator==(const FontInfo& other) const {
         return fontType == other.fontType &&
                fontHeight == other.fontHeight && 
                fontCharset == other.fontCharset &&
-               fontBold == other.fontBold;
+               fontBold == other.fontBold &&
+               fontQuality == other.fontQuality;
     }
 };
 
@@ -48,7 +52,8 @@ class FontMgr {
 public:
     FontMgr();
     ~FontMgr();
-    HFONT GetFont(int fontType, int fontHeight, int charset, unsigned char bold);
+    HFONT GetFont(int fontType, int fontHeight, int charset, unsigned char bold,
+        unsigned char quality = ANTIALIASED_QUALITY);
 
 private:
     std::vector<FontInfo> m_fontInfoList;
@@ -62,7 +67,8 @@ public:
     DrawDC(HDC hdc); // In our case, we might need to handle surface DC differently
     ~DrawDC();
 
-    void SetFont(int fontType, int fontHeight, unsigned char bold);
+    void SetFont(int fontType, int fontHeight, unsigned char bold,
+        unsigned char quality = ANTIALIASED_QUALITY);
     void SetTextColor(COLORREF color);
     void TextOutA(int x, int y, const char* text, int len);
     void GetTextExtentPoint32A(const char* text, int len, SIZE* size);

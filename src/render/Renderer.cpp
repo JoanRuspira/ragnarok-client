@@ -877,6 +877,13 @@ void CRenderer::AddRP(RPFace* face, int renderFlag) {
     }
 }
 
+void CRenderer::AddGroundShadowRP(RPFace* face) {
+    if (face) {
+        ApplyFogToVertices(face->verts, face->numVerts, m_isFoggy, m_fogPara);
+        m_rpGroundShadowList.push_back(face);
+    }
+}
+
 void CRenderer::AddLmRP(RPLmFace* face, int renderFlag) {
     if (face) {
         ApplyFogToLightmapVertices(face->lmverts, face->numVerts, m_isFoggy, m_fogPara);
@@ -1146,6 +1153,22 @@ void CRenderer::FlushRenderList() {
     m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, FALSE);
     m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
     m_renderDevice->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, FALSE);
+
+    // Contact shadows cover terrain but always remain beneath actor sprites
+    // and effects. Keep depth testing so walls and props still occlude them.
+    SetMultiTextureMode(0);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_TRUE);
+    static unsigned int shadowDrawTraceCount = 0;
+    if (!m_rpGroundShadowList.empty() && shadowDrawTraceCount < 4u) {
+        ++shadowDrawTraceCount;
+        DbgLog("[ActorShadow] draw count=%u backend=%d depthTest=1 depthWrite=0 alphaTest=0\n",
+            static_cast<unsigned int>(m_rpGroundShadowList.size()),
+            static_cast<int>(m_renderDevice->GetBackendType()));
+    }
+    for (RPFace* face : m_rpGroundShadowList) {
+        SetTexture(face->tex);
+        RPFace::DrawPri(face, *m_renderDevice);
+    }
     
     struct BlendedFaceEntry {
         float sortKey;
@@ -1254,6 +1277,7 @@ void CRenderer::FlushRenderList() {
         m_rpLMLightList.clear();
         m_rpRawList.clear();
         m_rpAlphaList.clear();
+        m_rpGroundShadowList.clear();
         m_rpAlphaNoDepthList.clear();
         m_rpEmissiveList.clear();
         m_rpEmissiveNoDepthList.clear();
@@ -1345,6 +1369,7 @@ void CRenderer::FlushRenderList() {
     m_rpLMLightList.clear();
     m_rpRawList.clear();
     m_rpAlphaList.clear();
+    m_rpGroundShadowList.clear();
     m_rpAlphaNoDepthList.clear();
     m_rpEmissiveList.clear();
     m_rpRawAlphaList.clear();

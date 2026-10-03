@@ -3339,17 +3339,9 @@ QString ResolveHoverBackground(const CGameActor* actor)
     return QStringLiteral("#c05a1620");
 }
 
-QString ResolveHoverForeground(const CGameActor* actor)
+QString ResolveHoverForeground(const CGameActor*)
 {
-    if (!actor) {
-        return QStringLiteral("#ffffff");
-    }
-
-    u32 actorId = actor->m_gid;
-    if (actorId != 0 && (actorId == g_session.m_gid || actorId == g_session.m_aid)) {
-        actorId = g_session.m_aid != 0 ? g_session.m_aid : actorId;
-    }
-    return IsNameYellow(actorId) ? QStringLiteral("#ffff00") : QStringLiteral("#ffffff");
+    return QStringLiteral("#ffffff");
 }
 
 QVariantMap MakeAnchor(const QString& text,

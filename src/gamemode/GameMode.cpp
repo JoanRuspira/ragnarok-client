@@ -125,8 +125,7 @@ constexpr int kEnemyCursorMagnetMaxStep = 5;
 constexpr int kEnemyCursorMagnetDeadzone = 4;
 constexpr size_t kNearbyBackgroundLogCount = 12;
 constexpr float kRefCloseCameraDistance = 300.0f;
-constexpr float kRefIndoorCameraDistance = 300.0f;
-constexpr float kRefAverageCameraDistance = 350.0f;
+constexpr float kRefAverageCameraDistance = 450.0f;
 constexpr float kRefFarCameraDistance = 450.0f;
 constexpr float kRefIndoorLatitudeMin = -55.0f;
 constexpr float kRefIndoorLatitudeMax = -35.0f;
@@ -145,7 +144,7 @@ constexpr int kWeatherCloudEffectIds[] = { 229, 230, 233, 515, 516, 592, 697, 69
 float g_savedOutdoorCameraLatitude = -45.0f;
 float g_savedOutdoorCameraDistance = kRefAverageCameraDistance;
 float g_savedIndoorCameraLatitude = -45.0f;
-float g_savedIndoorCameraDistance = kRefIndoorCameraDistance;
+float g_savedIndoorCameraDistance = kRefAverageCameraDistance;
 
 u32 g_packetTraceStartTick = 0;
 std::map<u16, bool> g_packetTraceLoggedIds;
@@ -1496,7 +1495,7 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
             return false;
         }
         DrawDC drawDc(s_measureSurface.GetDC());
-        drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold);
+        drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
         drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
 #endif
         textX = centerX - (textSize.cx / 2);
@@ -2656,7 +2655,7 @@ void ConfigureCameraForMap(CGameMode& mode)
 
     CView::CameraConstraints constraints{};
     constraints.minDistance = kRefCloseCameraDistance;
-    constraints.maxDistance = isIndoor ? kRefIndoorCameraDistance : kRefFarCameraDistance;
+    constraints.maxDistance = kRefFarCameraDistance;
     constraints.defaultDistance = isIndoor ? g_savedIndoorCameraDistance : g_savedOutdoorCameraDistance;
     constraints.minLatitude = isIndoor ? kRefIndoorLatitudeMin : kRefOutdoorLatitudeMin;
     constraints.maxLatitude = isIndoor ? kRefIndoorLatitudeMax : kRefOutdoorLatitudeMax;
@@ -2678,9 +2677,8 @@ void ConfigureCameraForMap(CGameMode& mode)
         mode.ViewPointData[7] = static_cast<s16>(viewPoint->minLatitude);
         mode.ViewPointData[8] = static_cast<s16>(viewPoint->initialLatitude);
 
-        constraints.minDistance = static_cast<float>(viewPoint->minDistance);
-        constraints.maxDistance = static_cast<float>(viewPoint->minDistance + viewPoint->distanceScope);
-        constraints.defaultDistance = static_cast<float>(viewPoint->initialDistance);
+        // Map presets customize orientation; indoor and outdoor zoom share
+        // the same distance range and retain the user's previous zoom.
         constraints.minLatitude = static_cast<float>((std::min)(viewPoint->minLatitude, viewPoint->maxLatitude));
         constraints.maxLatitude = static_cast<float>((std::max)(viewPoint->minLatitude, viewPoint->maxLatitude));
         constraints.defaultLatitude = static_cast<float>(viewPoint->initialLatitude);
@@ -3400,17 +3398,9 @@ const char* GetPlayerContextActionName(CGameMode::PlayerContextAction action)
     }
 }
 
-COLORREF ResolveHoverNameColor(const CGameActor* actor)
+COLORREF ResolveHoverNameColor(const CGameActor*)
 {
-    if (!actor) {
-        return RGB(255, 255, 255);
-    }
-
-    u32 actorId = actor->m_gid;
-    if (actorId != 0 && (actorId == g_session.m_gid || actorId == g_session.m_aid)) {
-        actorId = g_session.m_aid != 0 ? g_session.m_aid : actorId;
-    }
-    return IsNameYellow(actorId) ? RGB(255, 255, 0) : RGB(255, 255, 255);
+    return RGB(255, 255, 255);
 }
 
 std::string ResolveGroundItemHoverLabel(const CItem* item)
@@ -3440,7 +3430,9 @@ void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF co
     }
 
     DrawDC drawDc(hdc);
-    drawDc.SetFont(FONT_DEFAULT, fontHeight, bold);
+    // Smoothed glyphs blend with the magenta transparency key and leave pink
+    // pixels when the composed overlay is converted to alpha.
+    drawDc.SetFont(FONT_DEFAULT, fontHeight, bold, NONANTIALIASED_QUALITY);
     SetBkMode(hdc, TRANSPARENT);
 
     const int textLen = static_cast<int>(std::strlen(text));
@@ -3513,7 +3505,7 @@ void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc)
     }
 
     DrawDC drawDc(hdc);
-    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold);
+    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
     SIZE textSize{};
     drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
     const int drawX = labelX - (textSize.cx / 2);
@@ -3565,7 +3557,7 @@ void DrawHoveredActorName(CGameMode& mode, HDC hdc)
     }
 
     DrawDC drawDc(hdc);
-    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold);
+    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
     SIZE textSize{};
     drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
     const int textWidth = textSize.cx;
@@ -3606,7 +3598,7 @@ void DrawLockedTargetName(CGameMode& mode, HDC hdc)
     }
 
     DrawDC drawDc(hdc);
-    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold);
+    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
     SIZE textSize{};
     drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
     const int drawX = labelX - (textSize.cx / 2);

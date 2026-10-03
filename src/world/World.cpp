@@ -119,8 +119,9 @@ constexpr int kGroundCullMarginTiles = 14;
 constexpr int kJobWarpNpc = 0x2D;
 constexpr int kJobWarpPortal = 0x80;
 constexpr int kJobPreWarpPortal = 0x81;
-constexpr float kActorShadowPixelRatioScale = 0.14285715f;
-constexpr float kActorShadowSortBias = 0.00001f;
+constexpr unsigned int kActorShadowOpacity = 150u;
+constexpr float kActorShadowSizeScale = 1.2f;
+constexpr float kActorBillboardDepthBias = 0.0005f;
 constexpr float kEnemyHoverStickyPadding = 24.0f;
 
 enum class PortalVisualStyle {
@@ -619,174 +620,123 @@ CTexture* GetStoneProjectileTexture()
     return texture;
 }
 
-struct ActorShadowResource {
-    CTexture* texture = nullptr;
-    float left = 0.0f;
-    float top = 0.0f;
-    float right = 0.0f;
-    float bottom = 0.0f;
-    unsigned int color = 0xFFFFFFFFu;
-    float angle = 0.0f;
-};
-
-void UnpremultiplyShadowPixels(std::vector<unsigned int>& pixels)
+CTexture* GetActorShadowTexture(CWorld& world)
 {
-    for (unsigned int& pixel : pixels) {
-        const unsigned int alpha = (pixel >> 24) & 0xFFu;
-        if (alpha == 0u || alpha == 255u) {
-            continue;
-        }
-
-        unsigned int red = (pixel >> 16) & 0xFFu;
-        unsigned int green = (pixel >> 8) & 0xFFu;
-        unsigned int blue = pixel & 0xFFu;
-        red = (std::min)(255u, (red * 255u + alpha / 2u) / alpha);
-        green = (std::min)(255u, (green * 255u + alpha / 2u) / alpha);
-        blue = (std::min)(255u, (blue * 255u + alpha / 2u) / alpha);
-        pixel = (alpha << 24) | (red << 16) | (green << 8) | blue;
+    if (world.m_actorShadowTexture) {
+        return world.m_actorShadowTexture;
     }
+
+    // Share one soft contact mask; apply opacity once through vertex color.
+    constexpr int size = 64;
+    std::array<unsigned int, size * size> pixels{};
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const float u = (static_cast<float>(x) + 0.5f) * 2.0f / size - 1.0f;
+            const float v = (static_cast<float>(y) + 0.5f) * 2.0f / size - 1.0f;
+            const float falloff = (std::max)(0.0f, 1.0f - u * u - v * v);
+            const unsigned int alpha = static_cast<unsigned int>(falloff * 255.0f + 0.5f);
+            pixels[static_cast<size_t>(y) * size + x] = alpha << 24;
+        }
+    }
+
+    CTexture* texture = new CTexture();
+    if (!texture->Create(size, size, PF_A8R8G8B8, false)) {
+        delete texture;
+        return nullptr;
+    }
+    std::strcpy(texture->m_texName, "__actor_contact_shadow__");
+    if (!GetRenderDevice().UpdateTextureResource(texture, 0, 0, size, size,
+            pixels.data(), true, size * static_cast<int>(sizeof(unsigned int)))) {
+        delete texture;
+        return nullptr;
+    }
+    world.m_actorShadowTexture = texture;
+    return texture;
 }
 
-bool FindOpaqueShadowBounds(const unsigned int* pixels, int width, int height, tagRECT* outBounds)
+float ResolveActorShadowWidth(CWorld& world, const CPc& actor)
 {
-    if (!pixels || width <= 0 || height <= 0 || !outBounds) {
-        return false;
+    if (actor.m_isPc != 0) {
+        return 40.0f; // Hair, headgear and swinging weapons do not change the footprint.
+    }
+    const int job = actor.m_cachedBillboardJob;
+    const auto cached = world.m_actorShadowWidths.find(job);
+    if (cached != world.m_actorShadowWidths.end()) {
+        return cached->second;
     }
 
-    int minX = width;
-    int minY = height;
-    int maxX = -1;
-    int maxY = -1;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const unsigned int alpha = (pixels[static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)] >> 24) & 0xFFu;
-            if (alpha == 0u) {
-                continue;
+    float width = 32.0f;
+    const CActRes* act = actor.m_cachedNonPcActRes;
+    const CSprRes* spr = actor.m_cachedNonPcSprRes;
+    if (act && spr) {
+        // Measure idle poses once per appearance, rather than resizing on
+        // each walk/attack frame or camera direction change.
+        for (size_t action = 0; action < (std::min)(size_t{8}, act->actions.size()); ++action) {
+            for (const CMotion& motion : act->actions[action].motions) {
+                float left = 0.0f;
+                float right = 0.0f;
+                for (const CSprClip& clip : motion.sprClips) {
+                    if (clip.sprIndex < 0 || clip.a == 0) {
+                        continue;
+                    }
+                    const SprImg* image = spr->GetSprite(clip.clipType, clip.sprIndex);
+                    if (!image || !std::isfinite(clip.zoomX) || !std::isfinite(clip.zoomY)) {
+                        continue;
+                    }
+                    const float radians = static_cast<float>(clip.angle) * 3.14159265f / 180.0f;
+                    const float extent = 0.5f * (std::fabs(image->width * clip.zoomX * std::cos(radians))
+                        + std::fabs(image->height * clip.zoomY * std::sin(radians)));
+                    left = (std::min)(left, static_cast<float>(clip.x) - extent);
+                    right = (std::max)(right, static_cast<float>(clip.x) + extent);
+                }
+                width = (std::max)(width, (right - left) * 0.85f + 8.0f);
             }
-            minX = (std::min)(minX, x);
-            minY = (std::min)(minY, y);
-            maxX = (std::max)(maxX, x);
-            maxY = (std::max)(maxY, y);
         }
     }
-
-    if (maxX < minX || maxY < minY) {
-        return false;
-    }
-
-    outBounds->left = minX;
-    outBounds->top = minY;
-    outBounds->right = maxX + 1;
-    outBounds->bottom = maxY + 1;
-    return true;
+    width = (std::min)(96.0f, width);
+    world.m_actorShadowWidths[job] = width;
+    return width;
 }
 
-const ActorShadowResource* GetActorShadowResource()
+bool SampleActorShadowGround(const CWorld& world, vector3d* point, bool clipToMapBoundary)
 {
-    static ActorShadowResource s_shadowResource;
-    static bool s_attemptedLoad = false;
-    if (s_attemptedLoad) {
-        return s_shadowResource.texture ? &s_shadowResource : nullptr;
+    if (!point || !std::isfinite(point->x) || !std::isfinite(point->z)) {
+        return false;
     }
-    s_attemptedLoad = true;
-
-    CActRes* shadowAct = g_resMgr.GetAs<CActRes>("data\\sprite\\shadow.act");
-    CSprRes* shadowSpr = g_resMgr.GetAs<CSprRes>("data\\sprite\\shadow.spr");
-    const CMotion* shadowMotion = shadowAct ? shadowAct->GetMotion(0, 0) : nullptr;
-    if (!shadowAct || !shadowSpr || !shadowMotion || shadowMotion->sprClips.empty()) {
-        return nullptr;
-    }
-
-    const CSprClip& shadowClip = shadowMotion->sprClips[0];
-    const SprImg* shadowImage = shadowSpr->GetSprite(shadowClip.clipType, shadowClip.sprIndex);
-    if (!shadowImage) {
-        return nullptr;
-    }
-
-    const int imageWidth = (std::max)(1, shadowImage->width);
-    const int imageHeight = (std::max)(1, shadowImage->height);
-    std::vector<unsigned int> pixels(static_cast<size_t>(imageWidth) * static_cast<size_t>(imageHeight), 0x00000000u);
-
-    for (int y = 0; y < imageHeight; ++y) {
-        for (int x = 0; x < imageWidth; ++x) {
-            unsigned int srcColor = 0x00000000u;
-            if (shadowClip.clipType == 0) {
-                if (shadowImage->indices.empty()) {
-                    continue;
-                }
-                const unsigned char index = shadowImage->indices[static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x)];
-                if (index == 0u) {
-                    continue;
-                }
-                srcColor = shadowSpr->m_pal[index];
-            } else {
-                if (shadowImage->rgba.empty()) {
-                    continue;
-                }
-                srcColor = shadowImage->rgba[static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x)];
-                if (((srcColor >> 24) & 0xFFu) == 0u) {
-                    continue;
-                }
+    const C3dGround* ground = world.m_ground;
+    if (ground && ground->m_zoom > 0.0f) {
+        float localX = point->x / ground->m_zoom + ground->m_width * 0.5f;
+        float localZ = point->z / ground->m_zoom + ground->m_height * 0.5f;
+        if (localX < 0.0f || localZ < 0.0f || localX >= ground->m_width || localZ >= ground->m_height) {
+            if (!clipToMapBoundary || ground->m_width <= 0 || ground->m_height <= 0) {
+                return false;
             }
-
-            const unsigned int srcA = (srcColor >> 24) & 0xFFu;
-            const unsigned int srcR = (srcColor >> 16) & 0xFFu;
-            const unsigned int srcG = (srcColor >> 8) & 0xFFu;
-            const unsigned int srcB = srcColor & 0xFFu;
-            const unsigned int outA = srcA * static_cast<unsigned int>(shadowClip.a) / 255u;
-            const unsigned int outR = srcR * static_cast<unsigned int>(shadowClip.r) / 255u;
-            const unsigned int outG = srcG * static_cast<unsigned int>(shadowClip.g) / 255u;
-            const unsigned int outB = srcB * static_cast<unsigned int>(shadowClip.b) / 255u;
-            pixels[static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x)] =
-                (outA << 24) | (outR << 16) | (outG << 8) | outB;
+            // Clip the footprint at the map edge instead of dropping the whole
+            // shadow when an outer corner falls beyond the rendered ground.
+            localX = (std::max)(0.0f, (std::min)(localX,
+                std::nextafter(static_cast<float>(ground->m_width), 0.0f)));
+            localZ = (std::max)(0.0f, (std::min)(localZ,
+                std::nextafter(static_cast<float>(ground->m_height), 0.0f)));
+            point->x = (localX - ground->m_width * 0.5f) * ground->m_zoom;
+            point->z = (localZ - ground->m_height * 0.5f) * ground->m_zoom;
         }
+        const int x = static_cast<int>(localX);
+        const int z = static_cast<int>(localZ);
+        const CGroundCell* cell = ground->GetCell(x, z);
+        if (!cell || cell->topSurfaceId < 0) {
+            return false;
+        }
+        const float u = localX - x;
+        const float v = localZ - z;
+        // Match the visible GND triangles; the separate walk-grid height can
+        // differ enough to bury a shadow beneath the rendered surface.
+        point->y = u + v <= 1.0f
+            ? cell->h[0] + u * (cell->h[1] - cell->h[0]) + v * (cell->h[2] - cell->h[0])
+            : cell->h[3] + (1.0f - u) * (cell->h[2] - cell->h[3]) + (1.0f - v) * (cell->h[1] - cell->h[3]);
+    } else if (world.m_attr) {
+        point->y = world.m_attr->GetHeight(point->x, point->z);
     }
-
-    tagRECT opaqueBounds{};
-    if (!FindOpaqueShadowBounds(pixels.data(), imageWidth, imageHeight, &opaqueBounds)) {
-        return nullptr;
-    }
-
-    const int croppedWidth = (std::max)(1, static_cast<int>(opaqueBounds.right - opaqueBounds.left));
-    const int croppedHeight = (std::max)(1, static_cast<int>(opaqueBounds.bottom - opaqueBounds.top));
-    std::vector<unsigned int> croppedPixels(static_cast<size_t>(croppedWidth) * static_cast<size_t>(croppedHeight));
-    for (int y = 0; y < croppedHeight; ++y) {
-        const unsigned int* srcRow = pixels.data()
-            + static_cast<size_t>(opaqueBounds.top + y) * static_cast<size_t>(imageWidth)
-            + static_cast<size_t>(opaqueBounds.left);
-        unsigned int* dstRow = croppedPixels.data() + static_cast<size_t>(y) * static_cast<size_t>(croppedWidth);
-        std::memcpy(dstRow, srcRow, static_cast<size_t>(croppedWidth) * sizeof(unsigned int));
-    }
-
-    s_shadowResource.texture = new CTexture();
-    if (!s_shadowResource.texture) {
-        return nullptr;
-    }
-    if (!s_shadowResource.texture->Create(croppedWidth, croppedHeight, PF_A8R8G8B8, false)) {
-        delete s_shadowResource.texture;
-        s_shadowResource.texture = nullptr;
-        return nullptr;
-    }
-
-    s_shadowResource.texture->Update(0,
-        0,
-        croppedWidth,
-        croppedHeight,
-        croppedPixels.data(),
-        true,
-        croppedWidth * static_cast<int>(sizeof(unsigned int)));
-    const int drawLeft = shadowClip.x - imageWidth / 2;
-    const int drawTop = shadowClip.y - imageHeight / 2;
-    s_shadowResource.left = static_cast<float>(drawLeft + opaqueBounds.left);
-    s_shadowResource.top = static_cast<float>(drawTop + opaqueBounds.top);
-    s_shadowResource.right = static_cast<float>(drawLeft + opaqueBounds.right);
-    s_shadowResource.bottom = static_cast<float>(drawTop + opaqueBounds.bottom);
-    s_shadowResource.color = (static_cast<unsigned int>(shadowClip.a) << 24)
-        | (static_cast<unsigned int>(shadowClip.r) << 16)
-        | (static_cast<unsigned int>(shadowClip.g) << 8)
-        | static_cast<unsigned int>(shadowClip.b);
-    s_shadowResource.angle = static_cast<float>(shadowClip.angle);
-    return &s_shadowResource;
+    return std::isfinite(point->y);
 }
 
 float DepthFromOow(float oow)
@@ -797,40 +747,6 @@ float DepthFromOow(float oow)
     const float clipZ = 1.0f / oow;
     const float depth = (1500.0f / (1500.0f - kNearPlane)) * (clipZ - kNearPlane) * oow;
     return (std::min)(1.0f, (std::max)(0.0f, depth));
-}
-
-float ComputeShadowScreenSlope(const matrix& viewMatrix, const vector3d& groundPos, float zoom, const tlvertex3d& projectedGround)
-{
-    vector3d screenVerticalDir{
-        -viewMatrix.m[2][0],
-        0.0f,
-        viewMatrix.m[0][0]
-    };
-    const float dirLength = std::sqrt(screenVerticalDir.x * screenVerticalDir.x + screenVerticalDir.z * screenVerticalDir.z);
-    if (dirLength <= 0.0001f || zoom <= 0.0f) {
-        return 0.0f;
-    }
-    screenVerticalDir.x /= dirLength;
-    screenVerticalDir.z /= dirLength;
-
-    const vector3d samplePos{
-        groundPos.x + screenVerticalDir.x * zoom,
-        groundPos.y,
-        groundPos.z + screenVerticalDir.z * zoom
-    };
-    tlvertex3d projectedSample{};
-    if (!ProjectPoint(g_renderer, viewMatrix, samplePos, &projectedSample)) {
-        return 0.0f;
-    }
-
-    const float deltaY = projectedSample.y - projectedGround.y;
-    if (std::fabs(deltaY) <= 0.001f) {
-        return 0.0f;
-    }
-
-    const float baseClipZ = 1.0f / projectedGround.oow;
-    const float sampleClipZ = 1.0f / projectedSample.oow;
-    return -(sampleClipZ - baseClipZ) / deltaY;
 }
 
 void SubmitScreenSpacePerspectiveSprite(float left,
@@ -1003,148 +919,116 @@ void SubmitScreenSpaceRotatedQuad(const tlvertex3d& anchor,
     g_renderer.AddRP(face, renderFlags);
 }
 
-bool ComputeActorShadowRect(const CWorld::BillboardScreenEntry& entry,
-    const matrix& viewMatrix,
-    float zoom,
-    const ActorShadowResource& shadow,
-    float* outLeft,
-    float* outTop,
-    float* outRight,
-    float* outBottom,
-    float* outBottomOow,
-    float* outTopOow,
-    float* outAngle)
+void RenderActorShadow(CWorld& world, const CWorld::BillboardScreenEntry& entry,
+    const matrix& viewMatrix, float zoom)
 {
     const CPc* actor = entry.actor;
-    if (!actor || actor->m_shadowOn == 0 || !outLeft || !outTop || !outRight || !outBottom || !outBottomOow || !outTopOow || !outAngle) {
-        return false;
+    static unsigned int shadowTraceCount = 0;
+    const bool traceShadow = actor && actor == world.m_player && shadowTraceCount < 4u;
+    if (traceShadow) {
+        ++shadowTraceCount;
     }
-
-    const float shadowZoom = actor->m_shadowZoom > 0.0f ? actor->m_shadowZoom : 1.0f;
-    if (zoom == 0.0f || shadowZoom == 0.0f) {
-        return false;
-    }
-
-    vector3d groundPos = actor->m_pos;
-    if (g_world.m_attr) {
-        groundPos.y = g_world.m_attr->GetHeight(groundPos.x, groundPos.z);
-    }
-
-    tlvertex3d projectedGround{};
-    if (!ProjectPoint(g_renderer, viewMatrix, groundPos, &projectedGround)) {
-        return false;
-    }
-
-    const float pixelRatio = projectedGround.oow * g_renderer.m_hpc * kActorShadowPixelRatioScale;
-    const float scale = zoom * shadowZoom * pixelRatio;
-    const float left = static_cast<float>(actor->m_sprShift) + projectedGround.x + shadow.left * scale;
-    const float top = projectedGround.y + shadow.top * scale;
-    const float right = static_cast<float>(actor->m_sprShift) + projectedGround.x + shadow.right * scale + 1.0f;
-    const float bottom = projectedGround.y + shadow.bottom * scale + 1.0f;
-    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) || !std::isfinite(bottom) || right <= left || bottom <= top) {
-        return false;
-    }
-
-    const float shadowSlope = ComputeShadowScreenSlope(viewMatrix, groundPos, zoom, projectedGround);
-    const float baseClipZ = 1.0f / projectedGround.oow;
-    const float bottomClipZ = baseClipZ - (bottom - projectedGround.y) * shadowSlope;
-    const float topClipZ = baseClipZ - (top - projectedGround.y) * shadowSlope;
-    if (bottomClipZ <= kGroundSubmitNearPlane || topClipZ <= kGroundSubmitNearPlane) {
-        return false;
-    }
-
-    *outLeft = left;
-    *outTop = top;
-    *outRight = right;
-    *outBottom = bottom;
-    *outBottomOow = 1.0f / bottomClipZ + kActorShadowSortBias;
-    *outTopOow = 1.0f / topClipZ + kActorShadowSortBias;
-    *outAngle = shadow.angle;
-    return true;
-}
-
-void RenderCachedActorShadow(const CWorld::BillboardScreenEntry& entry, const matrix& viewMatrix, float zoom)
-{
-    const ActorShadowResource* shadow = GetActorShadowResource();
-    const CPc* actor = entry.actor;
-    if (!shadow || !shadow->texture || !actor || actor->m_shadowOn == 0) {
-        return;
-    }
-
-    const float actorZoom = actor->m_zoom > 0.0f ? actor->m_zoom : 1.0f;
-    const float shadowZoom = actor->m_shadowZoom > 0.0f ? actor->m_shadowZoom : 1.0f;
-    if (actorZoom <= 0.0f || shadowZoom <= 0.0f) {
-        return;
-    }
-
-    vector3d groundPos = actor->m_pos;
-    if (g_world.m_attr) {
-        groundPos.y = g_world.m_attr->GetHeight(groundPos.x, groundPos.z);
-    }
-
-    tlvertex3d projectedGround{};
-    if (!ProjectPoint(g_renderer, viewMatrix, groundPos, &projectedGround)) {
-        return;
-    }
-
-    const float spriteWidth = (std::max)(1.0f, shadow->right - shadow->left);
-    const float spriteHeight = (std::max)(1.0f, shadow->bottom - shadow->top);
-    const float worldScale = actorZoom * shadowZoom * kActorShadowPixelRatioScale;
-    const float halfWidth = spriteWidth * 0.5f * worldScale;
-    const float halfDepth = spriteHeight * 0.5f * worldScale;
-    if (halfWidth <= 0.0f || halfDepth <= 0.0f) {
-        return;
-    }
-
-    const vector3d quad[4] = {
-        vector3d{ groundPos.x - halfWidth, groundPos.y, groundPos.z - halfDepth },
-        vector3d{ groundPos.x + halfWidth, groundPos.y, groundPos.z - halfDepth },
-        vector3d{ groundPos.x - halfWidth, groundPos.y, groundPos.z + halfDepth },
-        vector3d{ groundPos.x + halfWidth, groundPos.y, groundPos.z + halfDepth },
+    auto logSkippedShadow = [&](const char* reason, int vertex = -1) {
+        if (traceShadow) {
+            DbgLog("[ActorShadow] skipped gid=%u reason=%s vertex=%d visible=%d body=%d shadow=%u pos=(%.2f,%.2f,%.2f) zoom=%.2f\n",
+                actor->m_gid, reason, vertex, actor->m_isVisible, actor->m_isVisibleBody,
+                static_cast<unsigned int>(actor->m_shadowOn),
+                actor->m_pos.x, actor->m_pos.y, actor->m_pos.z, zoom);
+        }
     };
-
-    RPFace* face = g_renderer.BorrowNullRP();
-    if (!face) {
+    if (!actor || !actor->m_isVisible || !actor->m_isVisibleBody || actor->m_shadowOn == 0
+        || !std::isfinite(zoom) || zoom <= 0.0f) {
+        logSkippedShadow("visibility-or-scale");
         return;
     }
 
+    unsigned int visibility = 255u;
+    const u32 now = timeGetTime();
+    if (actor->IsHideFadeActive(now)) {
+        visibility = actor->GetHideFadeAlpha(now);
+    }
+    if (actor->m_vanishTime != 0) {
+        if (now > actor->m_vanishTime) {
+            logSkippedShadow("vanished");
+            return;
+        }
+        visibility = (std::min)(visibility, (std::min)(255u, (actor->m_vanishTime - now) >> 1));
+    }
+    const unsigned int alpha = kActorShadowOpacity * visibility / 255u;
+    if (alpha == 0u) {
+        logSkippedShadow("transparent");
+        return;
+    }
+
+    const float shadowZoom = std::isfinite(actor->m_shadowZoom) && actor->m_shadowZoom > 0.0f
+        ? actor->m_shadowZoom : 1.0f;
+    const float radius = ResolveActorShadowWidth(world, *actor) * 0.5f * shadowZoom * kActorShadowSizeScale
+        * zoom * kPlayerBillboardWorldHeightScale / kNonPcBillboardScaleAnchorY;
+    if (!std::isfinite(radius) || radius <= 0.0f) {
+        logSkippedShadow("invalid-radius");
+        return;
+    }
+
+    // Sample the contact point and corners, then submit the same non-indexed
+    // quad primitive used by character billboards.
+    const vector2d offsets[5] = {
+        { 0.0f, 0.0f }, { -1.0f, -1.0f }, { 1.0f, -1.0f },
+        { 1.0f, 1.0f }, { -1.0f, 1.0f }
+    };
+    tlvertex3d vertices[5]{};
+    float contactDepth = 1.0f;
+    for (int i = 0; i < 5; ++i) {
+        vector3d point{ actor->m_pos.x + offsets[i].x * radius, actor->m_pos.y,
+            actor->m_pos.z + offsets[i].y * radius };
+        if (!SampleActorShadowGround(world, &point, i != 0)) {
+            logSkippedShadow("ground-sample", i);
+            return;
+        }
+        if (!ProjectPoint(g_renderer, viewMatrix, point, &vertices[i])) {
+            logSkippedShadow("projection", i);
+            return;
+        }
+        if (i == 0) {
+            contactDepth = vertices[i].z;
+        }
+        // Billboards already move actor depth forward to remain visible over
+        // floors and props. Put the shadow at least as far forward as that
+        // contact depth; the separate pass still draws it beneath the sprite.
+        vertices[i].z = (std::max)(0.0f,
+            (std::min)(vertices[i].z, entry.baseZ) - kActorBillboardDepthBias);
+        vertices[i].color = alpha << 24;
+        vertices[i].specular = 0xFF000000u;
+        vertices[i].tu = (point.x - actor->m_pos.x) / (2.0f * radius) + 0.5f;
+        vertices[i].tv = (point.z - actor->m_pos.z) / (2.0f * radius) + 0.5f;
+    }
+
+    CTexture* texture = GetActorShadowTexture(world);
+    RPFace* face = texture ? g_renderer.BorrowNullRP() : nullptr;
+    if (!face) {
+        logSkippedShadow(texture ? "face-allocation" : "texture-upload");
+        return;
+    }
     face->primType = D3DPT_TRIANGLESTRIP;
     face->verts = face->m_verts;
     face->numVerts = 4;
     face->indices = nullptr;
     face->numIndices = 0;
-    face->tex = shadow->texture;
-    face->mtPreset = 3;
+    face->tex = texture;
+    face->mtPreset = 0;
     face->cullMode = D3DCULL_NONE;
     face->srcAlphaMode = D3DBLEND_SRCALPHA;
     face->destAlphaMode = D3DBLEND_INVSRCALPHA;
-    face->alphaSortKey = projectedGround.oow;
-
-    for (int index = 0; index < 4; ++index) {
-        if (!ProjectPoint(g_renderer, viewMatrix, quad[index], &face->m_verts[index])) {
-            return;
-        }
-        face->m_verts[index].z = (std::max)(0.0f, face->m_verts[index].z - 0.0002f);
-        face->m_verts[index].color = shadow->color;
-        face->m_verts[index].specular = 0xFF000000u;
+    face->alphaSortKey = 0.0f;
+    face->m_verts[0] = vertices[1];
+    face->m_verts[1] = vertices[2];
+    face->m_verts[2] = vertices[4];
+    face->m_verts[3] = vertices[3];
+    g_renderer.AddGroundShadowRP(face);
+    if (traceShadow) {
+        DbgLog("[ActorShadow] queued gid=%u radius=%.2f alpha=%u groundDepth=%.6f actorDepth=%.6f shadowDepth=%.6f texture='%s'\n",
+            actor->m_gid, radius, alpha, contactDepth, entry.baseZ,
+            face->m_verts[0].z, texture->m_texName);
     }
-
-    const float tu1 = (shadow->texture->m_w > 0)
-        ? static_cast<float>(shadow->texture->m_updateWidth) / static_cast<float>(shadow->texture->m_w)
-        : 1.0f;
-    const float tv1 = (shadow->texture->m_h > 0)
-        ? static_cast<float>(shadow->texture->m_updateHeight) / static_cast<float>(shadow->texture->m_h)
-        : 1.0f;
-    face->m_verts[0].tu = 0.0f;
-    face->m_verts[0].tv = 0.0f;
-    face->m_verts[1].tu = tu1;
-    face->m_verts[1].tv = 0.0f;
-    face->m_verts[2].tu = 0.0f;
-    face->m_verts[2].tv = tv1;
-    face->m_verts[3].tu = tu1;
-    face->m_verts[3].tv = tv1;
-
-    g_renderer.AddRP(face, 1);
 }
 
 void SubmitTexturedBillboard(const vector3d& center,
@@ -2680,8 +2564,6 @@ u32 ResolveBackgroundActorUpdateInterval(const C3dActor& actor,
 
 bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
 {
-    constexpr float kBillboardDepthBias = 0.0005f;
-
     CPc* actor = entry.actor;
     if (!actor || !actor->m_isVisible || !actor->m_billboardTexture) {
         return false;
@@ -2728,7 +2610,7 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
         verts[index].y = entry.renderY[index];
     }
     for (int index = 0; index < 4; ++index) {
-        verts[index].z = (std::max)(0.0f, entry.renderZ[index] - kBillboardDepthBias);
+        verts[index].z = (std::max)(0.0f, entry.renderZ[index] - kActorBillboardDepthBias);
         verts[index].oow = entry.renderOow[index];
         verts[index].color = billboardColor;
         verts[index].specular = 0xFF000000u;
@@ -5172,6 +5054,9 @@ CWorld::~CWorld()
 
 void CWorld::ClearGround()
 {
+    delete m_actorShadowTexture;
+    m_actorShadowTexture = nullptr;
+    m_actorShadowWidths.clear();
     delete m_ground;
     m_ground = nullptr;
     InvalidateBillboardFrameCache();
@@ -6084,7 +5969,7 @@ void CWorld::RenderActors(const matrix& viewMatrix, float cameraLongitude)
     static u32 s_attachedActorRenderFrame = 0;
     ++s_attachedActorRenderFrame;
     for (const BillboardScreenEntry& entry : renderEntries) {
-        RenderCachedActorShadow(entry, viewMatrix, zoom);
+        RenderActorShadow(*this, entry, viewMatrix, zoom);
         if (entry.actor && entry.actor->m_cartEffect) {
             static std::map<u32, int> s_cartRenderLoopLogs;
             if (entry.actor->m_gid != g_session.m_gid && s_cartRenderLoopLogs[entry.actor->m_gid] < 8) {

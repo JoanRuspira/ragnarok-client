@@ -14,6 +14,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPointF>
+#include <QScreen>
 #include <QWheelEvent>
 #include <QWindow>
 
@@ -284,7 +285,13 @@ bool RoQtCreateMainWindow(const char* title,
     if (fullscreen) {
         window->showFullScreen();
     } else {
-        window->showMaximized();
+        window->setFlags(Qt::Window | Qt::FramelessWindowHint);
+        if (QScreen* screen = window->screen()) {
+            // Use the entire monitor, including the taskbar area, while
+            // retaining the normal window state.
+            window->setGeometry(screen->geometry());
+        }
+        window->show();
     }
 
     *outWindow = reinterpret_cast<RoNativeWindowHandle>(window);

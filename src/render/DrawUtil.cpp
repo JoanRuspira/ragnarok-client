@@ -70,8 +70,8 @@ FontMgr::~FontMgr() {
     }
 }
 
-HFONT FontMgr::GetFont(int fontType, int fontHeight, int charset, unsigned char bold) {
-    FontInfo searchInfo(fontType, fontHeight, charset, bold);
+HFONT FontMgr::GetFont(int fontType, int fontHeight, int charset, unsigned char bold, unsigned char quality) {
+    FontInfo searchInfo(fontType, fontHeight, charset, bold, quality);
     
     for (auto& info : m_fontInfoList) {
         if (info == searchInfo) return info.hFont;
@@ -86,7 +86,7 @@ HFONT FontMgr::GetFont(int fontType, int fontHeight, int charset, unsigned char 
         charset,
         OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS,
-        ANTIALIASED_QUALITY,
+        quality,
         DEFAULT_PITCH | FF_DONTCARE,
         face
     );
@@ -110,13 +110,13 @@ DrawDC::~DrawDC() {
     if (m_oldFont) SelectObject(m_hdc, m_oldFont);
 }
 
-void DrawDC::SetFont(int fontType, int fontHeight, unsigned char bold) {
+void DrawDC::SetFont(int fontType, int fontHeight, unsigned char bold, unsigned char quality) {
     m_fontType = fontType;
     m_fontHeight = fontHeight;
     m_bold = bold;
     m_charset = g_fontCharSet[fontType];
     
-    HFONT hFont = g_fontMgr.GetFont(fontType, fontHeight, m_charset, bold);
+    HFONT hFont = g_fontMgr.GetFont(fontType, fontHeight, m_charset, bold, quality);
     HFONT old = (HFONT)SelectObject(m_hdc, hFont);
     if (!m_oldFont) m_oldFont = old;
 }

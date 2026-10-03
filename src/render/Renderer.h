@@ -153,6 +153,7 @@ public:
     void SetMultiTextureMode(int nMode);
     
     void AddRP(RPFace* face, int renderFlag);
+    void AddGroundShadowRP(RPFace* face);
     void AddLmRP(RPLmFace* face, int renderFlag);
     void AddRawRP(RPRaw* face, int renderFlag);
     
@@ -211,6 +212,7 @@ public:
     std::vector<RPFace*> m_rpLMLightList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaList;
+    std::vector<RPFace*> m_rpGroundShadowList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaNoDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveList;

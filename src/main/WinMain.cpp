@@ -690,26 +690,13 @@ bool InitApp(HINSTANCE hInstance, int nCmdShow)
 
     const WindowMode windowMode = GetStartupWindowMode();
     const RECT monitorRect = GetPrimaryMonitorRect();
-    DWORD windowStyle = WS_OVERLAPPEDWINDOW;
-    int winLeft = monitorRect.left;
-    int winTop = monitorRect.top;
-    int windowWidth = WINDOW_WIDTH;
-    int windowHeight = WINDOW_HEIGHT;
-
-    if (windowMode == WindowMode::Windowed) {
-        RECT windowRect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
-        AdjustWindowRect(&windowRect, windowStyle, FALSE);
-        windowWidth = windowRect.right - windowRect.left;
-        windowHeight = windowRect.bottom - windowRect.top;
-        const int monitorWidth = monitorRect.right - monitorRect.left;
-        const int monitorHeight = monitorRect.bottom - monitorRect.top;
-        winLeft = monitorRect.left + (monitorWidth - windowWidth) / 2;
-        winTop = monitorRect.top + (monitorHeight - windowHeight) / 2;
-    } else {
-        windowStyle = WS_POPUP;
-        windowWidth = monitorRect.right - monitorRect.left;
-        windowHeight = monitorRect.bottom - monitorRect.top;
-    }
+    // Fill the monitor without window chrome; the renderer still controls
+    // whether an explicitly selected fullscreen mode is exclusive.
+    const DWORD windowStyle = WS_POPUP;
+    const int winLeft = monitorRect.left;
+    const int winTop = monitorRect.top;
+    const int windowWidth = monitorRect.right - monitorRect.left;
+    const int windowHeight = monitorRect.bottom - monitorRect.top;
 
     g_hMainWnd = CreateWindowExA(
         0, WINDOW_NAME, WINDOW_NAME,
@@ -726,9 +713,10 @@ bool InitApp(HINSTANCE hInstance, int nCmdShow)
     }
 
     ShowWindow(g_hMainWnd, nCmdShow);
-    if (windowMode == WindowMode::Windowed) {
-        // Apply after the initial show so launcher startup flags cannot override it.
-        ShowWindow(g_hMainWnd, SW_SHOWMAXIMIZED);
+    if (windowMode != WindowMode::Fullscreen) {
+        // Keep the monitor-sized window in its normal state rather than
+        // maximizing it to the work area reserved above the taskbar.
+        ShowWindow(g_hMainWnd, SW_SHOWNORMAL);
     }
     UpdateWindow(g_hMainWnd);
 

@@ -244,6 +244,8 @@ public:
     mutable bool m_billboardFrameCacheValid;
     mutable bool m_billboardFrameCacheDirty;
     mutable RenderDebugStats m_lastRenderStats;
+    CTexture* m_actorShadowTexture = nullptr;
+    std::map<int, float> m_actorShadowWidths;
 
     void ClearGround();
     void ClearBackgroundObjects();

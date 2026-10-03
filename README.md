@@ -47,6 +47,16 @@ For runtime asset discovery, the client looks for things like `data.grf`, `data/
 
 - `OPEN_MIDGARD_DATA_DIR=/path/to/runtime`
 
+Resources use this priority, highest first: loose files in `data/`, then
+`patchRunerok.grf`, then `data.grf`. Only these two GRFs are loaded; `data.ini`
+is not used. A missing file falls through to the next source.
+
+The CMake option `RO_READ_DATA_FOLDER` defaults to `ON`. Configure with
+`-DRO_READ_DATA_FOLDER=OFF` and rebuild to ignore loose files in `data/`, including
+sprites, palettes, client-info XML, and Lua scripts. Set it back to `ON` to enable
+the overrides. Other runtime disk paths, such as `BGM/` and `System/`, remain
+available.
+
 ## Building On Windows
 
 Windows currently has the most complete build flow.
@@ -75,7 +85,7 @@ cmake --build --preset build-release-x64 --config Release
 Notes:
 
 - Native Direct3D 11 and Direct3D 12 backends are only enabled on Windows MSVC builds.
-- If you do not want the executable copied to `D:/Spel/OldRO`, configure with `-DRO_ENABLE_DEV_DEPLOY=OFF`.
+- Windows builds copy `Runerok.exe` to `C:/ragnarok/client` by default. Override the folder with `-DRO_DEV_DEPLOY_DIR=<path>` or disable copying with `-DRO_ENABLE_DEV_DEPLOY=OFF`.
 
 ### Option 2: MinGW + Qt 6
 
@@ -174,7 +184,7 @@ Notes:
 
 After building, run:
 
-- Windows: `open-midgard.exe`
+- Windows: `Runerok.exe` (deployed to `C:\ragnarok\client\Runerok.exe` by default)
 - Linux/macOS: `open-midgard`
 
 Make sure your runtime directory contains the client data/GRF files and configuration files the client expects, or set `OPEN_MIDGARD_DATA_DIR` to point at them.

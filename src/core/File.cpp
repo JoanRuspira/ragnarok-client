@@ -7,6 +7,7 @@
 #include "Types.h"
 #include <string.h>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <set>
@@ -29,7 +30,7 @@ std::string NormalizeLookupPath(const char* fileName)
     return normalized;
 }
 
-bool HasPreferredDiskExtension(const char* fileName)
+bool ShouldTraceDataSource(const char* fileName)
 {
     if (!fileName || !*fileName) {
         return false;
@@ -54,9 +55,14 @@ bool HasPreferredDiskExtension(const char* fileName)
         || std::strcmp(ext, "pal") == 0;
 }
 
-bool ShouldTraceDataSource(const char* fileName)
+bool IsDataFolderPath(const char* fileName)
 {
-    return HasPreferredDiskExtension(fileName);
+    const std::string normalized = NormalizeLookupPath(fileName);
+    const char* path = normalized.c_str();
+    while (path[0] == '.' && path[1] == '\\') {
+        path += 2;
+    }
+    return _strnicmp(path, "data\\", 5) == 0;
 }
 
 void LogDataSourceOnce(const char* fileName, const char* source, int size)
@@ -78,7 +84,7 @@ void LogDataSourceOnce(const char* fileName, const char* source, int size)
 
 bool ShouldReadDiskFirst(const char* fileName)
 {
-    return g_readFolderFirst != 0 || HasPreferredDiskExtension(fileName);
+    return RO_READ_DATA_FOLDER != 0 && IsDataFolderPath(fileName);
 }
 
 #if RO_PLATFORM_WINDOWS
@@ -264,6 +270,19 @@ unsigned char* ReadWholeFileOnDiskPortable(const char* fileName, int* outSize)
 // ---------------------------------------------------------------------------
 CFileMgr::CFileMgr() = default;
 
+void CFileMgr::LoadClientArchives()
+{
+    // AddPak inserts at the front, so register the lowest priority first.
+    AddPak("data.grf");
+    AddPak("patchRunerok.grf");
+}
+
+bool CFileMgr::CanReadLooseFile(const char* fileName)
+{
+    return fileName && *fileName
+        && (RO_READ_DATA_FOLDER != 0 || !IsDataFolderPath(fileName));
+}
+
 CFileMgr::~CFileMgr()
 {
     for (auto& [memFile, pak] : m_pakList)
@@ -316,13 +335,9 @@ bool CFileMgr::IsDataExist(const char* fileName)
             return true;
     }
 
-#if RO_PLATFORM_WINDOWS
-    if (!ShouldReadDiskFirst(fileName) && FileExistsOnDiskPortable(fileName))
+    if (!ShouldReadDiskFirst(fileName) && CanReadLooseFile(fileName)
+        && FileExistsOnDiskPortable(fileName))
         return true;
-#else
-    if (!ShouldReadDiskFirst(fileName) && FileExistsOnDiskPortable(fileName))
-        return true;
-#endif
 
     return false;
 }
@@ -361,21 +376,12 @@ unsigned char* CFileMgr::GetData(const char* fileName, int* outSize)
         delete[] buf;
     }
 
-#if RO_PLATFORM_WINDOWS
-    if (!ShouldReadDiskFirst(fileName)) {
+    if (!ShouldReadDiskFirst(fileName) && CanReadLooseFile(fileName)) {
         if (unsigned char* buf = ReadWholeFileOnDiskPortable(fileName, outSize)) {
             LogDataSourceOnce(fileName, "disk", outSize ? *outSize : 0);
             return buf;
         }
     }
-#else
-    if (!ShouldReadDiskFirst(fileName)) {
-        if (unsigned char* buf = ReadWholeFileOnDiskPortable(fileName, outSize)) {
-            LogDataSourceOnce(fileName, "disk", outSize ? *outSize : 0);
-            return buf;
-        }
-    }
-#endif
 
     return nullptr;
 }

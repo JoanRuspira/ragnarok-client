@@ -78,7 +78,6 @@ char      g_baseDir [MAX_PATH] = {};
 char      g_baseDir3[MAX_PATH] = {};
 
 CFileMgr  g_fileMgr;
-int       g_readFolderFirst = 0;   // 0=PAK-first, 1=disk-first
 static RenderBackendType g_activeRenderBackend = RenderBackendType::LegacyDirect3D7;
 static std::string g_windowTitleStatusSuffix;
 
@@ -892,18 +891,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         DbgLog("%s", CDllMgr::GetLastLoadReport().c_str());
     }
 
-    // Register PAK archives.
-    if (lpCmdLine && strstr(lpCmdLine, "/pc"))
-    {
-        // Offline / test mode: skip data.grf
-    }
-    else
-    {
-        g_fileMgr.AddPak("data.grf");
-    }
-    g_fileMgr.AddPak("data_hp.grf");
-    g_fileMgr.AddPak("event.grf");
-    g_fileMgr.AddPak("fdata.grf");
+    g_fileMgr.LoadClientArchives();
 
     // Initialise Winsock
     if (!CConnection::Startup())

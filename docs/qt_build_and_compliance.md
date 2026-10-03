@@ -50,11 +50,11 @@ The bundle includes:
 When `RO_ENABLE_QT6_UI_SPIKE=ON`, CMake runs `windeployqt` after build:
 
 - once for the normal build output directory;
-- once for `D:/Spel/OldRO` when `RO_ENABLE_DEV_DEPLOY=ON`.
+- once for `RO_DEV_DEPLOY_DIR` (default `C:/ragnarok/client`) when `RO_ENABLE_DEV_DEPLOY=ON`.
 
 This deployment also copies `third_party/qt` into `licenses/qt` in the target output directory.
 
-To keep the output root smaller, the deploy script now writes `qt.conf` beside `open-midgard.exe` and relocates Qt-owned directory trees under:
+To keep the output root smaller, the deploy script now writes `qt.conf` beside `Runerok.exe` and relocates Qt-owned directory trees under:
 
 - `thirdparty/qt`
 

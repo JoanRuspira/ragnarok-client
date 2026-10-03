@@ -129,14 +129,12 @@ bool HasAnyRuntimeAsset(const std::filesystem::path& root)
 
     std::error_code ec;
     return std::filesystem::exists(root / "data.grf", ec)
-        || std::filesystem::exists(root / "data_hp.grf", ec)
-        || std::filesystem::exists(root / "event.grf", ec)
-        || std::filesystem::exists(root / "fdata.grf", ec)
+        || std::filesystem::exists(root / "patchRunerok.grf", ec)
         || std::filesystem::exists(root / "clientinfo.xml", ec)
         || std::filesystem::exists(root / "sclientinfo.xml", ec)
         || std::filesystem::exists(root / "System" / "clientinfo.xml", ec)
         || std::filesystem::exists(root / "System" / "sclientinfo.xml", ec)
-        || std::filesystem::is_directory(root / "data", ec)
+        || (RO_READ_DATA_FOLDER != 0 && std::filesystem::is_directory(root / "data", ec))
         || std::filesystem::is_directory(root / "System", ec);
 }
 
@@ -347,7 +345,6 @@ char g_baseDir[MAX_PATH] = {};
 char g_baseDir3[MAX_PATH] = {};
 
 CFileMgr g_fileMgr;
-int g_readFolderFirst = 0;
 
 bool InitApp(HINSTANCE, int)
 {
@@ -635,10 +632,7 @@ int main(int argc, char** argv)
         DbgLog("%s", CDllMgr::GetLastLoadReport().c_str());
     }
 
-    g_fileMgr.AddPak("data.grf");
-    g_fileMgr.AddPak("data_hp.grf");
-    g_fileMgr.AddPak("event.grf");
-    g_fileMgr.AddPak("fdata.grf");
+    g_fileMgr.LoadClientArchives();
 
     if (!CConnection::Startup()) {
         return 1;

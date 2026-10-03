@@ -20,7 +20,9 @@ option(RO_ENABLE_MILES_AUDIO "Enable Miles Sound System runtime loading" ON)
 option(RO_ENABLE_BINK_VIDEO "Enable Bink video runtime loading" ON)
 option(RO_ENABLE_GRANNY "Enable Granny runtime loading" ON)
 option(RO_ENABLE_IJL "Enable Intel JPEG Library runtime loading" OFF)
-option(RO_ENABLE_DEV_DEPLOY "Copy build output to the local OldRO folder" ON)
+option(RO_READ_DATA_FOLDER "Read loose data/ files before patchRunerok.grf and data.grf" ON)
+option(RO_ENABLE_DEV_DEPLOY "Copy build output to the local client folder" ON)
+set(RO_DEV_DEPLOY_DIR "C:/ragnarok/client" CACHE PATH "Local client deployment directory")
 option(RO_ENABLE_QT6_UI "Enable the Qt 6 / QML GPU UI runtime" OFF)
 option(RO_ENABLE_QT6_UI_SPIKE "Deprecated alias for RO_ENABLE_QT6_UI" OFF)
 option(RO_QT_UI_DEFAULT_ENABLED "Enable the Qt UI runtime by default unless OPEN_MIDGARD_QT_UI overrides it" OFF)
@@ -35,7 +37,7 @@ if(NOT WIN32)
     set(RO_ENABLE_NATIVE_D3D11 OFF CACHE BOOL "Enable the native Direct3D 11 backend when supported" FORCE)
     set(RO_ENABLE_NATIVE_D3D12 OFF CACHE BOOL "Enable the native Direct3D 12 backend when supported" FORCE)
     set(RO_ENABLE_QT6_UI ON CACHE BOOL "Enable the Qt 6 / QML GPU UI runtime" FORCE)
-    set(RO_ENABLE_DEV_DEPLOY OFF CACHE BOOL "Copy build output to the local OldRO folder" FORCE)
+    set(RO_ENABLE_DEV_DEPLOY OFF CACHE BOOL "Copy build output to the local client folder" FORCE)
 endif()
 
 if(RO_ENABLE_QT6_UI_SPIKE AND NOT RO_ENABLE_QT6_UI)
@@ -91,6 +93,7 @@ add_compile_definitions(
     RO_ENABLE_BINK_VIDEO=$<BOOL:${RO_ENABLE_BINK_VIDEO}>
     RO_ENABLE_GRANNY=$<BOOL:${RO_ENABLE_GRANNY}>
     RO_ENABLE_IJL=$<BOOL:${RO_ENABLE_IJL}>
+    RO_READ_DATA_FOLDER=$<BOOL:${RO_READ_DATA_FOLDER}>
     RO_X64_FIRST_MILESTONE_BUILD=$<BOOL:${RO_X64_FIRST_MILESTONE_BUILD}>
     RO_ENABLE_QT6_UI=$<BOOL:${RO_ENABLE_QT6_UI}>
     RO_ENABLE_QT6_UI_SPIKE=$<BOOL:${RO_ENABLE_QT6_UI_SPIKE}>
@@ -177,14 +180,15 @@ add_subdirectory(src/main)
 set(RO_APP_MAIN_SOURCE src/main/WinMain.cpp)
 if(WIN32)
     add_executable(open_midgard WIN32 ${RO_APP_MAIN_SOURCE} src/main/OpenMidgard.rc)
+    set_target_properties(open_midgard PROPERTIES OUTPUT_NAME "Runerok")
 else()
     set(RO_APP_MAIN_SOURCE src/main/AppMain_stub.cpp)
     add_executable(open_midgard ${RO_APP_MAIN_SOURCE})
+    set_target_properties(open_midgard PROPERTIES OUTPUT_NAME "open-midgard")
 endif()
-set_target_properties(open_midgard PROPERTIES OUTPUT_NAME "open-midgard")
 
 if(RO_ENABLE_DEV_DEPLOY)
-    target_compile_definitions(open_midgard PRIVATE RO_DEV_DEPLOY_DIR="D:/Spel/OldRO")
+    target_compile_definitions(open_midgard PRIVATE RO_DEV_DEPLOY_DIR="${RO_DEV_DEPLOY_DIR}")
 endif()
 
 target_link_libraries(open_midgard PRIVATE
@@ -243,10 +247,11 @@ ro_add_qt_runtime_deploy(open_midgard "$<TARGET_FILE_DIR:open_midgard>")
 if(RO_ENABLE_DEV_DEPLOY)
     add_custom_command(TARGET open_midgard POST_BUILD
         COMMAND ${CMAKE_COMMAND}
-                -DRO_SRC="$<TARGET_FILE:open_midgard>"
-                -DRO_DST="D:/Spel/OldRO/open-midgard.exe"
+                "-DRO_SRC=$<TARGET_FILE:open_midgard>"
+                "-DRO_DST=${RO_DEV_DEPLOY_DIR}/$<TARGET_FILE_NAME:open_midgard>"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BestEffortCopy.cmake"
-        COMMENT "Copying executable to local OldRO folder"
+        VERBATIM
+        COMMENT "Copying executable to ${RO_DEV_DEPLOY_DIR}"
     )
-    ro_add_qt_runtime_deploy(open_midgard "D:/Spel/OldRO")
+    ro_add_qt_runtime_deploy(open_midgard "${RO_DEV_DEPLOY_DIR}")
 endif()

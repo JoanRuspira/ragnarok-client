@@ -2,7 +2,6 @@
 #include "../DebugLog.h"
 #include "Globals.h"
 #include "File.h"
-#include <fstream>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -120,120 +119,6 @@ void ParseLoadingImages(XMLElement* element)
     EnsureDefaultLoadingScreens();
 }
 
-#if !RO_PLATFORM_WINDOWS
-std::string NormalizePortablePath(const char* path)
-{
-    if (!path) {
-        return {};
-    }
-
-    std::string normalized(path);
-    std::replace(normalized.begin(), normalized.end(), '\\', '/');
-    return normalized;
-}
-#endif
-
-bool LoadDiskFile(const char* fileName, std::vector<char>* outBuffer)
-{
-    if (!fileName || !*fileName || !outBuffer) {
-        return false;
-    }
-
-#if RO_PLATFORM_WINDOWS
-    std::ifstream file(fileName, std::ios::binary | std::ios::ate);
-#else
-    const std::string normalizedPath = NormalizePortablePath(fileName);
-    std::ifstream file(normalizedPath, std::ios::binary | std::ios::ate);
-#endif
-    if (!file.is_open()) {
-        return false;
-    }
-
-    const std::streamsize size = file.tellg();
-    if (size <= 0) {
-        return false;
-    }
-
-    outBuffer->resize(static_cast<size_t>(size));
-    file.seekg(0, std::ios::beg);
-    return file.read(outBuffer->data(), size).good();
-}
-
-bool BuildExecutableRelativePath(const char* relativePath, char* outPath, size_t outPathSize)
-{
-    if (!relativePath || !*relativePath || !outPath || outPathSize == 0) {
-        return false;
-    }
-
-    char modulePath[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) {
-        return false;
-    }
-
-    char* lastBackslash = std::strrchr(modulePath, '\\');
-    char* lastForwardSlash = std::strrchr(modulePath, '/');
-    char* lastSlash = lastBackslash;
-    if (!lastSlash || (lastForwardSlash && lastForwardSlash > lastSlash)) {
-        lastSlash = lastForwardSlash;
-    }
-    if (!lastSlash) {
-        return false;
-    }
-    lastSlash[1] = '\0';
-
-#if RO_PLATFORM_WINDOWS
-    const int written = std::snprintf(outPath, outPathSize, "%s%s", modulePath, relativePath);
-#else
-    std::string normalizedRelative(relativePath);
-    std::replace(normalizedRelative.begin(), normalizedRelative.end(), '\\', '/');
-    const int written = std::snprintf(outPath, outPathSize, "%s%s", modulePath, normalizedRelative.c_str());
-#endif
-    return written > 0 && static_cast<size_t>(written) < outPathSize;
-}
-
-bool TryLoadExecutableRelativeFile(const char* relativePath, std::vector<char>* outBuffer)
-{
-#if !RO_PLATFORM_WINDOWS
-    if (LoadDiskFile(relativePath, outBuffer)) {
-        return true;
-    }
-#endif
-
-    char absolutePath[MAX_PATH] = {};
-    if (!BuildExecutableRelativePath(relativePath, absolutePath, sizeof(absolutePath))) {
-        return false;
-    }
-    return LoadDiskFile(absolutePath, outBuffer);
-}
-
-bool HasLocalDataDirectory()
-{
-#if !RO_PLATFORM_WINDOWS
-    const DWORD runtimeAttrs = GetFileAttributesA("data");
-    if (runtimeAttrs != INVALID_FILE_ATTRIBUTES && (runtimeAttrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-        return true;
-    }
-#endif
-
-    char dataPath[MAX_PATH] = {};
-    if (!BuildExecutableRelativePath("data", dataPath, sizeof(dataPath))) {
-        return false;
-    }
-
-    const DWORD attrs = GetFileAttributesA(dataPath);
-    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
-
-bool ShouldPreferLocalDataFile(const char* fileName)
-{
-    if (!fileName || !*fileName || !HasLocalDataDirectory()) {
-        return false;
-    }
-
-    return _strnicmp(fileName, "data\\", 5) == 0 || _strnicmp(fileName, "data/", 5) == 0;
-}
-
 bool LoadClientInfoBytes(const char* fileName, std::vector<char>* outBuffer)
 {
     if (!fileName || !*fileName || !outBuffer) {
@@ -242,27 +127,15 @@ bool LoadClientInfoBytes(const char* fileName, std::vector<char>* outBuffer)
 
     outBuffer->clear();
 
-    if (ShouldPreferLocalDataFile(fileName)) {
-        if (TryLoadExecutableRelativeFile(fileName, outBuffer) || LoadDiskFile(fileName, outBuffer)) {
-            DbgLog("[ClientInfo] Loaded local file first: %s\n", fileName);
-            return true;
-        }
-    }
-
     int size = 0;
     unsigned char* bytes = g_fileMgr.GetData(fileName, &size);
     if (bytes && size > 0) {
         outBuffer->assign(reinterpret_cast<const char*>(bytes), reinterpret_cast<const char*>(bytes) + size);
         delete[] bytes;
-        DbgLog("[ClientInfo] Loaded from GRF/fallback: %s size=%d\n", fileName, size);
+        DbgLog("[ClientInfo] Loaded through FileMgr: %s size=%d\n", fileName, size);
         return true;
     }
     delete[] bytes;
-
-    if (LoadDiskFile(fileName, outBuffer)) {
-        DbgLog("[ClientInfo] Loaded fallback disk path: %s\n", fileName);
-        return true;
-    }
 
     return false;
 }
@@ -362,10 +235,6 @@ static void SetOption(XMLElement* element) {
     if (element->FindChild("passwordencrypt2")) {
         g_passwordEncrypt = 1;
         g_passwordEncrypt2 = 1;
-    }
-
-    if (element->FindChild("readfolder")) {
-        g_readFolderFirst = 1;
     }
 
     ParseLoadingImages(element);

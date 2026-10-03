@@ -104,6 +104,9 @@ public:
     ~CFileMgr();
 
     void AddPak(const char* pakName);
+    void LoadClientArchives();
+    // The compile-time RO_READ_DATA_FOLDER flag controls loose data/ files.
+    static bool CanReadLooseFile(const char* fileName);
     bool IsDataExist(const char* fileName);
     bool IsExist(const char* fileName); // Local alias for compatibility
 
@@ -121,5 +124,4 @@ private:
 // Global file manager
 // ---------------------------------------------------------------------------
 extern CFileMgr g_fileMgr;
-extern int      g_readFolderFirst;   // 0 = try PAK first; 1 = try disk first
 extern char     g_baseDir[MAX_PATH];

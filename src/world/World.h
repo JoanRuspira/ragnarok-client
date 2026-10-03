@@ -119,6 +119,7 @@ struct CGroundSurface {
 
 struct CGroundCell {
     float h[4];
+    u32 vertexColor[4];
     vector3d watervert[4];
     int topSurfaceId;
     int frontSurfaceId;

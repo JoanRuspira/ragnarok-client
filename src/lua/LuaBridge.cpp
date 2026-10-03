@@ -777,14 +777,22 @@ std::string CLuaBridge::ResolveLocalLuaPath(const char* relativePath) const
 		return std::string();
 	}
 
-	const std::filesystem::path direct = current / normalized;
-	if (std::filesystem::exists(direct, error) && !error) {
-		return direct.string();
-	}
-
-	const std::filesystem::path lua514 = current / "data" / "luafiles514" / normalized;
-	if (std::filesystem::exists(lua514, error) && !error) {
-		return lua514.string();
+	// Check every loose-script alias before searching either GRF.
+	const std::string candidates[] = {
+		normalized,
+		std::string("data\\luafiles514\\") + normalized,
+		std::string("data\\") + normalized,
+	};
+	for (const std::string& candidate : candidates) {
+		if (!CFileMgr::CanReadLooseFile(candidate.c_str())) {
+			continue;
+		}
+		std::string nativePath = candidate;
+		std::replace(nativePath.begin(), nativePath.end(), '\\', '/');
+		const std::filesystem::path local = current / nativePath;
+		if (std::filesystem::is_regular_file(local, error) && !error) {
+			return local.string();
+		}
 	}
 
 	return std::string();

@@ -1822,14 +1822,7 @@ void CLoginMode::SetLoginStatus(const char* status)
 
 bool CLoginMode::LoadClientInfoCandidates()
 {
-    const DWORD dataAttrs = GetFileAttributesA("data");
-    const bool hasDataFolder = dataAttrs != INVALID_FILE_ATTRIBUTES && (dataAttrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
-
     std::vector<const char*> candidates;
-    if (hasDataFolder) {
-        candidates.push_back("data\\clientinfo.xml");
-        candidates.push_back("data\\sclientinfo.xml");
-    }
     candidates.push_back("data\\clientinfo.xml");
     candidates.push_back("data\\sclientinfo.xml");
     candidates.push_back("clientinfo.xml");

@@ -4479,9 +4479,22 @@ bool C3dGround::AssignGnd(const CGndRes& gnd, const vector3d& lightDir, const ve
         }
     }
 
+    // Each GND top-surface color belongs to its (x, y) grid vertex. Adjacent
+    // cells must use that same color at their shared corners, even when they
+    // reference different surfaces. Extend the last row/column at map edges.
+    auto getVertexColor = [&](int x, int y) -> u32 {
+        const CGroundCell* cell = GetCell((std::min)(x, m_width - 1), (std::min)(y, m_height - 1));
+        const CGroundSurface* surface = cell ? GetSurface(cell->topSurfaceId) : nullptr;
+        return surface ? MakeGroundVertexColor(surface->color) : 0xFFFFFFFFu;
+    };
+
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
-            const CGroundCell& cell = m_cells[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)];
+            CGroundCell& cell = m_cells[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)];
+            cell.vertexColor[0] = getVertexColor(x, y);
+            cell.vertexColor[1] = getVertexColor(x + 1, y);
+            cell.vertexColor[2] = getVertexColor(x, y + 1);
+            cell.vertexColor[3] = getVertexColor(x + 1, y + 1);
             if (cell.topSurfaceId < 0 || cell.topSurfaceId >= m_numSurfaces) {
                 continue;
             }
@@ -4759,7 +4772,7 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
     static bool loggedSubmittedGroundTexture = false;
     const vector3d groundEnvDiff = ComputeGroundEnvDiff(m_ambientCol, m_diffuseCol);
 
-    auto submitSurface = [&](const CGroundSurface* surface, const vector3d (&worldVerts)[4], int* submittedCounter) {
+    auto submitSurface = [&](const CGroundSurface* surface, const vector3d (&worldVerts)[4], const u32 (&vertexColors)[4], int* submittedCounter) {
         if (!surface) {
             ++missingSurface;
             return;
@@ -4786,7 +4799,6 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
             SubtractVec3(worldVerts[1], worldVerts[0]),
             SubtractVec3(worldVerts[2], worldVerts[0])));
         (void)surfaceNormal;
-        const u32 litColor = MakeGroundVertexColor(surface->color, groundEnvDiff);
         for (int i = 0; i < 4; ++i) {
             tlvertex3d projected{};
             if (!ProjectPoint(g_renderer, viewMatrix, worldVerts[i], &projected)) {
@@ -4800,7 +4812,7 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
             if (kDebugGroundFlatColors) {
                 dstVert->color = DebugGroundColor(surface->textureId);
             } else {
-                dstVert->color = litColor;
+                dstVert->color = MakeGroundVertexColor(vertexColors[i], groundEnvDiff);
             }
             if (kDebugGroundCanonicalUvs || kDebugGroundTestTexture) {
                 static const float kCanonicalU[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -4972,7 +4984,7 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
                 vector3d{ x1, cell->h[3], z1 },
             };
             SubmitWaterQuad(*this, viewMatrix, x, y, *cell);
-            submitSurface(surface, topVerts, &submittedTopFaces);
+            submitSurface(surface, topVerts, cell->vertexColor, &submittedTopFaces);
 
             if (kSubmitGroundSideFaces && cell->frontSurfaceId >= 0 && y < m_height - 1) {
                 const CGroundCell* frontNeighbor = GetCell(x, y + 1);
@@ -4984,7 +4996,11 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
                     vector3d{ x0, frontH0, z1 },
                     vector3d{ x1, frontH1, z1 },
                 };
-                submitSurface(GetSurface(cell->frontSurfaceId), frontVerts, &submittedFrontFaces);
+                const u32 frontColors[4] = {
+                    cell->vertexColor[2], cell->vertexColor[3],
+                    cell->vertexColor[2], cell->vertexColor[3],
+                };
+                submitSurface(GetSurface(cell->frontSurfaceId), frontVerts, frontColors, &submittedFrontFaces);
             }
 
             if (kSubmitGroundSideFaces && cell->rightSurfaceId >= 0 && x < m_width - 1) {
@@ -4997,7 +5013,11 @@ void C3dGround::FlushGround(const matrix& viewMatrix)
                     vector3d{ x1, rightH2, z1 },
                     vector3d{ x1, rightH0, z0 },
                 };
-                submitSurface(GetSurface(cell->rightSurfaceId), rightVerts, &submittedRightFaces);
+                const u32 rightColors[4] = {
+                    cell->vertexColor[3], cell->vertexColor[1],
+                    cell->vertexColor[3], cell->vertexColor[1],
+                };
+                submitSurface(GetSurface(cell->rightSurfaceId), rightVerts, rightColors, &submittedRightFaces);
             }
         }
     }

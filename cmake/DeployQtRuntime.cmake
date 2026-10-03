@@ -15,11 +15,13 @@ if(NOT EXISTS "${QT_DEPLOY_WINDEPLOYQT}")
 endif()
 
 file(MAKE_DIRECTORY "${QT_DEPLOY_OUTPUT_DIR}")
+get_filename_component(_qt_target_name "${QT_DEPLOY_TARGET_FILE}" NAME)
+set(_qt_deployed_target "${QT_DEPLOY_OUTPUT_DIR}/${_qt_target_name}")
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${QT_DEPLOY_TARGET_FILE}"
-        "${QT_DEPLOY_OUTPUT_DIR}/open-midgard.exe"
+        "${_qt_deployed_target}"
     RESULT_VARIABLE _copy_result
 )
 if(NOT _copy_result EQUAL 0)
@@ -31,7 +33,7 @@ execute_process(
         --release
         --dir "${QT_DEPLOY_OUTPUT_DIR}"
         --qmldir "${QT_DEPLOY_QML_DIR}"
-        "${QT_DEPLOY_OUTPUT_DIR}/open-midgard.exe"
+        "${_qt_deployed_target}"
     RESULT_VARIABLE _deploy_result
 )
 if(NOT _deploy_result EQUAL 0)

@@ -311,3 +311,28 @@ and the five source edits above applied:
 - unsupported newer char-server packets are not sent to this client
 
 This is the source patch set required on the rAthena side for the old client compatibility work that was completed.
+
+## Runtime Entity Visibility
+
+rAthena controls when nearby NPCs, monsters, players, and ground items are sent
+to the client through the `area_size` battle setting. The default is 14 map cells
+in each direction. OpenMidgard renders the actors it receives without imposing
+a separate distance limit in map cells.
+
+For the local server at `C:\ragnarok\ragnarok`, put this override in
+`conf/import/battle_conf.txt`, which is imported after the default battle settings:
+
+```conf
+// Send nearby entities sooner for OpenMidgard's wider camera view.
+// Default: 14 map cells in each direction; 28 doubles the visibility radius.
+area_size: 28
+```
+
+Apply it with the GM command `@reloadbattleconf`, then reconnect or change maps
+to populate the enlarged area. Alternatively, restart the map server. This is
+a runtime configuration change and requires no client or server rebuild.
+
+A doubled radius covers nearly four times as many cells and can increase network
+traffic and server/client work in crowded areas. rAthena also uses `AREA_SIZE`
+for some AI and gameplay checks, so this setting is not exclusively visual.
+To restore the default, remove the override and reload the battle configuration.

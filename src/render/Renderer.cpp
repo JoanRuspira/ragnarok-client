@@ -1114,10 +1114,12 @@ void CRenderer::FlushRenderList() {
         m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
         m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
         m_renderDevice->SetTextureStageState(1, D3DTSS_TEXCOORDINDEX, 1);
-        m_renderDevice->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE | D3DTA_ALPHAREPLICATE);
-        m_renderDevice->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        // GND alpha stores shadow intensity; RGB stores additive coloured light.
+        m_renderDevice->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        m_renderDevice->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATEALPHA_ADDCOLOR);
         m_renderDevice->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CURRENT);
-        m_renderDevice->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        m_renderDevice->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+        m_renderDevice->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
         m_oldTexture = nullptr;
         m_oldLmapTexture = nullptr;
         for (RPLmFace* face : m_rpLmList) {

@@ -393,24 +393,24 @@ u32 MultiplyColor(u32 color, const vector3d& light, float alpha)
     return (dstA << 24) | (dstR << 16) | (dstG << 8) | dstB;
 }
 
-u32 MakeLitColor(const vector3d& light, float alpha, bool dimmed)
+u32 MakeLitColor(const vector3d& light, float alpha)
 {
-    const float scale = dimmed ? 128.0f : 255.0f;
     const unsigned int dstA = static_cast<unsigned int>(ClampFloat(alpha, 0.0f, 1.0f) * 255.0f + 0.5f);
-    const unsigned int dstR = static_cast<unsigned int>(ClampFloat(light.x, 0.0f, 1.0f) * scale + 0.5f);
-    const unsigned int dstG = static_cast<unsigned int>(ClampFloat(light.y, 0.0f, 1.0f) * scale + 0.5f);
-    const unsigned int dstB = static_cast<unsigned int>(ClampFloat(light.z, 0.0f, 1.0f) * scale + 0.5f);
+    const unsigned int dstR = static_cast<unsigned int>(ClampFloat(light.x, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const unsigned int dstG = static_cast<unsigned int>(ClampFloat(light.y, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const unsigned int dstB = static_cast<unsigned int>(ClampFloat(light.z, 0.0f, 1.0f) * 255.0f + 0.5f);
     return (dstA << 24) | (dstR << 16) | (dstG << 8) | dstB;
 }
 
 vector3d ComputeLightColor(const vector3d& normal, const vector3d& lightDir, const vector3d& diffuseCol, const vector3d& ambientCol)
 {
-    (void)normal;
-    (void)lightDir;
+    // RSW stores the direction the light travels; surface lighting uses the direction toward the sun.
+    const float intensity = ClampFloat(-DotVec3(NormalizeVec3(normal), NormalizeVec3(lightDir)), 0.0f, 1.0f);
+    // Preserve the RSW ambient light on every face; only diffuse light is directional.
     return vector3d{
-        ClampFloat(ambientCol.x + diffuseCol.x, 0.0f, 1.0f),
-        ClampFloat(ambientCol.y + diffuseCol.y, 0.0f, 1.0f),
-        ClampFloat(ambientCol.z + diffuseCol.z, 0.0f, 1.0f)
+        ClampFloat(ambientCol.x + diffuseCol.x * intensity, 0.0f, 1.0f),
+        ClampFloat(ambientCol.y + diffuseCol.y * intensity, 0.0f, 1.0f),
+        ClampFloat(ambientCol.z + diffuseCol.z * intensity, 0.0f, 1.0f)
     };
 }
 
@@ -558,6 +558,20 @@ void C3dNode::UpdateVertexColor(const matrix& parentWorld,
     MatrixMult(nodeWorld, m_ltm, parentWorld);
 
     if (m_mesh) {
+        // Normals use the inverse transpose so mirrored and nonuniformly scaled
+        // instances keep the same outward lighting direction as the source mesh.
+        matrix normalMatrix{};
+        MatrixIdentity(normalMatrix);
+        if (std::fabs(Matrix3x3Determinant(nodeWorld)) > 1.0e-12f) {
+            matrix inverseWorld{};
+            MatrixInverse(inverseWorld, nodeWorld);
+            for (int row = 0; row < 3; ++row) {
+                for (int column = 0; column < 3; ++column) {
+                    normalMatrix.m[row][column] = inverseWorld.m[column][row];
+                }
+            }
+        }
+
         for (size_t faceIndex = 0; faceIndex < m_mesh->m_face.size() && faceIndex < m_colorInfo.size(); ++faceIndex) {
             const face3d& face = m_mesh->m_face[faceIndex];
             if (face.vertindex[0] >= m_mesh->m_vert.size()
@@ -568,33 +582,30 @@ void C3dNode::UpdateVertexColor(const matrix& parentWorld,
 
             FaceColor& colorInfo = m_colorInfo[faceIndex];
             for (int corner = 0; corner < 3; ++corner) {
-                const size_t tvertIndex = face.tvertindex[corner];
-                const bool dimmed = tvertIndex < m_mesh->m_tvert.size() && m_mesh->m_tvert[tvertIndex].color != 0;
                 if (m_shadeType == 0) {
-                    colorInfo.color[corner] = MakeLitColor(vector3d{ 1.0f, 1.0f, 1.0f }, m_opacity, false);
+                    colorInfo.color[corner] = MakeLitColor(vector3d{ 1.0f, 1.0f, 1.0f }, m_opacity);
                     continue;
                 }
 
                 vector3d normal{};
                 const size_t normalIndex = faceIndex * 3u + static_cast<size_t>(corner);
                 if (m_shadeType == 2 && normalIndex < m_mesh->m_vertNormal.size()) {
-                    const vector3d& vertexNormal = m_mesh->m_vertNormal[normalIndex];
-                    normal = NormalizeVec3(vector3d{
-                        vertexNormal.x * nodeWorld.m[0][0] + vertexNormal.y * nodeWorld.m[1][0] + vertexNormal.z * nodeWorld.m[2][0],
-                        vertexNormal.x * nodeWorld.m[0][1] + vertexNormal.y * nodeWorld.m[1][1] + vertexNormal.z * nodeWorld.m[2][1],
-                        vertexNormal.x * nodeWorld.m[0][2] + vertexNormal.y * nodeWorld.m[1][2] + vertexNormal.z * nodeWorld.m[2][2]
-                    });
+                    normal = m_mesh->m_vertNormal[normalIndex];
                 } else {
-                    const vector3d worldA = TransformPoint(nodeWorld, m_mesh->m_vert[face.vertindex[0]]);
-                    const vector3d worldB = TransformPoint(nodeWorld, m_mesh->m_vert[face.vertindex[1]]);
-                    const vector3d worldC = TransformPoint(nodeWorld, m_mesh->m_vert[face.vertindex[2]]);
-                    normal = NormalizeVec3(CrossVec3(SubtractVec3(worldB, worldA), SubtractVec3(worldC, worldA)));
+                    const vector3d& localA = m_mesh->m_vert[face.vertindex[0]];
+                    const vector3d& localB = m_mesh->m_vert[face.vertindex[1]];
+                    const vector3d& localC = m_mesh->m_vert[face.vertindex[2]];
+                    normal = CrossVec3(SubtractVec3(localB, localA), SubtractVec3(localC, localA));
                 }
+                normal = NormalizeVec3(vector3d{
+                    normal.x * normalMatrix.m[0][0] + normal.y * normalMatrix.m[1][0] + normal.z * normalMatrix.m[2][0],
+                    normal.x * normalMatrix.m[0][1] + normal.y * normalMatrix.m[1][1] + normal.z * normalMatrix.m[2][1],
+                    normal.x * normalMatrix.m[0][2] + normal.y * normalMatrix.m[1][2] + normal.z * normalMatrix.m[2][2]
+                });
 
                 colorInfo.color[corner] = MakeLitColor(
                     ComputeLightColor(normal, lightDir, diffuseCol, ambientCol),
-                    m_opacity,
-                    dimmed);
+                    m_opacity);
             }
         }
     }

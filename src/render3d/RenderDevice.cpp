@@ -1115,8 +1115,8 @@ float4 PSMain(VSOutput input) : SV_Target
     }
 
     if ((g_flags & 64u) != 0u) {
-        float lightmapAlpha = g_texture1.Sample(g_sampler0, input.uv1).a;
-        color.rgb *= lightmapAlpha.xxx;
+        float4 lightmap = g_texture1.Sample(g_sampler0, input.uv1);
+        color.rgb = saturate(color.rgb * lightmap.a + lightmap.rgb);
     }
 
     if ((g_flags & 128u) != 0u) {

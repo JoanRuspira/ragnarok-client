@@ -14,7 +14,6 @@
 namespace {
 
 constexpr float kDragLongitudePerPixel = 0.4f;
-constexpr float kDragLatitudePerPixel = -0.3f;
 constexpr float kWheelDistancePerNotch = -60.0f;
 // Ref\View.cpp CView::InterpolateViewInfo (~0x5097f0): each sub-step,
 //   cur += (dest - cur) * 0.1
@@ -542,10 +541,10 @@ void CView::AddLongitude(float delta)
     m_dest.longitude = ClampLongitude(m_dest.longitude + delta);
 }
 
-void CView::RotateByDrag(int deltaX, int deltaY)
+void CView::RotateByDrag(int deltaX, int /*deltaY*/)
 {
+    // Right-button dragging rotates horizontally while preserving the camera tilt.
     AddLongitude(static_cast<float>(deltaX) * kDragLongitudePerPixel);
-    AddLatitude(static_cast<float>(deltaY) * kDragLatitudePerPixel);
 }
 
 void CView::ZoomByWheel(int wheelDelta)

@@ -53,7 +53,7 @@ enum ModernDrawFlags : unsigned int {
     ModernDrawFlag_ColorKeyEnabled = 1u << 3,
     ModernDrawFlag_Stage0AlphaUseTexture = 1u << 4,
     ModernDrawFlag_Stage0AlphaModulate = 1u << 5,
-    ModernDrawFlag_Stage1LightmapAlpha = 1u << 6,
+    ModernDrawFlag_Stage1Lightmap = 1u << 6,
     ModernDrawFlag_FogEnabled = 1u << 7,
 };
 

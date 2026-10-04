@@ -29,6 +29,9 @@ struct GraphicsSettings {
     AntiAliasingMode antiAliasing;
     int frameRate; // 0 follows the current monitor; otherwise an explicit FPS cap.
     bool verticalSync;
+    bool spriteInterpolation;
+    bool sharpSprites;
+    int spriteSharpness; // Pixel-edge gain: 1..16, used when sharpSprites is enabled.
 };
 
 GraphicsSettings LoadGraphicsSettings();

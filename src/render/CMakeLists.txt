@@ -7,6 +7,8 @@ add_library(ro_render STATIC
     DrawUtil.cpp
     DC.h
     DC.cpp
+    SpriteInterpolation.h
+    SpriteInterpolation.cpp
     Prim.h
     Prim.cpp
 )

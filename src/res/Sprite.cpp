@@ -5,8 +5,15 @@
 
 #include <algorithm>
 #include <cstring>
+#include <atomic>
 
 namespace {
+
+u64 NextSpriteRevision()
+{
+    static std::atomic<u64> revision{ 0 };
+    return ++revision;
+}
 
 template <typename T>
 bool ReadValue(const unsigned char*& cursor, const unsigned char* end, T& out)
@@ -43,6 +50,7 @@ struct SprChunk {
 } // namespace
 
 CSprRes::CSprRes() {
+    m_interpolationRevision = NextSpriteRevision();
     m_count = 0;
     std::memset(m_pal, 0, sizeof(m_pal));
 }
@@ -267,6 +275,7 @@ CRes* CSprRes::Clone() {
 }
 
 void CSprRes::Reset() {
+    m_interpolationRevision = NextSpriteRevision();
     for (int bank = 0; bank < 2; ++bank) {
         for (SprImg* image : m_sprites[bank]) {
             if (image) {

@@ -1,5 +1,9 @@
 # Actor animation timing
 
+The client also supports [sprite pose interpolation](sprite_interpolation.md),
+enabled by default. It adds rendered poses between ACT frames without changing
+the animation clocks described below.
+
 Player and monster positions and action states advance once per rendered frame.
 The 24 ms world tick still advances game objects, items and periodic status
 effects. Actor updates use elapsed time, so a delayed frame catches up to the

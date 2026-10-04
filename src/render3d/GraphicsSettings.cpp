@@ -18,6 +18,9 @@ constexpr char kGraphicsAnisotropicValue[] = "AnisotropicLevel";
 constexpr char kGraphicsAntiAliasingValue[] = "AntiAliasing";
 constexpr char kGraphicsFrameRateValue[] = "FrameRate";
 constexpr char kGraphicsVerticalSyncValue[] = "VerticalSync";
+constexpr char kGraphicsSpriteInterpolationValue[] = "SpriteInterpolation";
+constexpr char kGraphicsSharpSpritesValue[] = "SharpSprites";
+constexpr char kGraphicsSpriteSharpnessValue[] = "SpriteSharpness";
 constexpr int kMinWidth = 640;
 constexpr int kMinHeight = 480;
 constexpr int kMaxWidth = 7680;
@@ -50,6 +53,9 @@ GraphicsSettings GetDefaultGraphicsSettings()
     settings.antiAliasing = AntiAliasingMode::None;
     settings.frameRate = 0;
     settings.verticalSync = true;
+    settings.spriteInterpolation = true;
+    settings.sharpSprites = true;
+    settings.spriteSharpness = 4;
     return settings;
 }
 
@@ -69,6 +75,7 @@ void SanitizeGraphicsSettings(GraphicsSettings* settings)
     }
 
     settings->textureUpscaleFactor = (std::max)(1, (std::min)(4, settings->textureUpscaleFactor));
+    settings->spriteSharpness = (std::max)(1, (std::min)(16, settings->spriteSharpness));
     settings->anisotropicLevel = ClampToAllowedAnisotropy(settings->anisotropicLevel);
     settings->frameRate = settings->frameRate <= 0
         ? 0
@@ -92,6 +99,9 @@ GraphicsSettings LoadGraphicsSettings()
     settings.antiAliasing = static_cast<AntiAliasingMode>(LoadSettingsIniInt(kGraphicsSection, kGraphicsAntiAliasingValue, static_cast<int>(settings.antiAliasing)));
     settings.frameRate = LoadSettingsIniInt(kGraphicsSection, kGraphicsFrameRateValue, settings.frameRate);
     settings.verticalSync = LoadSettingsIniInt(kGraphicsSection, kGraphicsVerticalSyncValue, settings.verticalSync ? 1 : 0) != 0;
+    settings.spriteInterpolation = LoadSettingsIniInt(kGraphicsSection, kGraphicsSpriteInterpolationValue, settings.spriteInterpolation ? 1 : 0) != 0;
+    settings.sharpSprites = LoadSettingsIniInt(kGraphicsSection, kGraphicsSharpSpritesValue, settings.sharpSprites ? 1 : 0) != 0;
+    settings.spriteSharpness = LoadSettingsIniInt(kGraphicsSection, kGraphicsSpriteSharpnessValue, settings.spriteSharpness);
 
     SanitizeGraphicsSettings(&settings);
     return settings;
@@ -109,7 +119,10 @@ bool SaveGraphicsSettings(const GraphicsSettings& rawSettings)
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsAnisotropicValue, settings.anisotropicLevel)
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsAntiAliasingValue, static_cast<int>(settings.antiAliasing))
         && SaveSettingsIniInt(kGraphicsSection, kGraphicsFrameRateValue, settings.frameRate)
-        && SaveSettingsIniInt(kGraphicsSection, kGraphicsVerticalSyncValue, settings.verticalSync ? 1 : 0);
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsVerticalSyncValue, settings.verticalSync ? 1 : 0)
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsSpriteInterpolationValue, settings.spriteInterpolation ? 1 : 0)
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsSharpSpritesValue, settings.sharpSprites ? 1 : 0)
+        && SaveSettingsIniInt(kGraphicsSection, kGraphicsSpriteSharpnessValue, settings.spriteSharpness);
 }
 
 const GraphicsSettings& GetCachedGraphicsSettings()

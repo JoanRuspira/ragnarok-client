@@ -8,6 +8,7 @@
 #include "render/DC.h"
 #include "render3d/Device.h"
 #include "render3d/RenderDevice.h"
+#include "render3d/GraphicsSettings.h"
 #include "core/File.h"
 #include "res/ActRes.h"
 #include "res/GndRes.h"
@@ -2765,10 +2766,18 @@ bool BuildBillboardRenderEntry(CPc* actor,
         }
     }
 
-    const float u0 = leftPixels / textureWidth;
-    const float v0 = topPixels / textureHeight;
-    const float u1 = rightPixels / textureWidth;
-    const float v1 = bottomPixels / textureHeight;
+    // Actor dimensions are logical sprite pixels; the uploaded pose can be 2x.
+    // Legacy D3D also pads textures to powers of two. Sample only the uploaded
+    // region, while retaining the same geometry and attachment anchors.
+    const CTexture* texture = actor->m_billboardTexture;
+    const float uAdjust = texture->m_w > 0
+        ? static_cast<float>(texture->m_surfaceUpdateWidth) / texture->m_w : 1.0f;
+    const float vAdjust = texture->m_h > 0
+        ? static_cast<float>(texture->m_surfaceUpdateHeight) / texture->m_h : 1.0f;
+    const float u0 = leftPixels / textureWidth * uAdjust;
+    const float v0 = topPixels / textureHeight * vAdjust;
+    const float u1 = rightPixels / textureWidth * uAdjust;
+    const float v1 = bottomPixels / textureHeight * vAdjust;
 
     const float minRenderOow = (std::min)(projectedDepthTop.oow, projectedDepthBottom.oow);
     for (int index = 0; index < 4; ++index) {
@@ -5764,6 +5773,11 @@ void CWorld::UpdateActors()
 
 void CWorld::UpdateActorStates()
 {
+    // Fractional poses can change without advancing m_curMotion. Rebuild hover
+    // entries once per rendered frame so they use the displayed silhouette.
+    if (GetCachedGraphicsSettings().spriteInterpolation) {
+        InvalidateBillboardFrameCache();
+    }
     if (m_player) {
         m_player->ProcessState();
     }

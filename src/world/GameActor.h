@@ -331,6 +331,26 @@ void SetRuntimeActorCameraLongitude(float longitude);
 // Call after actors are destroyed and before shutting down the render device.
 void ClearSharedActorBillboardCaches();
 
+struct ActorBillboardAnimation {
+    bool enabled = false;
+    bool sharpPixels = false;
+    int sharpness = 4;
+    ActMotionSample body;
+    std::array<ActMotionSample, 3> accessories{};
+
+    bool operator==(const ActorBillboardAnimation& other) const {
+        return enabled == other.enabled && sharpPixels == other.sharpPixels
+            && sharpness == other.sharpness && body == other.body && accessories == other.accessories;
+    }
+    bool operator<(const ActorBillboardAnimation& other) const {
+        if (enabled != other.enabled) return enabled < other.enabled;
+        if (sharpPixels != other.sharpPixels) return sharpPixels < other.sharpPixels;
+        if (sharpness != other.sharpness) return sharpness < other.sharpness;
+        if (body != other.body) return body < other.body;
+        return accessories < other.accessories;
+    }
+};
+
 class CGrannyPc : public CGameActor {
 public:
     std::string m_imfName;
@@ -415,6 +435,7 @@ public:
     CTexture* m_billboardTexture;
     std::shared_ptr<CTexture> m_sharedBillboardTexture;
     int m_billboardTextureOwned;
+    // Logical sprite pixels; the texture can contain a 2x raster of this surface.
     int m_billboardTextureWidth;
     int m_billboardTextureHeight;
     int m_billboardAnchorX;
@@ -434,6 +455,7 @@ public:
     int m_cachedBillboardAccessory2;
     int m_cachedBillboardAccessory3;
     std::array<int, 3> m_cachedBillboardAccessoryMotions;
+    ActorBillboardAnimation m_cachedBillboardAnimation;
     u32 m_accessoryAnimationStartTick;
     int m_cachedNonPcResourceJob;
     CActRes* m_cachedNonPcActRes;

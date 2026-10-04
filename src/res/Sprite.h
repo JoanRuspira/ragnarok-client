@@ -19,6 +19,8 @@ public:
     std::vector<SprImg*> m_sprites[2];
     unsigned int m_pal[256];
     int m_count;
+    // Unique across reloads, so cached interpolation cannot outlive its artwork.
+    u64 m_interpolationRevision;
 
     CSprRes();
     virtual ~CSprRes();

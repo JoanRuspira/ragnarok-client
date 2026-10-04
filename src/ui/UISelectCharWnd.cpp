@@ -9,6 +9,8 @@
 #include "main/WinMain.h"
 #include "qtui/QtUiRuntime.h"
 #include "render/DC.h"
+#include "render/SpriteInterpolation.h"
+#include "render3d/GraphicsSettings.h"
 #include "render3d/Device.h"
 #include "res/ActRes.h"
 #include "res/Bitmap.h"
@@ -458,11 +460,15 @@ bool UpdatePreviewAccessoryMotions(UISelectCharWnd::PreviewState& preview, u32 e
     for (size_t slot = 0; slot < preview.accessoryMotions.size(); ++slot) {
         const std::string& actName = preview.actName[slot + 2];
         CActRes* actRes = actName.empty() ? nullptr : g_resMgr.GetAs<CActRes>(actName.c_str());
-        const int motion = actRes
-            ? actRes->GetAccessoryMotionIndex(preview.curAction, preview.curMotion, elapsedMs)
-            : 0;
-        if (preview.accessoryMotions[slot] != motion) {
-            preview.accessoryMotions[slot] = motion;
+        ActMotionSample sample = actRes
+            ? actRes->GetAccessoryMotionSample(preview.curAction, preview.curMotion, elapsedMs)
+            : ActMotionSample{};
+        if (!GetCachedGraphicsSettings().spriteInterpolation) {
+            sample = ActMotionSample::Pose(sample.current);
+        }
+        if (preview.accessorySamples[slot] != sample) {
+            preview.accessorySamples[slot] = sample;
+            preview.accessoryMotions[slot] = sample.current;
             changed = true;
         }
     }
@@ -471,7 +477,7 @@ bool UpdatePreviewAccessoryMotions(UISelectCharWnd::PreviewState& preview, u32 e
 
 bool DrawPreviewAccessoryMotion(HDC hdc,
     const UISelectCharWnd::PreviewState& preview,
-    int accessoryMotionIndex,
+    const ActMotionSample& sample,
     const std::string& accessoryActName,
     const std::string& accessorySprName)
 {
@@ -489,7 +495,7 @@ bool DrawPreviewAccessoryMotion(HDC hdc,
 
     const CMotion* bodyMotion = bodyActRes->GetMotion(preview.curAction, preview.curMotion);
     const CMotion* headMotion = headActRes->GetMotion(preview.curAction, preview.curMotion);
-    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, accessoryMotionIndex);
+    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, sample.current);
     if (!accessoryMotion) {
         accessoryMotion = accessoryActRes->GetMotion(preview.curAction, 0);
     }
@@ -500,7 +506,22 @@ bool DrawPreviewAccessoryMotion(HDC hdc,
     POINT point{};
     ApplyAttachPointDelta(bodyMotion, headMotion, &point);
     ApplyAttachPointDelta(headMotion, accessoryMotion, &point);
-    return DrawActMotionToHdc(hdc, preview.x + point.x, preview.y + point.y, accessorySprRes, accessoryMotion, accessorySprRes->m_pal);
+    if (!GetCachedGraphicsSettings().spriteInterpolation) {
+        return DrawActMotionToHdc(hdc, preview.x + point.x, preview.y + point.y,
+            accessorySprRes, accessoryMotion, accessorySprRes->m_pal);
+    }
+    const CMotion* next = accessoryActRes->GetMotion(preview.curAction, sample.next);
+    POINT nextPoint = point;
+    if (next) {
+        nextPoint = {};
+        ApplyAttachPointDelta(bodyMotion, headMotion, &nextPoint);
+        ApplyAttachPointDelta(headMotion, next, &nextPoint);
+    }
+    return DrawInterpolatedMotionToHdc(hdc,
+        static_cast<float>(preview.x + point.x) + (nextPoint.x - point.x) * sample.Fraction(),
+        static_cast<float>(preview.y + point.y) + (nextPoint.y - point.y) * sample.Fraction(),
+        accessorySprRes, accessoryMotion, next, accessorySprRes->m_pal, sample.Fraction(),
+        GetCachedGraphicsSettings().sharpSprites, GetCachedGraphicsSettings().spriteSharpness);
 }
 
 bool DrawPreviewLayer(HDC hdc, const UISelectCharWnd::PreviewState& preview, int layerIndex)
@@ -552,7 +573,7 @@ bool DrawPreviewAccessoryMotionToArgb(unsigned int* pixels,
     int width,
     int height,
     const UISelectCharWnd::PreviewState& preview,
-    int accessoryMotionIndex,
+    const ActMotionSample& sample,
     const std::string& accessoryActName,
     const std::string& accessorySprName)
 {
@@ -570,7 +591,7 @@ bool DrawPreviewAccessoryMotionToArgb(unsigned int* pixels,
 
     const CMotion* bodyMotion = bodyActRes->GetMotion(preview.curAction, preview.curMotion);
     const CMotion* headMotion = headActRes->GetMotion(preview.curAction, preview.curMotion);
-    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, accessoryMotionIndex);
+    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, sample.current);
     if (!accessoryMotion) {
         accessoryMotion = accessoryActRes->GetMotion(preview.curAction, 0);
     }
@@ -581,6 +602,21 @@ bool DrawPreviewAccessoryMotionToArgb(unsigned int* pixels,
     POINT point{};
     ApplyAttachPointDelta(bodyMotion, headMotion, &point);
     ApplyAttachPointDelta(headMotion, accessoryMotion, &point);
+    if (GetCachedGraphicsSettings().spriteInterpolation) {
+        const CMotion* next = accessoryActRes->GetMotion(preview.curAction, sample.next);
+        POINT nextPoint = point;
+        if (next) {
+            nextPoint = {};
+            ApplyAttachPointDelta(bodyMotion, headMotion, &nextPoint);
+            ApplyAttachPointDelta(headMotion, next, &nextPoint);
+        }
+        BlitInterpolatedMotionToArgb(pixels, width, height,
+            static_cast<float>(preview.x - preview.ownerX + point.x) + (nextPoint.x - point.x) * sample.Fraction(),
+            static_cast<float>(preview.y - preview.ownerY + point.y) + (nextPoint.y - point.y) * sample.Fraction(),
+            accessorySprRes, accessoryMotion, next, accessorySprRes->m_pal, sample.Fraction(),
+            GetCachedGraphicsSettings().sharpSprites, 1, GetCachedGraphicsSettings().spriteSharpness);
+        return true;
+    }
     return DrawActMotionToArgb(
         pixels,
         width,
@@ -1568,6 +1604,14 @@ unsigned long long UISelectCharWnd::GetQtPreviewRevision() const
         for (int motion : preview.accessoryMotions) {
             mix(motion);
         }
+        mix(GetCachedGraphicsSettings().spriteInterpolation);
+        mix(GetCachedGraphicsSettings().sharpSprites);
+        mix(GetCachedGraphicsSettings().spriteSharpness);
+        for (const auto& sample : preview.accessorySamples) {
+            mix(sample.next);
+            mix(sample.subframe);
+            mix(sample.subdivisions);
+        }
         for (const std::string& actName : preview.actName) {
             mix(actName.size());
             for (unsigned char character : actName) {
@@ -1586,9 +1630,9 @@ void UISelectCharWnd::DrawPreview(HDC hdc, const PreviewState& preview) const
 
     DrawPreviewLayer(hdc, preview, 0);
     DrawPreviewLayer(hdc, preview, 1);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[0], preview.actName[2], preview.sprName[2]);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[1], preview.actName[3], preview.sprName[3]);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[2], preview.actName[4], preview.sprName[4]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessorySamples[0], preview.actName[2], preview.sprName[2]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessorySamples[1], preview.actName[3], preview.sprName[3]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessorySamples[2], preview.actName[4], preview.sprName[4]);
 }
 
 #if RO_ENABLE_QT6_UI
@@ -1620,9 +1664,9 @@ void UISelectCharWnd::DrawQtPreviews(QImage* image)
     for (const PreviewState& preview : previews) {
         DrawPreviewLayerToArgb(overlayPixels.data(), image->width(), image->height(), preview, 0);
         DrawPreviewLayerToArgb(overlayPixels.data(), image->width(), image->height(), preview, 1);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[0], preview.actName[2], preview.sprName[2]);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[1], preview.actName[3], preview.sprName[3]);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[2], preview.actName[4], preview.sprName[4]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessorySamples[0], preview.actName[2], preview.sprName[2]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessorySamples[1], preview.actName[3], preview.sprName[3]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessorySamples[2], preview.actName[4], preview.sprName[4]);
     }
 
     const QImage overlay(
@@ -1630,7 +1674,7 @@ void UISelectCharWnd::DrawQtPreviews(QImage* image)
         image->width(),
         image->height(),
         image->width() * static_cast<int>(sizeof(unsigned int)),
-        QImage::Format_ARGB32);
+        QImage::Format_ARGB32_Premultiplied);
     QPainter painter(image);
     painter.drawImage(0, 0, overlay);
     LOG_SELECT_CHAR("[SelectChar] DrawQtPreviews finished\n");

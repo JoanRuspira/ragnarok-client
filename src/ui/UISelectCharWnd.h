@@ -3,6 +3,7 @@
 #include "UIFrameWnd.h"
 #include "UIShopCommon.h"
 #include "render/DC.h"
+#include "res/ActRes.h"
 
 #include <array>
 #include <mutex>
@@ -79,6 +80,7 @@ public:
         int accessoryMid = 0;
         int accessoryTop = 0;
         std::array<int, 3> accessoryMotions{};
+        std::array<ActMotionSample, 3> accessorySamples{};
         std::string actName[5];
         std::string sprName[5];
         std::string imfName;

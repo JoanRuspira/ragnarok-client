@@ -9,6 +9,8 @@
 #include "main/WinMain.h"
 #include "DebugLog.h"
 #include "render/DC.h"
+#include "render/SpriteInterpolation.h"
+#include "render3d/GraphicsSettings.h"
 #include "render3d/Device.h"
 #include "render3d/RenderDevice.h"
 #include "res/ImfRes.h"
@@ -128,9 +130,12 @@ constexpr float kItemProjectSubmitNearPlane = 80.0f;
 constexpr const char* kLegacyItemSpriteRoot = "data\\sprite\\\xBE\xC6\xC0\xCC\xC5\xDB\\";
 
 struct BillboardComposeSurface {
-    BillboardComposeSurface(int width, int height)
-        : m_width(width), m_height(height), m_pixels(static_cast<size_t>(width) * static_cast<size_t>(height), 0u)
+    BillboardComposeSurface(int width, int height, bool sharpPixels = false)
+        : m_scale(sharpPixels && width <= 1024 && height <= 1024 ? 2 : 1),
+          m_width(width * m_scale), m_height(height * m_scale),
+          m_pixels(static_cast<size_t>(m_width) * static_cast<size_t>(m_height), 0u)
     {
+        animation.sharpPixels = sharpPixels;
     }
 
     void Clear(unsigned int color)
@@ -140,15 +145,47 @@ struct BillboardComposeSurface {
 
     void BltSprite(int x, int y, CSprRes* sprRes, const CMotion* motion, unsigned int* palette)
     {
-        BlitMotionToArgb(m_pixels.data(), m_width, m_height, x, y, sprRes, motion, palette);
+        if (m_scale > 1) {
+            BlitInterpolatedMotionToArgb(m_pixels.data(), m_width, m_height,
+                static_cast<float>(x), static_cast<float>(y), sprRes, motion, motion,
+                palette, 0.0f, animation.sharpPixels, m_scale, animation.sharpness);
+        } else {
+            BlitMotionToArgb(m_pixels.data(), m_width, m_height, x, y, sprRes, motion, palette);
+        }
     }
+
+    void BltInterpolatedSprite(float x, float y, CSprRes* sprRes, const CMotion* motion,
+        const CMotion* next, unsigned int* palette, float fraction)
+    {
+        if (animation.enabled) {
+            BlitInterpolatedMotionToArgb(m_pixels.data(), m_width, m_height,
+                x, y, sprRes, motion, next, palette, fraction,
+                animation.sharpPixels, m_scale, animation.sharpness);
+        } else {
+            BltSprite(static_cast<int>(x), static_cast<int>(y), sprRes, motion, palette);
+        }
+    }
+
+    ActorBillboardAnimation animation;
 
     unsigned int* GetImageData() { return m_pixels.data(); }
     const unsigned int* GetImageData() const { return m_pixels.data(); }
     int GetWidth() const { return m_width; }
     int GetHeight() const { return m_height; }
+    int GetScale() const { return m_scale; }
+
+    void ToLogicalBounds(tagRECT* bounds) const
+    {
+        // Geometry, anchors and hit testing stay in the original sprite pixels.
+        // Right/bottom are exclusive, so round them outward when reducing.
+        bounds->left /= m_scale;
+        bounds->top /= m_scale;
+        bounds->right = (bounds->right + m_scale - 1) / m_scale;
+        bounds->bottom = (bounds->bottom + m_scale - 1) / m_scale;
+    }
 
 private:
+    int m_scale = 1;
     int m_width = 0;
     int m_height = 0;
     std::vector<unsigned int> m_pixels;
@@ -733,15 +770,16 @@ bool DrawWarpPortalFallback(BillboardComposeSurface& bitmap, const CPc& actor, i
     const float centerX = static_cast<float>(width) * 0.5f;
     const float centerY = static_cast<float>(height) * 0.76f;
 
-    DrawFilledCircle(pixels, width, height, centerX, centerY - 2.0f, 20.0f, coreColor);
-    DrawRing(pixels, width, height, centerX, centerY, 28.0f, 5.0f, glowColor);
-    DrawRing(pixels, width, height, centerX, centerY, 24.0f, 3.0f, ringColor);
-    DrawRing(pixels, width, height, centerX, centerY, 16.0f, 2.0f, 0x90FFFFFFu);
+    const float scale = static_cast<float>(bitmap.GetScale());
+    DrawFilledCircle(pixels, width, height, centerX, centerY - 2.0f * scale, 20.0f * scale, coreColor);
+    DrawRing(pixels, width, height, centerX, centerY, 28.0f * scale, 5.0f * scale, glowColor);
+    DrawRing(pixels, width, height, centerX, centerY, 24.0f * scale, 3.0f * scale, ringColor);
+    DrawRing(pixels, width, height, centerX, centerY, 16.0f * scale, 2.0f * scale, 0x90FFFFFFu);
 
     for (int band = 0; band < 4; ++band) {
-        const float offset = -12.0f + 8.0f * static_cast<float>(band);
-        DrawFilledCircle(pixels, width, height, centerX + offset * 0.35f, centerY - 18.0f - std::fabs(offset) * 0.4f, 5.5f, glowColor);
-        DrawFilledCircle(pixels, width, height, centerX + offset * 0.25f, centerY - 32.0f - std::fabs(offset) * 0.8f, 3.5f, 0x50FFFFFFu);
+        const float offset = (-12.0f + 8.0f * static_cast<float>(band)) * scale;
+        DrawFilledCircle(pixels, width, height, centerX + offset * 0.35f, centerY - 18.0f * scale - std::fabs(offset) * 0.4f, 5.5f * scale, glowColor);
+        DrawFilledCircle(pixels, width, height, centerX + offset * 0.25f, centerY - 32.0f * scale - std::fabs(offset) * 0.8f, 3.5f * scale, 0x50FFFFFFu);
     }
 
     if (outJob) {
@@ -1172,6 +1210,7 @@ struct SharedNonPcBillboardKey {
     int job = 0;
     int action = 0;
     int motion = 0;
+    ActorBillboardAnimation animation;
 
     bool operator<(const SharedNonPcBillboardKey& other) const
     {
@@ -1181,7 +1220,10 @@ struct SharedNonPcBillboardKey {
         if (action != other.action) {
             return action < other.action;
         }
-        return motion < other.motion;
+        if (motion != other.motion) {
+            return motion < other.motion;
+        }
+        return animation < other.animation;
     }
 };
 
@@ -1253,6 +1295,7 @@ struct SharedPlayerBillboardKey {
     int action = 0;
     int motion = 0;
     std::array<int, 3> accessoryMotions{};
+    ActorBillboardAnimation animation;
 
     bool operator<(const SharedPlayerBillboardKey& other) const
     {
@@ -1295,7 +1338,10 @@ struct SharedPlayerBillboardKey {
         if (motion != other.motion) {
             return motion < other.motion;
         }
-        return accessoryMotions < other.accessoryMotions;
+        if (accessoryMotions != other.accessoryMotions) {
+            return accessoryMotions < other.accessoryMotions;
+        }
+        return animation < other.animation;
     }
 };
 
@@ -1362,7 +1408,8 @@ bool ResolveNonPcBillboardMotion(const CPc& actor,
 bool ResolveNonPcBillboardComposeConfig(const CPc& actor,
     int bodyAction,
     int motion,
-    NonPcBillboardComposeConfig* outConfig)
+    NonPcBillboardComposeConfig* outConfig,
+    const ActorBillboardAnimation& animation)
 {
     if (!outConfig) {
         return false;
@@ -1376,7 +1423,16 @@ bool ResolveNonPcBillboardComposeConfig(const CPc& actor,
     }
 
     RECT clipBounds{};
-    if (!ComputeMotionClipBounds(sprRes, spriteMotion, &clipBounds)) {
+    const CMotion* nextMotion = spriteMotion;
+    if (animation.enabled) {
+        CActRes* nextAct = nullptr;
+        CSprRes* nextSpr = nullptr;
+        ResolveNonPcBillboardMotion(actor, bodyAction, animation.body.next, &nextAct, &nextSpr, &nextMotion);
+    }
+    const bool hasBounds = animation.enabled
+        ? ComputeInterpolatedMotionBounds(sprRes, spriteMotion, nextMotion, animation.body.Fraction(), &clipBounds)
+        : ComputeMotionClipBounds(sprRes, spriteMotion, &clipBounds);
+    if (!hasBounds) {
         return false;
     }
 
@@ -1394,7 +1450,7 @@ bool ResolveNonPcBillboardComposeConfig(const CPc& actor,
     outConfig->height = (std::max)(1, composeBottom - composeTop);
     outConfig->anchorX = -composeLeft;
     outConfig->anchorY = -composeTop;
-    return true;
+    return outConfig->width <= 4096 && outConfig->height <= 4096;
 }
 bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     const CPc& actor,
@@ -1514,7 +1570,9 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
         return true;
     }
 
-    BillboardComposeSurface stripSurface(kPlayerBillboardComposeWidth, kPlayerBillboardComposeHeight);
+    BillboardComposeSurface stripSurface(kPlayerBillboardComposeWidth, kPlayerBillboardComposeHeight,
+        frameKey.animation.sharpPixels);
+    stripSurface.animation = frameKey.animation;
     stripSurface.Clear(0x00000000u);
 
     int stripResolvedJob = -1;
@@ -1544,6 +1602,7 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
             &stripOpaqueBounds)) {
         return false;
     }
+    stripSurface.ToLogicalBounds(&stripOpaqueBounds);
 
     std::vector<unsigned int> stripPixels(stripSurface.GetImageData(),
         stripSurface.GetImageData() + static_cast<size_t>(stripSurface.GetWidth()) * static_cast<size_t>(stripSurface.GetHeight()));
@@ -1553,7 +1612,7 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
     if (!stripTexture) {
         return false;
     }
-    if (!stripTexture->Create(kPlayerBillboardComposeWidth, kPlayerBillboardComposeHeight, PF_A8R8G8B8, false)) {
+    if (!stripTexture->Create(stripSurface.GetWidth(), stripSurface.GetHeight(), PF_A8R8G8B8, false)) {
         delete stripTexture;
         return false;
     }
@@ -1566,11 +1625,11 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
         true);
     stripTexture->Update(0,
         0,
-        kPlayerBillboardComposeWidth,
-        kPlayerBillboardComposeHeight,
+        stripSurface.GetWidth(),
+        stripSurface.GetHeight(),
         stripPixels.data(),
         true,
-        kPlayerBillboardComposeWidth * static_cast<int>(sizeof(unsigned int)));
+        stripSurface.GetWidth() * static_cast<int>(sizeof(unsigned int)));
 
     SharedPlayerBillboardValue stripValue{};
     stripValue.texture.reset(stripTexture);
@@ -1620,6 +1679,15 @@ void PrimePlayerBillboardStrip(CPc& actor,
         SharedPlayerBillboardKey firstFrameKey = sharedPlayerKey;
         firstFrameKey.action = bodyAction;
         firstFrameKey.motion = 0;
+        firstFrameKey.accessoryMotions = ResolvePcAccessoryMotionIndices(actor, bodyAction, 0, 0);
+        firstFrameKey.animation.enabled = GetCachedGraphicsSettings().spriteInterpolation;
+        firstFrameKey.animation.sharpPixels = GetCachedGraphicsSettings().sharpSprites;
+        firstFrameKey.animation.sharpness = firstFrameKey.animation.sharpPixels
+            ? GetCachedGraphicsSettings().spriteSharpness : 4;
+        firstFrameKey.animation.body = ActMotionSample::Pose(0);
+        for (size_t slot = 0; slot < firstFrameKey.accessoryMotions.size(); ++slot) {
+            firstFrameKey.animation.accessories[slot] = ActMotionSample::Pose(firstFrameKey.accessoryMotions[slot]);
+        }
         if (GetSharedPlayerBillboardCache().find(firstFrameKey) != GetSharedPlayerBillboardCache().end()) {
             return;
         }
@@ -1628,6 +1696,14 @@ void PrimePlayerBillboardStrip(CPc& actor,
     for (int motionIndex = 0; motionIndex < motionCount; ++motionIndex) {
         SharedPlayerBillboardKey frameKey = sharedPlayerKey;
         frameKey.accessoryMotions = ResolvePcAccessoryMotionIndices(actor, bodyAction, motionIndex, 0);
+        frameKey.animation.enabled = GetCachedGraphicsSettings().spriteInterpolation;
+        frameKey.animation.sharpPixels = GetCachedGraphicsSettings().sharpSprites;
+        frameKey.animation.sharpness = frameKey.animation.sharpPixels
+            ? GetCachedGraphicsSettings().spriteSharpness : 4;
+        frameKey.animation.body = ActMotionSample::Pose(motionIndex);
+        for (size_t slot = 0; slot < frameKey.accessoryMotions.size(); ++slot) {
+            frameKey.animation.accessories[slot] = ActMotionSample::Pose(frameKey.accessoryMotions[slot]);
+        }
         PopulateSharedPlayerBillboardFrame(actor, frameKey, displayJob, sex, bodyAction, motionIndex);
     }
 }
@@ -1686,6 +1762,7 @@ void ClearSharedActorBillboardCaches()
     GetSharedPlayerBillboardCache().clear();
     GetSharedNonPcBillboardCache().clear();
     GetPrimedPlayerBillboardStrips().clear();
+    ClearSpriteInterpolationCache();
 }
 
 int CGameObject::Get8Dir(float rot)
@@ -1729,6 +1806,43 @@ int ResolveMotionFrame(float progress, int motionCount, bool holdLastFrame)
     }
     // Reduce before converting to int, even for long-lived looping actors.
     return static_cast<int>(std::fmod(progress, static_cast<float>(motionCount)));
+}
+
+ActMotionSample ResolveActorRenderSample(const CGameActor& actor, CActRes* actRes,
+    int action, int selectedMotion)
+{
+    if (!GetCachedGraphicsSettings().spriteInterpolation || !actRes
+        || actor.m_isMotionFreezed || actor.m_isMotionFinished || actor.m_isNeverAnimation
+        || (actor.m_isPc && ((action & ~7) == 0 || (action & ~7) == 16))) {
+        return ActMotionSample::Pose(selectedMotion);
+    }
+    const float delay = actor.m_motionType == 1 ? actor.m_motionSpeed : actRes->GetDelay(action);
+    double durationMs = delay * kActDelayUnitMs;
+    if (actor.m_isMoving && (action & ~7) == 8) {
+        // Progress is distance based. Derive the time per frame from the active
+        // path segment without changing its distance clock or walking cadence.
+        size_t segment = 0;
+        const CWorld* world = &g_world;
+        if (world && FindActivePathSegment(actor.m_path, g_session.GetServerTime(), &segment)
+            && segment + 1 < actor.m_path.m_cells.size()) {
+            const auto& start = actor.m_path.m_cells[segment];
+            const auto& end = actor.m_path.m_cells[segment + 1];
+            const float startX = segment == 0 ? actor.m_moveStartPos.x : TileToWorldCoordX(world, start.x);
+            const float startZ = segment == 0 ? actor.m_moveStartPos.z : TileToWorldCoordZ(world, start.y);
+            const float dx = TileToWorldCoordX(world, end.x) - startX;
+            const float dz = TileToWorldCoordZ(world, end.y) - startZ;
+            const float distance = std::sqrt(dx * dx + dz * dz);
+            if (distance > 0.001f) {
+                durationMs = static_cast<double>(end.arrivalTime - start.arrivalTime)
+                    * actRes->GetDelay(action) / (distance * 1.48f);
+            }
+        }
+    }
+    const auto sample = SampleActMotion(ResolveActorMotionProgress(actor, actRes, action),
+        actRes->GetMotionCount(action), durationMs, actor.m_motionType == 1);
+    // State processing owns the discrete pose and its events. A clock boundary
+    // crossed while composing must not combine unrelated frames.
+    return sample.current == selectedMotion ? sample : ActMotionSample::Pose(selectedMotion);
 }
 
 int ResolvePcMotionIndex(const CPc* actor, int action, const std::string& bodyActName)
@@ -2102,6 +2216,36 @@ std::array<int, 3> ResolvePcAccessoryMotionIndices(const CPc& actor,
     return motions;
 }
 
+std::array<ActMotionSample, 3> ResolvePcAccessoryMotionSamples(const CPc& actor,
+    int bodyAction, const ActMotionSample& body, u32 elapsedMs)
+{
+    std::array<ActMotionSample, 3> samples{};
+    const std::array<int, 3> accessories{ actor.m_accessory, actor.m_accessory3, actor.m_accessory2 };
+    const int displayJob = ResolveDisplayJob(actor);
+    const int sex = actor.m_sex != 0 ? 1 : 0;
+    for (size_t slot = 0; slot < accessories.size(); ++slot) {
+        if (accessories[slot] <= 0) continue;
+        char actPath[260] = {};
+        int head = actor.m_head;
+        g_session.GetAccessoryActName(displayJob, &head, sex, accessories[slot], actPath);
+        CActRes* actRes = actPath[0] ? g_resMgr.GetAs<CActRes>(actPath) : nullptr;
+        if (!actRes) continue;
+        const int band = bodyAction & ~7;
+        if (band == 0 || band == 16) {
+            samples[slot] = actRes->GetAccessoryMotionSample(bodyAction, body.current, elapsedMs);
+        } else {
+            // Walking and combat equipment retain the character's pose clock.
+            samples[slot] = body;
+            samples[slot].current = actRes->GetAccessoryMotionIndex(bodyAction, body.current, elapsedMs);
+            samples[slot].next = actRes->GetAccessoryMotionIndex(bodyAction, body.next, elapsedMs);
+        }
+        if (!GetCachedGraphicsSettings().spriteInterpolation) {
+            samples[slot] = ActMotionSample::Pose(samples[slot].current);
+        }
+    }
+    return samples;
+}
+
 bool BuildPaletteOverride(const std::string& paletteName, std::array<unsigned int, 256>& outPalette)
 {
     if (paletteName.empty()) {
@@ -2230,7 +2374,8 @@ bool DrawAttachedAccessoryMotion(BillboardComposeSurface& bitmap,
     const std::string& bodyActName,
     const std::string& headActName,
     const std::string& accessoryActName,
-    const std::string& accessorySprName)
+    const std::string& accessorySprName,
+    size_t slot)
 {
     if (accessoryActName.empty() || accessorySprName.empty()) {
         return false;
@@ -2257,7 +2402,31 @@ bool DrawAttachedAccessoryMotion(BillboardComposeSurface& bitmap,
     POINT point{};
     ApplyAttachPointDelta(bodyMotion, headMotion, &point);
     ApplyAttachPointDelta(headMotion, accessoryMotion, &point);
-    bitmap.BltSprite(drawX + point.x, drawY + point.y, accessorySprRes, const_cast<CMotion*>(accessoryMotion), accessorySprRes->m_pal);
+    const auto& bodySample = bitmap.animation.body;
+    const auto& sample = bitmap.animation.accessories[slot];
+    const CMotion* nextAccessory = accessoryActRes->GetMotion(curAction, sample.next);
+    const CMotion* nextBody = bodyActRes->GetMotion(curAction, bodySample.next);
+    const CMotion* nextHead = headActRes->GetMotion(curAction, bodySample.next);
+    POINT bodyPoint = point;
+    if (nextBody && nextHead) {
+        bodyPoint = {};
+        ApplyAttachPointDelta(nextBody, nextHead, &bodyPoint);
+        ApplyAttachPointDelta(nextHead, accessoryMotion, &bodyPoint);
+    }
+    POINT accessoryPoint = point;
+    if (nextAccessory) {
+        accessoryPoint = {};
+        ApplyAttachPointDelta(bodyMotion, headMotion, &accessoryPoint);
+        ApplyAttachPointDelta(headMotion, nextAccessory, &accessoryPoint);
+    }
+    const float x = static_cast<float>(drawX + point.x)
+        + (bodyPoint.x - point.x) * bodySample.Fraction()
+        + (accessoryPoint.x - point.x) * sample.Fraction();
+    const float y = static_cast<float>(drawY + point.y)
+        + (bodyPoint.y - point.y) * bodySample.Fraction()
+        + (accessoryPoint.y - point.y) * sample.Fraction();
+    bitmap.BltInterpolatedSprite(x, y, accessorySprRes, accessoryMotion,
+        nextAccessory, accessorySprRes->m_pal, sample.Fraction());
     return true;
 }
 
@@ -2858,7 +3027,13 @@ bool DrawPlayerOverlayMotion(BillboardComposeSurface& bitmap,
     }
 
     const POINT point = imfRes->GetPoint(layerIndex, curAction, curMotion);
-    bitmap.BltSprite(drawX + point.x, drawY + point.y, sprRes, const_cast<CMotion*>(motion), sprRes->m_pal);
+    const auto& sample = bitmap.animation.body;
+    const int nextIndex = ResolveOverlayMotionIndex(actRes, curAction, sample.next, bodyActName);
+    const CMotion* nextMotion = actRes->GetMotion(curAction, nextIndex);
+    const POINT nextPoint = imfRes->GetPoint(layerIndex, curAction, sample.next);
+    bitmap.BltInterpolatedSprite(static_cast<float>(drawX + point.x) + (nextPoint.x - point.x) * sample.Fraction(),
+        static_cast<float>(drawY + point.y) + (nextPoint.y - point.y) * sample.Fraction(),
+        sprRes, motion, nextMotion, sprRes->m_pal, sample.Fraction());
     return true;
 }
 
@@ -3046,7 +3221,21 @@ bool DrawPlayerLayer(BillboardComposeSurface& bitmap,
 
     CMotion singleLayerMotion{};
     singleLayerMotion.sprClips.push_back(motion->sprClips[resolvedLayer]);
-    bitmap.BltSprite(drawX + point.x, drawY + point.y, sprRes, &singleLayerMotion, palette);
+    CMotion nextLayerMotion = singleLayerMotion;
+    POINT nextPoint = point;
+    const auto& sample = bitmap.animation.body;
+    const int nextMotionIndex = sample.next;
+    const CMotion* nextMotion = actRes->GetMotion(curAction, nextMotionIndex);
+    int nextLayer = imfRes->GetLayer(layerIndex, curAction, nextMotionIndex);
+    if (nextLayer < 0) nextLayer = layerIndex;
+    if (nextMotion && nextLayer >= 0 && nextLayer < static_cast<int>(nextMotion->sprClips.size())) {
+        nextLayerMotion.sprClips[0] = nextMotion->sprClips[nextLayer];
+        nextPoint = GetPlayerLayerPoint(layerIndex, nextLayer, imfRes, nextMotion,
+            bodyActName, headActName, curAction, sample.next, nextMotionIndex, sample.next);
+    }
+    bitmap.BltInterpolatedSprite(static_cast<float>(drawX + point.x) + (nextPoint.x - point.x) * sample.Fraction(),
+        static_cast<float>(drawY + point.y) + (nextPoint.y - point.y) * sample.Fraction(),
+        sprRes, &singleLayerMotion, &nextLayerMotion, palette, sample.Fraction());
     return true;
 }
 
@@ -3282,17 +3471,17 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
             break;
         case 2:
             accessoryBottomOk |= !accessoryBottomActName.empty() && !accessoryBottomSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[0], bodyActName, headActName, accessoryBottomActName, accessoryBottomSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[0], bodyActName, headActName, accessoryBottomActName, accessoryBottomSprName, 0)
                 : false;
             break;
         case 3:
             accessoryMidOk |= !accessoryMidActName.empty() && !accessoryMidSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[1], bodyActName, headActName, accessoryMidActName, accessoryMidSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[1], bodyActName, headActName, accessoryMidActName, accessoryMidSprName, 1)
                 : false;
             break;
         case 4:
             accessoryTopOk |= !accessoryTopActName.empty() && !accessoryTopSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[2], bodyActName, headActName, accessoryTopActName, accessoryTopSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[2], bodyActName, headActName, accessoryTopActName, accessoryTopSprName, 2)
                 : false;
             break;
         case 5:
@@ -3491,7 +3680,15 @@ bool DrawNonPcBillboard(BillboardComposeSurface& bitmap,
         return false;
     }
 
-    bitmap.BltSprite(drawX, drawY, sprRes, const_cast<CMotion*>(spriteMotion), sprRes->m_pal);
+    const CMotion* nextMotion = spriteMotion;
+    CActRes* nextAct = nullptr;
+    CSprRes* nextSpr = nullptr;
+    if (bitmap.animation.enabled) {
+        ResolveNonPcBillboardMotion(actor, bodyAction, bitmap.animation.body.next,
+            &nextAct, &nextSpr, &nextMotion);
+    }
+    bitmap.BltInterpolatedSprite(static_cast<float>(drawX), static_cast<float>(drawY),
+        sprRes, spriteMotion, nextMotion, sprRes->m_pal, bitmap.animation.body.Fraction());
     const bool drawOk = true;
 
     if (outJob) {
@@ -3500,9 +3697,10 @@ bool DrawNonPcBillboard(BillboardComposeSurface& bitmap,
     return drawOk;
 }
 
-bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyAction, int motion)
+bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyAction, int motion,
+    const ActorBillboardAnimation& animation)
 {
-    SharedNonPcBillboardKey frameKey{ displayJob, bodyAction, motion };
+    SharedNonPcBillboardKey frameKey{ displayJob, bodyAction, motion, animation };
     auto& sharedCache = GetSharedNonPcBillboardCache();
     const auto existing = sharedCache.find(frameKey);
     if (existing != sharedCache.end()) {
@@ -3511,14 +3709,15 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
     }
 
     NonPcBillboardComposeConfig composeConfig{};
-    if (!ResolveNonPcBillboardComposeConfig(actor, bodyAction, motion, &composeConfig)) {
+    if (!ResolveNonPcBillboardComposeConfig(actor, bodyAction, motion, &composeConfig, animation)) {
         composeConfig.width = kPlayerBillboardComposeWidth;
         composeConfig.height = kPlayerBillboardComposeHeight;
         composeConfig.anchorX = kPlayerBillboardAnchorX;
         composeConfig.anchorY = kPlayerBillboardAnchorY;
     }
 
-    BillboardComposeSurface composeSurface(composeConfig.width, composeConfig.height);
+    BillboardComposeSurface composeSurface(composeConfig.width, composeConfig.height, animation.sharpPixels);
+    composeSurface.animation = animation;
     composeSurface.Clear(0x00000000u);
 
     int resolvedJob = -1;
@@ -3539,6 +3738,7 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
             &opaqueBounds)) {
         return false;
     }
+    composeSurface.ToLogicalBounds(&opaqueBounds);
 
     std::vector<unsigned int> pixels(composeSurface.GetImageData(),
         composeSurface.GetImageData() + static_cast<size_t>(composeSurface.GetWidth()) * static_cast<size_t>(composeSurface.GetHeight()));
@@ -3548,7 +3748,7 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
     if (!texture) {
         return false;
     }
-    if (!texture->Create(composeConfig.width, composeConfig.height, PF_A8R8G8B8, false)) {
+    if (!texture->Create(composeSurface.GetWidth(), composeSurface.GetHeight(), PF_A8R8G8B8, false)) {
         delete texture;
         return false;
     }
@@ -3561,11 +3761,11 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
         false);
     texture->Update(0,
         0,
-        composeConfig.width,
-        composeConfig.height,
+        composeSurface.GetWidth(),
+        composeSurface.GetHeight(),
         pixels.data(),
         true,
-        composeConfig.width * static_cast<int>(sizeof(unsigned int)));
+        composeSurface.GetWidth() * static_cast<int>(sizeof(unsigned int)));
 
     SharedNonPcBillboardValue value{};
     value.texture.reset(texture);
@@ -3949,6 +4149,11 @@ int CActRes::GetMotionCount(int actionIndex) const {
 
 int CActRes::GetAccessoryMotionIndex(int actionIndex, int headMotionIndex, u32 elapsedMs) const
 {
+    return GetAccessoryMotionSample(actionIndex, headMotionIndex, elapsedMs).current;
+}
+
+ActMotionSample CActRes::GetAccessoryMotionSample(int actionIndex, int headMotionIndex, u32 elapsedMs) const
+{
     const int motionCount = GetMotionCount(actionIndex);
     const int bodyBand = actionIndex & ~7;
     // Idle and sitting ACTs contain three head-direction groups. Static
@@ -3959,10 +4164,10 @@ int CActRes::GetAccessoryMotionIndex(int actionIndex, int headMotionIndex, u32 e
         const int headDirection = (std::max)(0, (std::min)(headMotionIndex, 2));
         const double progress = static_cast<double>(elapsedMs)
             / (static_cast<double>(GetDelay(actionIndex)) * kActDelayUnitMs);
-        return headDirection * framesPerHeadDirection
-            + static_cast<int>(std::fmod(progress, static_cast<double>(framesPerHeadDirection)));
+        return SampleActMotion(progress, framesPerHeadDirection, GetDelay(actionIndex) * kActDelayUnitMs,
+            false, headDirection * framesPerHeadDirection);
     }
-    return headMotionIndex >= 0 && headMotionIndex < motionCount ? headMotionIndex : 0;
+    return ActMotionSample::Pose(headMotionIndex >= 0 && headMotionIndex < motionCount ? headMotionIndex : 0);
 }
 
 const CMotion* CActRes::GetMotion(int actionIndex, int motionIndex) const {
@@ -5828,6 +6033,7 @@ void CPc::InvalidateBillboard()
     m_cachedBillboardAccessory2 = -1;
     m_cachedBillboardAccessory3 = -1;
     m_cachedBillboardAccessoryMotions.fill(-1);
+    m_cachedBillboardAnimation = {};
     const int displayJob = ResolveDisplayJob(*this);
     if ((!m_isPc || displayJob != m_job) && m_cachedNonPcResourceJob != displayJob) {
         m_cachedNonPcResourceJob = -1;
@@ -5937,6 +6143,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     }
     int bodyAction = baseBodyAction + ResolvePcBodyActionFromViewStable(cameraLongitude, actorRotationDegrees, previousDir);
     int headMotion = 0;
+    CActRes* samplingActRes = nullptr;
     const bool isLocalPlayer = m_gid != 0 && (m_gid == g_session.m_gid || m_gid == g_session.m_aid);
     if (usePlayerStyleBillboard) {
         char bodyAct[260] = {};
@@ -5945,6 +6152,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         if (!bodyActRes) {
             bodyActRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
         }
+        samplingActRes = bodyActRes;
 
         auto tryUseRuntimeDirectionalAction = [&](int runtimeBaseAction, int outputBaseAction) {
             if (m_curAction < runtimeBaseAction || m_curAction >= runtimeBaseAction + 8) {
@@ -5980,6 +6188,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         CActRes* actRes = nullptr;
         CSprRes* sprRes = nullptr;
         if (ResolveCachedNonPcResourcesForActor(*this, &actRes, &sprRes) && actRes) {
+            samplingActRes = actRes;
             const bool transientActionActive = IsTransientActionActive(*this, actRes, m_curAction);
             if (transientActionActive) {
                 bodyAction = m_curAction;
@@ -5999,15 +6208,25 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         }
     }
 
+    ActorBillboardAnimation animation;
+    animation.enabled = GetCachedGraphicsSettings().spriteInterpolation;
+    animation.sharpPixels = GetCachedGraphicsSettings().sharpSprites;
+    animation.sharpness = animation.sharpPixels ? GetCachedGraphicsSettings().spriteSharpness : 4;
+    animation.body = ResolveActorRenderSample(*this, samplingActRes, bodyAction, headMotion);
     if (usePlayerStyleBillboard) {
-        sharedPlayerKey.accessoryMotions = ResolvePcAccessoryMotionIndices(*this,
-            bodyAction, headMotion, timeGetTime() - m_accessoryAnimationStartTick);
+        animation.accessories = ResolvePcAccessoryMotionSamples(*this, bodyAction,
+            animation.body, timeGetTime() - m_accessoryAnimationStartTick);
+        for (size_t slot = 0; slot < animation.accessories.size(); ++slot) {
+            sharedPlayerKey.accessoryMotions[slot] = animation.accessories[slot].current;
+        }
     }
+    sharedPlayerKey.animation = animation;
 
     if (m_billboardTexture
         && m_cachedBillboardBodyAction == bodyAction
         && m_cachedBillboardHeadMotion == headMotion
         && m_cachedBillboardAccessoryMotions == sharedPlayerKey.accessoryMotions
+        && m_cachedBillboardAnimation == animation
         && m_cachedBillboardJob == displayJob
         && m_cachedBillboardHead == (usePlayerStyleBillboard ? m_head : 0)
         && m_cachedBillboardSex == sex
@@ -6046,9 +6265,9 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     const bool isTransientBillboard = bodyAction < baseBodyAction || bodyAction >= baseBodyAction + 8;
 
     if (useSharedBillboardCache && !usePlayerStyleBillboard) {
-        PopulateSharedNonPcBillboardFrame(*this, displayJob, bodyAction, headMotion);
+        PopulateSharedNonPcBillboardFrame(*this, displayJob, bodyAction, headMotion, animation);
 
-        const SharedNonPcBillboardKey sharedKey{ displayJob, bodyAction, headMotion };
+        const SharedNonPcBillboardKey sharedKey{ displayJob, bodyAction, headMotion, animation };
         const auto& sharedCache = GetSharedNonPcBillboardCache();
         const auto sharedIt = sharedCache.find(sharedKey);
         if (sharedIt != sharedCache.end() && sharedIt->second.texture) {
@@ -6077,6 +6296,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardAccessory2 = 0;
             m_cachedBillboardAccessory3 = 0;
             m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
+            m_cachedBillboardAnimation = animation;
             return true;
         }
     }
@@ -6115,6 +6335,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardAccessory2 = m_accessory2;
             m_cachedBillboardAccessory3 = m_accessory3;
             m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
+            m_cachedBillboardAnimation = animation;
             return true;
         }
     }
@@ -6125,7 +6346,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     int composeAnchorY = kPlayerBillboardAnchorY;
     if (!usePlayerStyleBillboard) {
         NonPcBillboardComposeConfig composeConfig{};
-        if (ResolveNonPcBillboardComposeConfig(*this, bodyAction, headMotion, &composeConfig)) {
+        if (ResolveNonPcBillboardComposeConfig(*this, bodyAction, headMotion, &composeConfig, animation)) {
             composeWidth = composeConfig.width;
             composeHeight = composeConfig.height;
             composeAnchorX = composeConfig.anchorX;
@@ -6133,7 +6354,8 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         }
     }
 
-    BillboardComposeSurface composeSurface(composeWidth, composeHeight);
+    BillboardComposeSurface composeSurface(composeWidth, composeHeight, animation.sharpPixels);
+    composeSurface.animation = animation;
     composeSurface.Clear(0x00000000u);
 
     int resolvedJob = -1;
@@ -6207,6 +6429,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             &opaqueBounds)) {
         return false;
     }
+    composeSurface.ToLogicalBounds(&opaqueBounds);
 
     std::vector<unsigned int> pixels(composeSurface.GetImageData(),
         composeSurface.GetImageData() + static_cast<size_t>(composeSurface.GetWidth()) * static_cast<size_t>(composeSurface.GetHeight()));
@@ -6229,13 +6452,15 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     if (!m_billboardTexture
         || !m_billboardTextureOwned
         || m_billboardTextureWidth != composeWidth
-        || m_billboardTextureHeight != composeHeight) {
+        || m_billboardTextureHeight != composeHeight
+        || m_billboardTexture->m_updateWidth != static_cast<unsigned int>(composeSurface.GetWidth())
+        || m_billboardTexture->m_updateHeight != static_cast<unsigned int>(composeSurface.GetHeight())) {
         ReleaseActorBillboardTexture(*this);
         m_billboardTexture = new CTexture();
         if (!m_billboardTexture) {
             return false;
         }
-        if (!m_billboardTexture->Create(composeWidth, composeHeight, PF_A8R8G8B8, false)) {
+        if (!m_billboardTexture->Create(composeSurface.GetWidth(), composeSurface.GetHeight(), PF_A8R8G8B8, false)) {
             ReleaseActorBillboardTexture(*this);
             return false;
         }
@@ -6253,11 +6478,11 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
 
     m_billboardTexture->Update(0,
         0,
-        composeWidth,
-        composeHeight,
+        composeSurface.GetWidth(),
+        composeSurface.GetHeight(),
         pixels.data(),
         true,
-        composeWidth * static_cast<int>(sizeof(unsigned int)));
+        composeSurface.GetWidth() * static_cast<int>(sizeof(unsigned int)));
 
     m_billboardAnchorX = composeAnchorX;
     m_billboardAnchorY = composeAnchorY;
@@ -6276,6 +6501,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     m_cachedBillboardAccessory2 = usePlayerStyleBillboard ? m_accessory2 : 0;
     m_cachedBillboardAccessory3 = usePlayerStyleBillboard ? m_accessory3 : 0;
     m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
+    m_cachedBillboardAnimation = animation;
 
     if (useSharedBillboardCache && !usePlayerStyleBillboard && m_billboardTexture) {
         SharedNonPcBillboardValue value{};
@@ -6288,7 +6514,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         value.anchorX = m_billboardAnchorX;
         value.anchorY = m_billboardAnchorY;
 
-        GetSharedNonPcBillboardCache()[SharedNonPcBillboardKey{ displayJob, bodyAction, headMotion }] = value;
+        GetSharedNonPcBillboardCache()[SharedNonPcBillboardKey{ displayJob, bodyAction, headMotion, animation }] = value;
         m_billboardTextureOwned = 0;
         TrimSharedBillboardCache(GetSharedNonPcBillboardCache());
     }

@@ -43,6 +43,8 @@ constexpr u32 kPasswordHashFallbackDelayMs = 1500;
 constexpr size_t kCompactCharListHeaderSize = 4;
 constexpr size_t kLegacyCharListHeaderSize = 24;
 constexpr size_t kExpandedCharListHeaderSize = 27;
+constexpr size_t kCharListExtensionSize = 20;
+constexpr size_t kCharBodyStyleSlotCount = 9;
 
 void FormatPacketBytes(const u8* data, int len, char* out, size_t outSize)
 {
@@ -157,6 +159,7 @@ void ClearSelectedCharacterIfMatches(u32 deletedGid)
         return;
     }
 
+    g_session.SetCharacterBodyStyle(deletedGid, 0);
     CHARACTER_INFO* selected = g_session.GetMutableSelectedCharacterInfo();
     if (selected && selected->GID == deletedGid) {
         std::memset(selected, 0, sizeof(*selected));
@@ -227,6 +230,35 @@ CHARACTER_INFO ExpandLegacyCharacterInfo(const LEGACY_CHARACTER_INFO_106& legacy
     info.haircolor = static_cast<u8>(std::clamp<int>(legacy.headpalette, 0, 0xFF));
     info.bIsChangedCharName = 1;
     return info;
+}
+
+void ApplyCharacterBodyStylesFromHeader(const std::vector<u8>& raw,
+    size_t headerSize, const CHARACTER_INFO* characters, int count)
+{
+    // OpenMidgard's rAthena extension uses the reserved 20 header bytes:
+    // "BS", followed by nine little-endian style IDs indexed by character slot.
+    // The 108-byte character records retain their original layout.
+    if (headerSize < kLegacyCharListHeaderSize || raw.size() < headerSize) {
+        return;
+    }
+    const u8* extension = raw.data() + headerSize - kCharListExtensionSize;
+    if (extension[0] != 'B' || extension[1] != 'S') {
+        return;
+    }
+
+    for (int index = 0; index < count; ++index) {
+        const CHARACTER_INFO& info = characters[index];
+        const size_t slot = info.CharNum;
+        if (slot >= kCharBodyStyleSlotCount) {
+            continue;
+        }
+        const size_t offset = 2 + slot * sizeof(u16);
+        const u16 style = static_cast<u16>(extension[offset])
+            | (static_cast<u16>(extension[offset + 1]) << 8);
+        g_session.SetCharacterBodyStyle(info.GID, style);
+        DbgLog("[Login] character body style slot=%u gid=%u style=%u\n",
+            static_cast<unsigned int>(slot), info.GID, static_cast<unsigned int>(style));
+    }
 }
 
 std::string NormalizeAsciiLower(std::string value)
@@ -2254,6 +2286,7 @@ void CLoginMode::OnAcceptChar(const std::vector<u8>& raw)
 
     const int charAreaLen = static_cast<int>(pktLen - static_cast<u16>(headerSize));
     m_numChar = 0;
+    g_session.ClearCharacterBodyStyles();
     if (charAreaLen >= static_cast<int>(charInfoSize)) {
         const int count = charAreaLen / static_cast<int>(charInfoSize);
         const int toRead = (count < static_cast<int>(std::size(m_charInfo)))
@@ -2279,6 +2312,8 @@ void CLoginMode::OnAcceptChar(const std::vector<u8>& raw)
     } else if (charAreaLen == 0) {
         m_numChar = 0;
     }
+
+    ApplyCharacterBodyStylesFromHeader(raw, headerSize, m_charInfo, m_numChar);
 
     if (layout == CharListLayout::Expanded) {
         DbgLog("[Login] HC_ACCEPT_ENTER: numChar=%d (pktLen=%u header=%zu total=%u premium_start=%u premium_end=%u)\n",
@@ -2369,6 +2404,7 @@ void CLoginMode::OnAcceptMakeChar(const std::vector<u8>& raw)
 
     CHARACTER_INFO created{};
     std::memcpy(&created, raw.data() + sizeof(u16), sizeof(created));
+    g_session.SetCharacterBodyStyle(created.GID, 0);
 
     if (m_numChar >= 0 && m_numChar < static_cast<int>(std::size(m_charInfo))) {
         m_charInfo[m_numChar] = created;

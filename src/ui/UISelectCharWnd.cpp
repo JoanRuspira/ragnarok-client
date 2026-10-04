@@ -1416,9 +1416,10 @@ void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO
     char path[260] = {};
     int head = info.head;
     const int sex = g_session.GetSex();
+    const int bodyStyle = g_session.GetCharacterBodyStyle(info.GID);
 
-    preview.actName[0] = g_session.GetJobActName(info.job, sex, path);
-    preview.sprName[0] = g_session.GetJobSprName(info.job, sex, path);
+    preview.actName[0] = g_session.GetJobActName(info.job, sex, path, bodyStyle);
+    preview.sprName[0] = g_session.GetJobSprName(info.job, sex, path, bodyStyle);
     LOG_SELECT_CHAR("[SelectChar] BuildPreviewForSlot body visibleIndex=%d act='%s' spr='%s'\n",
         visibleIndex,
         preview.actName[0].c_str(),
@@ -1447,7 +1448,7 @@ void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO
         preview.imfName.c_str());
 
     if (preview.bodyPalette > 0) {
-        preview.bodyPaletteName = g_session.GetBodyPaletteName(info.job, sex, preview.bodyPalette, path);
+        preview.bodyPaletteName = g_session.GetBodyPaletteName(info.job, sex, preview.bodyPalette, path, bodyStyle);
     }
     if (preview.headPalette > 0) {
         preview.headPaletteName = g_session.GetHeadPaletteName(head, info.job, sex, preview.headPalette, path);

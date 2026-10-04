@@ -1467,8 +1467,7 @@ void CSession::SetSelectedCharacterAppearance(const CHARACTER_INFO& info)
     m_playerJob = info.job;
     m_playerHead = info.head;
     m_playerBodyPalette = info.bodypalette;
-    // The legacy character record has no body style; map look packets supply it.
-    m_playerBodyStyle = 0;
+    m_playerBodyStyle = GetCharacterBodyStyle(info.GID);
     m_playerHeadPalette = info.headpalette;
     m_playerWeapon = info.weapon;
     m_playerShield = info.shield;
@@ -1523,6 +1522,24 @@ void CSession::SetSelectedCharacterAppearance(const CHARACTER_INFO& info)
         info.effectstate,
         static_cast<unsigned int>(info.CharNum),
         reinterpret_cast<const char*>(info.name));
+}
+
+void CSession::ClearCharacterBodyStyles()
+{
+    m_characterBodyStyles.clear();
+}
+
+void CSession::SetCharacterBodyStyle(u32 characterGid, int bodyStyle)
+{
+    if (characterGid != 0) {
+        m_characterBodyStyles[characterGid] = std::clamp(bodyStyle, 0, 0x7FFF);
+    }
+}
+
+int CSession::GetCharacterBodyStyle(u32 characterGid) const
+{
+    const auto it = m_characterBodyStyles.find(characterGid);
+    return it != m_characterBodyStyles.end() ? it->second : 0;
 }
 
 const CHARACTER_INFO* CSession::GetSelectedCharacterInfo() const

@@ -1,14 +1,67 @@
 diff --git a/src/map/clif.cpp b/src/map/clif.cpp
 --- a/src/map/clif.cpp
 +++ b/src/map/clif.cpp
-@@ -3547,7 +3547,9 @@ void clif_changelook(struct block_list *bl, int type, int val) {
+@@ -3547,7 +3547,8 @@
  #endif
  				break;
  			case LOOK_BODY2:
 -#if PACKETVER < 20150513
-+// OpenMidgard supports LOOK_BODY2 through the existing ZC_SPRITE_CHANGE2
-+// packet even when using the 2008 map packet profile.
++// OpenMidgard handles body style through the existing 2008 look packet.
 +#if PACKETVER < 4
  				return;
  #else
  				if (val && sd && sd->sc.option&OPTION_COSTUME)
+diff --git a/src/char/char.hpp b/src/char/char.hpp
+--- a/src/char/char.hpp
++++ b/src/char/char.hpp
+@@ -287,7 +287,7 @@
+ int char_mmo_char_tobuf(uint8* buffer, struct mmo_charstatus* p);
+ int char_mmo_char_tosql(uint32 char_id, struct mmo_charstatus* p);
+ int char_mmo_char_fromsql(uint32 char_id, struct mmo_charstatus* p, bool load_everything);
+-int char_mmo_chars_fromsql(struct char_session_data* sd, uint8* buf, uint8* count = nullptr);
++int char_mmo_chars_fromsql(struct char_session_data* sd, uint8* buf, uint8* count = nullptr, uint8* body_styles = nullptr);
+ enum e_char_del_response char_delete(struct char_session_data* sd, uint32 char_id);
+ int char_rename_char_sql(struct char_session_data *sd, uint32 char_id);
+ int char_divorce_char_sql(int partner_id1, int partner_id2);
+diff --git a/src/char/char.cpp b/src/char/char.cpp
+--- a/src/char/char.cpp
++++ b/src/char/char.cpp
+@@ -885,7 +885,7 @@
+ 
+ //=====================================================================================================
+ // Loads the basic character rooster for the given account. Returns total buffer used.
+-int char_mmo_chars_fromsql(struct char_session_data* sd, uint8* buf, uint8* count ) {
++int char_mmo_chars_fromsql(struct char_session_data* sd, uint8* buf, uint8* count, uint8* body_styles ) {
+ 	SqlStmt* stmt;
+ 	struct mmo_charstatus p;
+ 	int j = 0, i;
+@@ -973,6 +973,9 @@
+ 		sd->found_char[p.slot] = p.char_id;
+ 		sd->unban_time[p.slot] = p.unban_time;
+ 		p.sex = char_mmo_gender(sd, &p, sex[0]);
++		// Optional OpenMidgard metadata: nine 16-bit styles, indexed by slot.
++		if (body_styles != nullptr && p.slot < 9)
++			WBUFW(body_styles, 2 * p.slot) = p.body;
+ 		j += char_mmo_char_tobuf(WBUFP(buf, j), &p);
+ 
+ 		// Addon System
+diff --git a/src/char/char_clif.cpp b/src/char/char_clif.cpp
+--- a/src/char/char_clif.cpp
++++ b/src/char/char_clif.cpp
+@@ -345,7 +345,15 @@
+ 		WFIFOB(fd,6) = MIN_CHARS+sd->chars_vip; // Premium slots. (Any existent chars past sd->char_slots but within MAX_CHARS will show a 'Premium Service' in red)
+ #endif
+ 	memset(WFIFOP(fd,4 + offset), 0, 20); // unknown bytes
+-	j+=char_mmo_chars_fromsql(sd, WFIFOP(fd,j));
++	uint8* body_styles = nullptr;
++#if defined(PACKETVER_SAK_LEGACY_CHARINFO) && MAX_CHARS <= 9
++	// Reserved header bytes preserve the classic 108-byte character records.
++	// "BS" identifies nine little-endian body style IDs indexed by slot.
++	WFIFOB(fd,4 + offset) = 'B';
++	WFIFOB(fd,5 + offset) = 'S';
++	body_styles = WFIFOP(fd,6 + offset);
++#endif
++	j+=char_mmo_chars_fromsql(sd, WFIFOP(fd,j), nullptr, body_styles);
+ 	WFIFOW(fd,2) = j; // packet len
+ 	WFIFOSET(fd,j);
+ 

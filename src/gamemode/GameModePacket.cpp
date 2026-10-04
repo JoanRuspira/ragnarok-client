@@ -8365,6 +8365,9 @@ void HandleActorSpriteChange(CGameMode& mode, const PacketView& packet)
                 break;
             case kLookBodyStyle:
                 g_session.m_playerBodyStyle = actor->m_bodyStyle;
+                if (info) {
+                    g_session.SetCharacterBodyStyle(info->GID, actor->m_bodyStyle);
+                }
                 break;
             case kLookShield:
                 g_session.m_playerShield = static_cast<int>(value);

@@ -186,6 +186,9 @@ public:
     void SetSelectedCharacterAppearance(const CHARACTER_INFO& info);
     const CHARACTER_INFO* GetSelectedCharacterInfo() const;
     CHARACTER_INFO* GetMutableSelectedCharacterInfo();
+    void ClearCharacterBodyStyles();
+    void SetCharacterBodyStyle(u32 characterGid, int bodyStyle);
+    int GetCharacterBodyStyle(u32 characterGid) const;
     void SetBaseExpValue(int value);
     void SetNextBaseExpValue(int value);
     void SetJobExpValue(int value);
@@ -306,6 +309,7 @@ private:
     int m_numLatePacket;
     CHARACTER_INFO m_selectedCharacterInfo;
     bool m_hasSelectedCharacterInfo;
+    std::unordered_map<u32, int> m_characterBodyStyles;
     int m_baseExpValue;
     int m_nextBaseExpValue;
     int m_jobExpValue;

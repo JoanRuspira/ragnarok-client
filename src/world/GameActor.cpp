@@ -1252,6 +1252,7 @@ struct SharedPlayerBillboardKey {
     int shield = 0;
     int action = 0;
     int motion = 0;
+    std::array<int, 3> accessoryMotions{};
 
     bool operator<(const SharedPlayerBillboardKey& other) const
     {
@@ -1291,7 +1292,10 @@ struct SharedPlayerBillboardKey {
         if (action != other.action) {
             return action < other.action;
         }
-        return motion < other.motion;
+        if (motion != other.motion) {
+            return motion < other.motion;
+        }
+        return accessoryMotions < other.accessoryMotions;
     }
 };
 
@@ -1398,11 +1402,15 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     int drawY,
     int bodyAction,
     int headMotion,
+    const std::array<int, 3>& accessoryMotions,
     int* outJob,
     int* outHead,
     int* outSex,
     int* outBodyPalette,
     int* outHeadPalette);
+
+std::array<int, 3> ResolvePcAccessoryMotionIndices(const CPc& actor,
+    int bodyAction, int headMotion, u32 elapsedMs);
 
 struct SharedPlayerBillboardStripKey {
     int job = 0;
@@ -1520,6 +1528,7 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
             kPlayerBillboardAnchorY,
             bodyAction,
             motionIndex,
+            frameKey.accessoryMotions,
             &stripResolvedJob,
             &stripResolvedHead,
             &stripResolvedSex,
@@ -1617,7 +1626,9 @@ void PrimePlayerBillboardStrip(CPc& actor,
     }
 
     for (int motionIndex = 0; motionIndex < motionCount; ++motionIndex) {
-        PopulateSharedPlayerBillboardFrame(actor, sharedPlayerKey, displayJob, sex, bodyAction, motionIndex);
+        SharedPlayerBillboardKey frameKey = sharedPlayerKey;
+        frameKey.accessoryMotions = ResolvePcAccessoryMotionIndices(actor, bodyAction, motionIndex, 0);
+        PopulateSharedPlayerBillboardFrame(actor, frameKey, displayJob, sex, bodyAction, motionIndex);
     }
 }
 
@@ -2071,6 +2082,26 @@ int ResolveHeadMotionFromBodyAction(int bodyAction, int headDir)
     return -1;
 }
 
+std::array<int, 3> ResolvePcAccessoryMotionIndices(const CPc& actor,
+    int bodyAction, int headMotion, u32 elapsedMs)
+{
+    std::array<int, 3> motions{};
+    const std::array<int, 3> accessories{ actor.m_accessory, actor.m_accessory3, actor.m_accessory2 };
+    const int displayJob = ResolveDisplayJob(actor);
+    const int sex = actor.m_sex != 0 ? 1 : 0;
+    for (size_t slot = 0; slot < accessories.size(); ++slot) {
+        if (accessories[slot] <= 0) {
+            continue;
+        }
+        char actPath[260] = {};
+        int head = actor.m_head;
+        g_session.GetAccessoryActName(displayJob, &head, sex, accessories[slot], actPath);
+        CActRes* actRes = actPath[0] ? g_resMgr.GetAs<CActRes>(actPath) : nullptr;
+        motions[slot] = actRes ? actRes->GetAccessoryMotionIndex(bodyAction, headMotion, elapsedMs) : 0;
+    }
+    return motions;
+}
+
 bool BuildPaletteOverride(const std::string& paletteName, std::array<unsigned int, 256>& outPalette)
 {
     if (paletteName.empty()) {
@@ -2195,6 +2226,7 @@ bool DrawAttachedAccessoryMotion(BillboardComposeSurface& bitmap,
     int curAction,
     int bodyMotionIndex,
     int headMotionIndex,
+    int accessoryMotionIndex,
     const std::string& bodyActName,
     const std::string& headActName,
     const std::string& accessoryActName,
@@ -2214,7 +2246,7 @@ bool DrawAttachedAccessoryMotion(BillboardComposeSurface& bitmap,
 
     const CMotion* bodyMotion = bodyActRes->GetMotion(curAction, bodyMotionIndex);
     const CMotion* headMotion = headActRes->GetMotion(curAction, headMotionIndex);
-    const CMotion* accessoryMotion = accessoryActRes->GetMotion(curAction, headMotionIndex);
+    const CMotion* accessoryMotion = accessoryActRes->GetMotion(curAction, accessoryMotionIndex);
     if (!accessoryMotion) {
         accessoryMotion = accessoryActRes->GetMotion(curAction, 0);
     }
@@ -3024,6 +3056,7 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     int drawY,
     int bodyAction,
     int headMotion,
+    const std::array<int, 3>& accessoryMotions,
     int* outJob,
     int* outHead,
     int* outSex,
@@ -3249,17 +3282,17 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
             break;
         case 2:
             accessoryBottomOk |= !accessoryBottomActName.empty() && !accessoryBottomSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, bodyActName, headActName, accessoryBottomActName, accessoryBottomSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[0], bodyActName, headActName, accessoryBottomActName, accessoryBottomSprName)
                 : false;
             break;
         case 3:
             accessoryMidOk |= !accessoryMidActName.empty() && !accessoryMidSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, bodyActName, headActName, accessoryMidActName, accessoryMidSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[1], bodyActName, headActName, accessoryMidActName, accessoryMidSprName)
                 : false;
             break;
         case 4:
             accessoryTopOk |= !accessoryTopActName.empty() && !accessoryTopSprName.empty()
-                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, bodyActName, headActName, accessoryTopActName, accessoryTopSprName)
+                ? DrawAttachedAccessoryMotion(bitmap, drawX, drawY, curAction, curMotion, headMotion, accessoryMotions[2], bodyActName, headActName, accessoryTopActName, accessoryTopSprName)
                 : false;
             break;
         case 5:
@@ -3912,6 +3945,24 @@ int CActRes::GetMotionCount(int actionIndex) const {
         return 0;
     }
     return static_cast<int>(actions[actionIndex].motions.size());
+}
+
+int CActRes::GetAccessoryMotionIndex(int actionIndex, int headMotionIndex, u32 elapsedMs) const
+{
+    const int motionCount = GetMotionCount(actionIndex);
+    const int bodyBand = actionIndex & ~7;
+    // Idle and sitting ACTs contain three head-direction groups. Static
+    // equipment has one frame per group; animated equipment loops within
+    // the selected group without advancing the body or head pose.
+    if ((bodyBand == 0 || bodyBand == 16) && motionCount > 3 && motionCount % 3 == 0) {
+        const int framesPerHeadDirection = motionCount / 3;
+        const int headDirection = (std::max)(0, (std::min)(headMotionIndex, 2));
+        const double progress = static_cast<double>(elapsedMs)
+            / (static_cast<double>(GetDelay(actionIndex)) * kActDelayUnitMs);
+        return headDirection * framesPerHeadDirection
+            + static_cast<int>(std::fmod(progress, static_cast<double>(framesPerHeadDirection)));
+    }
+    return headMotionIndex >= 0 && headMotionIndex < motionCount ? headMotionIndex : 0;
 }
 
 const CMotion* CActRes::GetMotion(int actionIndex, int motionIndex) const {
@@ -5651,6 +5702,8 @@ CPc::CPc()
     , m_cachedBillboardAccessory(-1)
     , m_cachedBillboardAccessory2(-1)
     , m_cachedBillboardAccessory3(-1)
+    , m_cachedBillboardAccessoryMotions{ -1, -1, -1 }
+    , m_accessoryAnimationStartTick(timeGetTime())
     , m_cachedNonPcResourceJob(-1)
     , m_cachedNonPcActRes(nullptr)
     , m_cachedNonPcSprRes(nullptr)
@@ -5774,6 +5827,7 @@ void CPc::InvalidateBillboard()
     m_cachedBillboardAccessory = -1;
     m_cachedBillboardAccessory2 = -1;
     m_cachedBillboardAccessory3 = -1;
+    m_cachedBillboardAccessoryMotions.fill(-1);
     const int displayJob = ResolveDisplayJob(*this);
     if ((!m_isPc || displayJob != m_job) && m_cachedNonPcResourceJob != displayJob) {
         m_cachedNonPcResourceJob = -1;
@@ -5875,7 +5929,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     const bool usePlayerStyleBillboard = isPlayerStyleActor;
     const int displayJob = ResolveDisplayJob(*this);
     const int sex = m_sex != 0 ? 1 : 0;
-    const SharedPlayerBillboardKey sharedPlayerKey = BuildSharedPlayerBillboardKey(*this, displayJob, sex);
+    SharedPlayerBillboardKey sharedPlayerKey = BuildSharedPlayerBillboardKey(*this, displayJob, sex);
     const int baseBodyAction = m_isSitting ? 16 : (m_isMoving ? 8 : 0);
     int previousDir = -1;
     if (m_cachedBillboardBodyAction >= baseBodyAction && m_cachedBillboardBodyAction < baseBodyAction + 8) {
@@ -5945,9 +5999,15 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         }
     }
 
+    if (usePlayerStyleBillboard) {
+        sharedPlayerKey.accessoryMotions = ResolvePcAccessoryMotionIndices(*this,
+            bodyAction, headMotion, timeGetTime() - m_accessoryAnimationStartTick);
+    }
+
     if (m_billboardTexture
         && m_cachedBillboardBodyAction == bodyAction
         && m_cachedBillboardHeadMotion == headMotion
+        && m_cachedBillboardAccessoryMotions == sharedPlayerKey.accessoryMotions
         && m_cachedBillboardJob == displayJob
         && m_cachedBillboardHead == (usePlayerStyleBillboard ? m_head : 0)
         && m_cachedBillboardSex == sex
@@ -6016,6 +6076,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardAccessory = 0;
             m_cachedBillboardAccessory2 = 0;
             m_cachedBillboardAccessory3 = 0;
+            m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
             return true;
         }
     }
@@ -6053,6 +6114,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardAccessory = m_accessory;
             m_cachedBillboardAccessory2 = m_accessory2;
             m_cachedBillboardAccessory3 = m_accessory3;
+            m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
             return true;
         }
     }
@@ -6086,6 +6148,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             composeAnchorY,
             bodyAction,
             headMotion,
+            sharedPlayerKey.accessoryMotions,
             &resolvedJob,
             &resolvedHead,
             &resolvedSex,
@@ -6212,6 +6275,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     m_cachedBillboardAccessory = usePlayerStyleBillboard ? m_accessory : 0;
     m_cachedBillboardAccessory2 = usePlayerStyleBillboard ? m_accessory2 : 0;
     m_cachedBillboardAccessory3 = usePlayerStyleBillboard ? m_accessory3 : 0;
+    m_cachedBillboardAccessoryMotions = sharedPlayerKey.accessoryMotions;
 
     if (useSharedBillboardCache && !usePlayerStyleBillboard && m_billboardTexture) {
         SharedNonPcBillboardValue value{};

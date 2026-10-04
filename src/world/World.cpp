@@ -5230,6 +5230,9 @@ void CWorld::UpdateBillboardActorFingerprint()
         mix(static_cast<u64>(static_cast<u32>(a->m_curMotion)));
         mix(static_cast<u64>(static_cast<u32>(a->m_stateId)));
         mix(static_cast<u64>(static_cast<u32>(a->m_isSitting)));
+        for (int motion : pc->m_cachedBillboardAccessoryMotions) {
+            mix(static_cast<u64>(static_cast<u32>(motion)));
+        }
     };
     for (CGameActor* actor : m_actorList) {
         if (actor && actor != m_player) {

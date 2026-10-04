@@ -859,6 +859,7 @@ std::uint64_t ComputeLoginUiStateToken(int clientWidth, int clientHeight)
     if (g_windowMgr.m_selectCharWnd && g_windowMgr.m_selectCharWnd->m_show != 0) {
         HashTokenValue(&hash, static_cast<std::uint64_t>(g_windowMgr.m_selectCharWnd->GetSelectedSlotNumber()));
         HashTokenValue(&hash, static_cast<std::uint64_t>(g_windowMgr.m_selectCharWnd->GetCurrentPage()));
+        HashTokenValue(&hash, static_cast<std::uint64_t>(g_windowMgr.m_selectCharWnd->GetQtPreviewRevision()));
         UISelectCharWnd::SelectedCharacterDisplay selected{};
         if (g_windowMgr.m_selectCharWnd->GetSelectedCharacterDisplay(&selected) && selected.valid) {
             HashTokenString(&hash, selected.name);

@@ -53,6 +53,8 @@ public:
 
     float GetDelay(int actionIndex) const;
     int GetMotionCount(int actionIndex) const;
+    // Preserve the player head pose while looping an equipment ACT's idle/sitting group.
+    int GetAccessoryMotionIndex(int actionIndex, int headMotionIndex, u32 elapsedMs) const;
     const CMotion* GetMotion(int actionIndex, int motionIndex) const;
     const char* GetEventName(int eventIndex) const;
 

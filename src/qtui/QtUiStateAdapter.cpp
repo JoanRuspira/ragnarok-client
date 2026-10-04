@@ -827,10 +827,12 @@ void PopulateCharSelectState(QtUiState* state)
 
     QVariantList slotList;
     QStringList imageRevisionParts;
-    imageRevisionParts.reserve(4);
+    imageRevisionParts.reserve(7);
     imageRevisionParts.push_back(QStringLiteral("page=%1").arg(selectCharWnd->GetCurrentPage()));
     imageRevisionParts.push_back(QStringLiteral("pages=%1").arg(selectCharWnd->GetCurrentPageCount()));
     imageRevisionParts.push_back(QStringLiteral("selected=%1").arg(selectCharWnd->GetSelectedSlotNumber()));
+    imageRevisionParts.push_back(QStringLiteral("preview=%1")
+        .arg(static_cast<qulonglong>(selectCharWnd->GetQtPreviewRevision())));
     for (int visibleIndex = 0; visibleIndex < 3; ++visibleIndex) {
         UISelectCharWnd::VisibleSlotDisplay slotInfo{};
         if (!selectCharWnd->GetVisibleSlotDisplay(visibleIndex, &slotInfo)) {

@@ -452,8 +452,26 @@ POINT GetPreviewLayerPoint(const UISelectCharWnd::PreviewState& preview,
     return point;
 }
 
+bool UpdatePreviewAccessoryMotions(UISelectCharWnd::PreviewState& preview, u32 elapsedMs)
+{
+    bool changed = false;
+    for (size_t slot = 0; slot < preview.accessoryMotions.size(); ++slot) {
+        const std::string& actName = preview.actName[slot + 2];
+        CActRes* actRes = actName.empty() ? nullptr : g_resMgr.GetAs<CActRes>(actName.c_str());
+        const int motion = actRes
+            ? actRes->GetAccessoryMotionIndex(preview.curAction, preview.curMotion, elapsedMs)
+            : 0;
+        if (preview.accessoryMotions[slot] != motion) {
+            preview.accessoryMotions[slot] = motion;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 bool DrawPreviewAccessoryMotion(HDC hdc,
     const UISelectCharWnd::PreviewState& preview,
+    int accessoryMotionIndex,
     const std::string& accessoryActName,
     const std::string& accessorySprName)
 {
@@ -471,7 +489,7 @@ bool DrawPreviewAccessoryMotion(HDC hdc,
 
     const CMotion* bodyMotion = bodyActRes->GetMotion(preview.curAction, preview.curMotion);
     const CMotion* headMotion = headActRes->GetMotion(preview.curAction, preview.curMotion);
-    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, preview.curMotion);
+    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, accessoryMotionIndex);
     if (!accessoryMotion) {
         accessoryMotion = accessoryActRes->GetMotion(preview.curAction, 0);
     }
@@ -534,6 +552,7 @@ bool DrawPreviewAccessoryMotionToArgb(unsigned int* pixels,
     int width,
     int height,
     const UISelectCharWnd::PreviewState& preview,
+    int accessoryMotionIndex,
     const std::string& accessoryActName,
     const std::string& accessorySprName)
 {
@@ -551,7 +570,7 @@ bool DrawPreviewAccessoryMotionToArgb(unsigned int* pixels,
 
     const CMotion* bodyMotion = bodyActRes->GetMotion(preview.curAction, preview.curMotion);
     const CMotion* headMotion = headActRes->GetMotion(preview.curAction, preview.curMotion);
-    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, preview.curMotion);
+    const CMotion* accessoryMotion = accessoryActRes->GetMotion(preview.curAction, accessoryMotionIndex);
     if (!accessoryMotion) {
         accessoryMotion = accessoryActRes->GetMotion(preview.curAction, 0);
     }
@@ -646,7 +665,7 @@ UISelectCharWnd::UISelectCharWnd()
       m_composeSurface(),
       m_okButton(nullptr), m_cancelButton(nullptr), m_makeButton(nullptr),
       m_deleteButton(nullptr), m_chargeButton(nullptr), m_selectedSlot(0), m_page(0),
-      m_lastAnimTick(0), m_animAction(0)
+      m_previewAnimationStartTick(timeGetTime())
 {
     m_defPushId = 118;
     m_defCancelPushId = 119;
@@ -1222,6 +1241,25 @@ void UISelectCharWnd::OnCreate(int cx, int cy)
 
 void UISelectCharWnd::OnProcess()
 {
+    if (m_show == 0) {
+        return;
+    }
+
+    bool previewFrameChanged = false;
+    {
+        std::lock_guard<std::mutex> lock(m_previewMutex);
+        const u32 elapsedMs = timeGetTime() - m_previewAnimationStartTick;
+        for (PreviewState& preview : m_visiblePreviews) {
+            if (preview.valid && UpdatePreviewAccessoryMotions(preview, elapsedMs)) {
+                previewFrameChanged = true;
+            }
+        }
+    }
+    // Login UI textures are reused until their visual state changes. Advance
+    // equipment before that cache check, even when no draw is requested.
+    if (previewFrameChanged) {
+        Invalidate();
+    }
 }
 
 int UISelectCharWnd::GetCharacterCount() const
@@ -1381,7 +1419,7 @@ void UISelectCharWnd::ActivateDelete()
     g_modeMgr.SendMsg(CLoginMode::LoginMsg_RequestDeleteCharacter, m_selectedSlot, charIndex, 0);
 }
 
-void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO& info)
+void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO& info, u32 elapsedMs)
 {
     LOG_SELECT_CHAR("[SelectChar] BuildPreviewForSlot start visibleIndex=%d job=%d head=%d bodyPal=%d headPal=%d weapon=%d shield=%d accBottom=%d accMid=%d accTop=%d\n",
         visibleIndex,
@@ -1438,6 +1476,7 @@ void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO
     preview.sprName[3] = g_session.GetAccessorySprName(info.job, &head, sex, preview.accessoryMid, path);
     preview.actName[4] = g_session.GetAccessoryActName(info.job, &head, sex, preview.accessoryTop, path);
     preview.sprName[4] = g_session.GetAccessorySprName(info.job, &head, sex, preview.accessoryTop, path);
+    UpdatePreviewAccessoryMotions(preview, elapsedMs);
     LOG_SELECT_CHAR("[SelectChar] BuildPreviewForSlot accessories visibleIndex=%d bottomAct='%s' midAct='%s' topAct='%s'\n",
         visibleIndex,
         preview.actName[2].c_str(),
@@ -1479,6 +1518,9 @@ void UISelectCharWnd::BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO
 void UISelectCharWnd::RebuildVisiblePreviews()
 {
     std::lock_guard<std::mutex> lock(m_previewMutex);
+    // Preview state is rebuilt for layout and image requests. Keep the clock
+    // on the window so those rebuilds and page changes cannot reset the loop.
+    const u32 elapsedMs = timeGetTime() - m_previewAnimationStartTick;
     LOG_SELECT_CHAR("[SelectChar] RebuildVisiblePreviews start selectedSlot=%d page=%d\n", m_selectedSlot, m_page);
     for (PreviewState& preview : m_visiblePreviews) {
         preview = PreviewState{};
@@ -1500,10 +1542,40 @@ void UISelectCharWnd::RebuildVisiblePreviews()
             slotNumber,
             charIndex);
         if (charIndex >= 0) {
-            BuildPreviewForSlot(visibleIndex, chars[charIndex]);
+            BuildPreviewForSlot(visibleIndex, chars[charIndex], elapsedMs);
         }
     }
     LOG_SELECT_CHAR("[SelectChar] RebuildVisiblePreviews finished\n");
+}
+
+unsigned long long UISelectCharWnd::GetQtPreviewRevision() const
+{
+    std::lock_guard<std::mutex> lock(m_previewMutex);
+    unsigned long long revision = 1469598103934665603ull;
+    auto mix = [&revision](unsigned long long value) {
+        revision ^= value;
+        revision *= 1099511628211ull;
+    };
+    for (const PreviewState& preview : m_visiblePreviews) {
+        mix(preview.valid);
+        if (!preview.valid) {
+            continue;
+        }
+        mix(preview.curAction);
+        mix(preview.curMotion);
+        mix(preview.bodyPalette);
+        mix(preview.headPalette);
+        for (int motion : preview.accessoryMotions) {
+            mix(motion);
+        }
+        for (const std::string& actName : preview.actName) {
+            mix(actName.size());
+            for (unsigned char character : actName) {
+                mix(character);
+            }
+        }
+    }
+    return revision;
 }
 
 void UISelectCharWnd::DrawPreview(HDC hdc, const PreviewState& preview) const
@@ -1514,9 +1586,9 @@ void UISelectCharWnd::DrawPreview(HDC hdc, const PreviewState& preview) const
 
     DrawPreviewLayer(hdc, preview, 0);
     DrawPreviewLayer(hdc, preview, 1);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.actName[2], preview.sprName[2]);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.actName[3], preview.sprName[3]);
-    DrawPreviewAccessoryMotion(hdc, preview, preview.actName[4], preview.sprName[4]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[0], preview.actName[2], preview.sprName[2]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[1], preview.actName[3], preview.sprName[3]);
+    DrawPreviewAccessoryMotion(hdc, preview, preview.accessoryMotions[2], preview.actName[4], preview.sprName[4]);
 }
 
 #if RO_ENABLE_QT6_UI
@@ -1548,9 +1620,9 @@ void UISelectCharWnd::DrawQtPreviews(QImage* image)
     for (const PreviewState& preview : previews) {
         DrawPreviewLayerToArgb(overlayPixels.data(), image->width(), image->height(), preview, 0);
         DrawPreviewLayerToArgb(overlayPixels.data(), image->width(), image->height(), preview, 1);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.actName[2], preview.sprName[2]);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.actName[3], preview.sprName[3]);
-        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.actName[4], preview.sprName[4]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[0], preview.actName[2], preview.sprName[2]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[1], preview.actName[3], preview.sprName[3]);
+        DrawPreviewAccessoryMotionToArgb(overlayPixels.data(), image->width(), image->height(), preview, preview.accessoryMotions[2], preview.actName[4], preview.sprName[4]);
     }
 
     const QImage overlay(

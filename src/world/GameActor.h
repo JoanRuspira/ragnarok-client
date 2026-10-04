@@ -3,6 +3,7 @@
 #include "res/Sprite.h"
 #include "res/ActRes.h"
 #include "Granny.h"
+#include <array>
 #include <string>
 #include <vector>
 #include <list>
@@ -432,6 +433,8 @@ public:
     int m_cachedBillboardAccessory;
     int m_cachedBillboardAccessory2;
     int m_cachedBillboardAccessory3;
+    std::array<int, 3> m_cachedBillboardAccessoryMotions;
+    u32 m_accessoryAnimationStartTick;
     int m_cachedNonPcResourceJob;
     CActRes* m_cachedNonPcActRes;
     CSprRes* m_cachedNonPcSprRes;

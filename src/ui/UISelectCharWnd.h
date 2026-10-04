@@ -78,6 +78,7 @@ public:
         int accessoryBottom = 0;
         int accessoryMid = 0;
         int accessoryTop = 0;
+        std::array<int, 3> accessoryMotions{};
         std::string actName[5];
         std::string sprName[5];
         std::string imfName;
@@ -94,6 +95,7 @@ public:
     void EnsureQtLayout();
     bool GetQtBackgroundBitmap(const unsigned int** pixels, int* width, int* height);
     bool GetQtSelectedSlotBitmap(const unsigned int** pixels, int* width, int* height);
+    unsigned long long GetQtPreviewRevision() const;
 #if RO_ENABLE_QT6_UI
     void DrawQtPreviews(QImage* image);
 #endif
@@ -135,7 +137,7 @@ private:
     void ReleaseComposeSurface();
     bool EnsureComposeSurface(int width, int height);
     void RebuildVisiblePreviews();
-    void BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO& info);
+    void BuildPreviewForSlot(int visibleIndex, const CHARACTER_INFO& info, u32 elapsedMs);
     void DrawPreview(HDC hdc, const PreviewState& preview) const;
     int HitSlot(int x, int y) const;
     bool HitPrevPageButton(int x, int y) const;
@@ -157,6 +159,5 @@ private:
     int m_page;
     std::array<PreviewState, 3> m_visiblePreviews;
     mutable std::mutex m_previewMutex;
-    DWORD m_lastAnimTick;
-    int m_animAction;
+    DWORD m_previewAnimationStartTick;
 };

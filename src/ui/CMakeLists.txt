@@ -3,6 +3,8 @@ add_library(ro_ui STATIC
     UIWindow.cpp
     UiScale.h
     UiScale.cpp
+    UiTheme.h
+    UiTheme.cpp
     UILoginWnd.h
     UILoginWnd.cpp
     UISelectServerWnd.h

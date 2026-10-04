@@ -1,4 +1,5 @@
 #include "UIBasicInfoWnd.h"
+#include "ui/UiTheme.h"
 
 #include "UIWindowMgr.h"
 #include "core/File.h"
@@ -89,7 +90,7 @@ constexpr std::array<const char*, 8> kMenuButtonTooltips = {
 };
 
 #if RO_ENABLE_QT6_UI
-QFont BuildBasicInfoFontFromHdc(HDC hdc, const char* fallbackFamily = "MS Sans Serif", int fallbackPixelSize = 13)
+QFont BuildBasicInfoFontFromHdc(HDC hdc, const char* fallbackFamily = uitheme::kUiFontFamily, int fallbackPixelSize = 13)
 {
     LOGFONTA logFont{};
     if (hdc) {
@@ -240,7 +241,7 @@ HFONT GetBasicInfoSmallFont()
     }
     s_font = CreateFontA(-10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
     return s_font;
 }
 

@@ -1,6 +1,7 @@
 #include "UINewChatWnd.h"
 
 #include "UIWindowMgr.h"
+#include "ui/UiTheme.h"
 #include "UiScale.h"
 #include "core/SettingsIni.h"
 #include "gamemode/GameMode.h"
@@ -221,9 +222,9 @@ void DrawBitmapPixelsTransparent(HDC target, const shopui::BitmapPixels& bitmap,
 }
 
 #if RO_ENABLE_QT6_UI
-QFont BuildChatUiFont(int pixelSize)
+QFont BuildChatUiFont(int pixelSize, bool writable = false)
 {
-    QFont font(QStringLiteral("Segoe UI"));
+    QFont font(writable ? QStringLiteral("Segoe UI") : QString::fromLatin1(uitheme::kUiFontFamily));
     font.setPixelSize(ClampChatFontPixelSize(pixelSize));
     font.setStyleStrategy(QFont::PreferAntialias);
     return font;
@@ -242,7 +243,8 @@ int MeasureWrappedTextHeightQt(const std::string& text, int width, int pixelSize
     return (std::max)(kChatLineHeight, bounds.height());
 }
 
-void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF color, bool wrap, int pixelSize)
+void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF color,
+    bool wrap, int pixelSize, bool writable = false)
 {
     if (!hdc || rect.right <= rect.left || rect.bottom <= rect.top) {
         return;
@@ -251,7 +253,7 @@ void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF
     QString label = QString::fromLocal8Bit(text.c_str());
     const int width = rect.right - rect.left;
     const int height = rect.bottom - rect.top;
-    const QFont font = BuildChatUiFont(pixelSize);
+    const QFont font = BuildChatUiFont(pixelSize, writable);
     if (!wrap) {
         const QFontMetrics metrics(font);
         label = metrics.elidedText(label, Qt::ElideRight, width);
@@ -276,6 +278,8 @@ void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF
 }
 #endif
 
+HFONT GetChatUiFont(int pixelSize, bool writable = false);
+
 int MeasureWrappedTextHeight(const std::string& text, int width, int pixelSize)
 {
     if (width <= 0 || text.empty()) {
@@ -291,7 +295,7 @@ int MeasureWrappedTextHeight(const std::string& text, int width, int pixelSize)
     }
     RECT calcRect{ 0, 0, width, 0 };
     const int savedDc = SaveDC(hdc);
-    SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
+    SelectObject(hdc, GetChatUiFont(pixelSize));
     DrawTextA(hdc, text.c_str(), -1, &calcRect, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL | DT_CALCRECT | DT_NOPREFIX);
     RestoreDC(hdc, savedDc);
     ReleaseMainWindowDrawTarget(hdc);
@@ -300,11 +304,13 @@ int MeasureWrappedTextHeight(const std::string& text, int width, int pixelSize)
 #endif
 }
 
-HFONT GetChatUiFont(int pixelSize)
+HFONT GetChatUiFont(int pixelSize, bool writable)
 {
     static std::array<HFONT, kChatFontSizeMax + 1> s_chatUiFonts{};
+    static std::array<HFONT, kChatFontSizeMax + 1> s_chatWritableFonts{};
     const int clampedPixelSize = ClampChatFontPixelSize(pixelSize);
-    HFONT& cachedFont = s_chatUiFonts[static_cast<size_t>(clampedPixelSize)];
+    auto& fonts = writable ? s_chatWritableFonts : s_chatUiFonts;
+    HFONT& cachedFont = fonts[static_cast<size_t>(clampedPixelSize)];
     if (!cachedFont) {
         cachedFont = CreateFontA(
             -clampedPixelSize,
@@ -320,7 +326,7 @@ HFONT GetChatUiFont(int pixelSize)
             CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY,
             DEFAULT_PITCH | FF_DONTCARE,
-            "Segoe UI");
+            writable ? "Segoe UI" : uitheme::kUiFontFamily);
     }
     return cachedFont;
 }
@@ -1068,9 +1074,10 @@ void UINewChatWnd::OnDraw()
     }
 
     RECT whisperTextRc = { whisperInputRc.left + 4, whisperInputRc.top + 2, whisperInputRc.right - 2, whisperInputRc.bottom - 2 };
+    SelectObject(hdc, GetChatUiFont(m_fontPixelSize, true));
     SetTextColor(hdc, whisperTextColor);
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, m_fontPixelSize);
+    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, m_fontPixelSize, true);
 #else
     DrawTextA(hdc, whisperDrawText.c_str(), -1, &whisperTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
@@ -1078,7 +1085,7 @@ void UINewChatWnd::OnDraw()
     RECT messageTextRc = { messageInputRc.left + 4, messageInputRc.top + 2, messageInputRc.right - 2, messageInputRc.bottom - 2 };
     SetTextColor(hdc, RGB(16, 16, 16));
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, messageTextRc, messageDrawText, RGB(16, 16, 16), false, m_fontPixelSize);
+    DrawChatTextQt(hdc, messageTextRc, messageDrawText, RGB(16, 16, 16), false, m_fontPixelSize, true);
 #else
     DrawTextA(hdc, messageDrawText.c_str(), -1, &messageTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif

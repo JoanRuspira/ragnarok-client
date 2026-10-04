@@ -1,1 +1,4 @@
 101 ICON "../../OpenMidgard_Icon.ico"
+
+TRAJAN_PRO_REGULAR RCDATA "../../assets/fonts/TrajanPro-Regular.otf"
+TRAJAN_PRO_BOLD RCDATA "../../assets/fonts/TrajanPro-Bold.otf"

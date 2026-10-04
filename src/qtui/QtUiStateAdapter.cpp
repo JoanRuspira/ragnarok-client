@@ -771,7 +771,8 @@ void PopulateLoginPanelState(QtUiState* state)
         loginWnd->IsPasswordFocused());
     QVariantMap loginPanelLabels;
     loginPanelLabels.insert(QStringLiteral("title"), QStringLiteral("Login"));
-    loginPanelLabels.insert(QStringLiteral("saveLabel"), QStringLiteral("Save"));
+    loginPanelLabels.insert(QStringLiteral("userLabel"), QStringLiteral("User"));
+    loginPanelLabels.insert(QStringLiteral("passwordLabel"), QStringLiteral("Password"));
     state->setLoginPanelLabels(loginPanelLabels);
 
     QVariantList buttons;

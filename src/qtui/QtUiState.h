@@ -1,13 +1,18 @@
 #pragma once
 
+#include "ui/UiTheme.h"
+
 #include <cmath>
+#include <QColor>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 
 class QtUiState : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QVariantMap uiTheme READ uiTheme CONSTANT)
     Q_PROPERTY(QString backendName READ backendName NOTIFY backendNameChanged)
     Q_PROPERTY(QString modeName READ modeName NOTIFY modeNameChanged)
     Q_PROPERTY(QString wallpaperRevision READ wallpaperRevision NOTIFY wallpaperRevisionChanged)
@@ -278,6 +283,26 @@ class QtUiState : public QObject {
     Q_PROPERTY(QVariantList anchors READ anchors NOTIFY anchorsChanged)
 
 public:
+    const QVariantMap& uiTheme() const {
+        const auto color = [](COLORREF value, int alpha = 255) {
+            return QColor(GetRValue(value), GetGValue(value), GetBValue(value), alpha);
+        };
+        static const QVariantMap palette {
+            { QStringLiteral("uiFontFamily"), QString::fromLatin1(uitheme::kUiFontFamily) },
+            { QStringLiteral("panelBackground"), color(uitheme::kPanelBackground, uitheme::kPanelAlpha) },
+            { QStringLiteral("controlBackground"), color(uitheme::kControlBackground) },
+            { QStringLiteral("controlBackgroundText"), color(uitheme::kControlBackgroundText) },
+            { QStringLiteral("frame"), color(uitheme::kFrame) },
+            { QStringLiteral("accent"), color(uitheme::kAccent) },
+            { QStringLiteral("uiText"), color(uitheme::kUiText) },
+            { QStringLiteral("writableText"), color(uitheme::kWritableText) },
+            { QStringLiteral("shadow"), color(uitheme::kShadow) },
+            { QStringLiteral("controlHover"), color(uitheme::kControlHover) },
+            { QStringLiteral("accentHover"), color(uitheme::kAccentHover) },
+        };
+        return palette;
+    }
+
     explicit QtUiState(QObject* parent = nullptr)
         : QObject(parent)
     {

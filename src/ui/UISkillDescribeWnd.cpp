@@ -1,4 +1,5 @@
 #include "UISkillDescribeWnd.h"
+#include "ui/UiTheme.h"
 
 #include "UIWindowMgr.h"
 #include "session/Session.h"
@@ -100,7 +101,7 @@ void DrawWrappedTextRect(HDC hdc, const RECT& rect, const std::string& text, COL
         QPainter painter(&image);
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::TextAntialiasing, false);
-        QFont font(QStringLiteral("MS Sans Serif"));
+        QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
         font.setPixelSize(11);
         font.setStyleStrategy(QFont::NoAntialias);
         painter.setFont(font);
@@ -126,7 +127,7 @@ int MeasureWrappedTextHeight(HDC hdc, int width, const std::string& text)
     }
 
 #if RO_ENABLE_QT6_UI
-    QFont font(QStringLiteral("MS Sans Serif"));
+    QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
     font.setPixelSize(11);
     font.setStyleStrategy(QFont::NoAntialias);
     const QRect bounds = QFontMetrics(font).boundingRect(
@@ -163,7 +164,7 @@ void DrawWrappedTextRectScrolled(HDC hdc, const RECT& rect, const std::string& t
         QPainter painter(&image);
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::TextAntialiasing, false);
-        QFont font(QStringLiteral("MS Sans Serif"));
+        QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
         font.setPixelSize(11);
         font.setStyleStrategy(QFont::NoAntialias);
         painter.setFont(font);

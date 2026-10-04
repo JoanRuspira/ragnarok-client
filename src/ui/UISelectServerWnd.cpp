@@ -1,4 +1,5 @@
 #include "UISelectServerWnd.h"
+#include "ui/UiTheme.h"
 
 #include "UILoginWnd.h"
 #include "core/ClientInfoLocale.h"
@@ -51,7 +52,7 @@ QFont BuildSelectServerFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 14);
     font.setBold(logFont.lfWeight >= FW_BOLD);

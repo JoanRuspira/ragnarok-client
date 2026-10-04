@@ -1,4 +1,5 @@
 #include "UINpcMenuWnd.h"
+#include "ui/UiTheme.h"
 
 #include "NpcDialogColoredText.h"
 #include "render/DC.h"
@@ -42,7 +43,7 @@ HFONT GetNpcMenuFont()
     if (!s_font) {
         s_font = CreateFontA(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "MS Sans Serif");
+            NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
     }
     return s_font;
 }
@@ -92,7 +93,7 @@ QFont BuildNpcMenuFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 13);
     font.setBold(logFont.lfWeight >= FW_BOLD);

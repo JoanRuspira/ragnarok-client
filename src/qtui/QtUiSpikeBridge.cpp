@@ -41,6 +41,7 @@
 #include <QChar>
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -196,7 +197,6 @@ QtUiImageRequestKind CategorizeQtUiImageRequest(const QString& baseId)
     if (baseId == QStringLiteral("makecharpanel")
         || baseId == QStringLiteral("charselectpanel")
         || baseId == QStringLiteral("charselectslotselected")
-        || baseId == QStringLiteral("loginpanel")
         || baseId.startsWith(QStringLiteral("makecharbutton/"))) {
         return QtUiImageRequestKind::Panel;
     }
@@ -817,32 +817,6 @@ public:
                         width * static_cast<int>(sizeof(unsigned int)),
                         QImage::Format_ARGB32);
                     image = source.copy();
-                }
-            }
-        } else if (baseId == QStringLiteral("loginpanel")) {
-            if (g_windowMgr.m_loginWnd && g_windowMgr.m_loginWnd->m_show != 0) {
-                const unsigned int* pixels = nullptr;
-                int width = 0;
-                int height = 0;
-                if (g_windowMgr.m_loginWnd->GetQtPanelBitmap(&pixels, &width, &height)
-                    && pixels && width > 0 && height > 0) {
-                    const QImage source(
-                        reinterpret_cast<const uchar*>(pixels),
-                        width,
-                        height,
-                        width * static_cast<int>(sizeof(unsigned int)),
-                        QImage::Format_ARGB32);
-                    image = source.copy();
-                } else {
-                    width = (std::max)(g_windowMgr.m_loginWnd->m_w, 1);
-                    height = (std::max)(g_windowMgr.m_loginWnd->m_h, 1);
-                    image = QImage(width, height, QImage::Format_ARGB32_Premultiplied);
-                    image.fill(QColor(243, 240, 231, 224));
-
-                    QPainter painter(&image);
-                    painter.setRenderHint(QPainter::Antialiasing, false);
-                    painter.setPen(QColor(120, 112, 96));
-                    painter.drawRect(0, 0, width - 1, height - 1);
                 }
             }
         } else if (baseId.startsWith(QStringLiteral("item/"))) {
@@ -1550,6 +1524,17 @@ private:
         }
 
         EnsureQtUiResourcesInitialized();
+
+        static const bool fontsRegistered = [] {
+            const char* fontPaths[] = { ":/fonts/TrajanPro-Regular.otf", ":/fonts/TrajanPro-Bold.otf" };
+            for (const char* path : fontPaths) {
+                if (QFontDatabase::addApplicationFont(QString::fromLatin1(path)) < 0) {
+                    DbgLog("[QtUi] Failed to register embedded font %s\n", path);
+                }
+            }
+            return true;
+        }();
+        (void)fontsRegistered;
 
         m_stateAdapter = new QtUiStateAdapter();
         m_renderControl = new QQuickRenderControl();

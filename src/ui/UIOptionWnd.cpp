@@ -1,4 +1,5 @@
 #include "UIOptionWnd.h"
+#include "ui/UiTheme.h"
 
 #include "audio/Audio.h"
 #include "core/File.h"
@@ -297,7 +298,7 @@ void DrawWindowTitleText(HDC hdc, int x, int y, int windowRight, const char* tex
     }
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 12);
     font.setBold(logFont.lfWeight >= FW_BOLD);
@@ -320,7 +321,7 @@ void DrawWindowTitleText(HDC hdc, int x, int y, int windowRight, const char* tex
     RECT rect = { x, y, windowRight - 4, y + 16 };
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, color);
-    HGDIOBJ oldFont = SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ oldFont = SelectObject(hdc, shopui::GetUiFont());
     DrawTextA(hdc, text ? text : "", -1, &rect, DT_LEFT | DT_TOP | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
 #endif
@@ -338,7 +339,7 @@ QFont BuildUiOptionFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 12);
     font.setBold(logFont.lfWeight >= FW_BOLD);

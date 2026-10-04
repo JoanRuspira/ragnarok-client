@@ -6,6 +6,7 @@
 #include "res/Bitmap.h"
 
 #include "platform/WindowsCompat.h"
+#include "ui/UiTheme.h"
 
 #if RO_ENABLE_QT6_UI
 #include <QFont>
@@ -228,7 +229,7 @@ inline HFONT GetUiFont()
         CLIP_DEFAULT_PRECIS,
         NONANTIALIASED_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        "MS Sans Serif");
+        uitheme::kUiFontFamily);
     return s_font;
 #else
     return nullptr;
@@ -247,14 +248,14 @@ inline QFont BuildUiFontFromHdc(HDC hdc)
     }
 #else
     (void)hdc;
-    std::strncpy(logFont.lfFaceName, "MS Sans Serif", LF_FACESIZE - 1);
+    std::strncpy(logFont.lfFaceName, uitheme::kUiFontFamily, LF_FACESIZE - 1);
     logFont.lfHeight = -11;
     logFont.lfWeight = FW_NORMAL;
 #endif
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 11);
     font.setBold(logFont.lfWeight >= FW_BOLD);

@@ -1,4 +1,5 @@
 #include "UIShortCutWnd.h"
+#include "ui/UiTheme.h"
 
 #include "UIShopCommon.h"
 #include "UINewChatWnd.h"
@@ -59,7 +60,7 @@ HFONT GetShortcutLabelFont()
 #if RO_PLATFORM_WINDOWS
     static HFONT font = CreateFontA(-kSlotLabelFontSize, 0, 0, 0, FW_BOLD,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "MS Sans Serif");
+        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
     return font ? font : shopui::GetUiFont();
 #else
     return shopui::GetUiFont();
@@ -83,7 +84,7 @@ QFont BuildShortCutFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(kSlotLabelFontSize);
     font.setBold(true);

@@ -796,9 +796,6 @@ bool UIWindowMgr::EnsureComposeSurface(int width, int height)
 bool UIWindowMgr::Init() {
     if (!m_loginWnd) {
         m_loginWnd = new UILoginWnd();
-        if (!m_loginWallpaper.empty()) {
-            m_loginWnd->SetWallpaperName(m_loginWallpaper);
-        }
         m_children.push_back(m_loginWnd);
     }
 
@@ -1055,9 +1052,6 @@ UIWindow* UIWindowMgr::MakeWindow(int windowId)
     case WID_LOGINWND:
         if (!m_loginWnd) {
             m_loginWnd = new UILoginWnd();
-            if (!m_loginWallpaper.empty()) {
-                m_loginWnd->SetWallpaperName(m_loginWallpaper);
-            }
             m_children.push_back(m_loginWnd);
         }
         m_loginWnd->SetShow(1);
@@ -2506,10 +2500,6 @@ void UIWindowMgr::SetLoginWallpaper(const std::string& wallpaperName) {
     if (!IsLoadingScreenVisible(*this)) {
         m_loadingScreenActive = false;
         SetWallpaperFromGameData(wallpaperName);
-    }
-
-    if (m_loginWnd) {
-        m_loginWnd->SetWallpaperName(wallpaperName);
     }
 }
 

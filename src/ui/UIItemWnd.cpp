@@ -1,4 +1,5 @@
 #include "UIItemWnd.h"
+#include "ui/UiTheme.h"
 
 #include "gamemode/GameMode.h"
 #include "UIEquipWnd.h"
@@ -248,7 +249,7 @@ void FillRectAlpha(HDC target, const RECT& rect, COLORREF color, BYTE alpha)
 }
 
 #if RO_ENABLE_QT6_UI
-QFont BuildItemWindowFontFromHdc(HDC hdc, const char* fallbackFamily = "MS Sans Serif", int fallbackPixelSize = 13)
+QFont BuildItemWindowFontFromHdc(HDC hdc, const char* fallbackFamily = uitheme::kUiFontFamily, int fallbackPixelSize = 13)
 {
     LOGFONTA logFont{};
     if (hdc) {
@@ -325,7 +326,7 @@ void DrawItemWindowTextQt(HDC hdc, const RECT& rect, const std::string& text, CO
 
 QFont BuildItemTooltipFont()
 {
-    QFont font(QStringLiteral("MS Sans Serif"));
+    QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
     font.setPixelSize(14);
     font.setStyleStrategy(QFont::NoAntialias);
     return font;
@@ -341,7 +342,7 @@ void DrawWindowText(HDC hdc, int x, int y, const std::string& text, COLORREF col
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, color);
     RECT rect{ x, y, x + 240, y + 24 };
-    HGDIOBJ oldFont = SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ oldFont = SelectObject(hdc, shopui::GetUiFont());
 #if RO_ENABLE_QT6_UI
     DrawItemWindowTextQt(hdc, rect, text, color, format);
 #else
@@ -372,7 +373,7 @@ void DrawWindowTextRect(HDC hdc, const RECT& rect, const std::string& text, COLO
             CLIP_DEFAULT_PRECIS,
             NONANTIALIASED_QUALITY,
             DEFAULT_PITCH | FF_DONTCARE,
-            "MS Sans Serif");
+            uitheme::kUiFontFamily);
     }
 
     RECT drawRect = rect;

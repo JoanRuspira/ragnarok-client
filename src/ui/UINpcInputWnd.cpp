@@ -7,6 +7,7 @@
 #include "gamemode/Mode.h"
 #include "main/WinMain.h"
 #include "qtui/QtUiRuntime.h"
+#include "ui/UiTheme.h"
 
 #include <windows.h>
 
@@ -31,15 +32,17 @@ constexpr int kButtonWidth = 68;
 constexpr int kButtonHeight = 22;
 constexpr int kCornerRadius = 10;
 
-HFONT GetNpcInputFont()
+HFONT GetNpcInputFont(bool writable = false)
 {
-    static HFONT s_font = nullptr;
-    if (!s_font) {
-        s_font = CreateFontA(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    static HFONT s_fonts[2]{};
+    HFONT& font = s_fonts[writable ? 1 : 0];
+    if (!font) {
+        font = CreateFontA(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "MS Sans Serif");
+            NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            writable ? "MS Sans Serif" : uitheme::kUiFontFamily);
     }
-    return s_font;
+    return font;
 }
 
 void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color)
@@ -87,7 +90,7 @@ QFont BuildNpcInputFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 13);
     font.setBold(logFont.lfWeight >= FW_BOLD);
@@ -329,7 +332,9 @@ void UINpcInputWnd::OnDraw()
     DrawTextA(hdc, label, -1, &labelRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
 #endif
 
+    SelectObject(hdc, GetNpcInputFont(true));
     DrawChildrenToHdc(hdc);
+    SelectObject(hdc, GetNpcInputFont());
 
     DrawButton(hdc, GetOkRect(), "OK", m_pressedTarget == ClickTarget::Ok);
     DrawButton(hdc, GetCancelRect(), "Cancel", m_pressedTarget == ClickTarget::Cancel);

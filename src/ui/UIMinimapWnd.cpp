@@ -1,4 +1,5 @@
 #include "UIMinimapWnd.h"
+#include "ui/UiTheme.h"
 
 #include "UIWindowMgr.h"
 #include "core/File.h"
@@ -380,7 +381,7 @@ QFont BuildMinimapFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("MS Sans Serif");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 13);
     font.setBold(logFont.lfWeight >= FW_BOLD);
@@ -444,7 +445,7 @@ void DrawWindowText(HDC hdc, int windowRight, int x, int y, const char* text, CO
     RECT rect = { x, y, windowRight - 4, y + height };
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, color);
-    HGDIOBJ oldFont = SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ oldFont = SelectObject(hdc, shopui::GetUiFont());
 #if RO_ENABLE_QT6_UI
     DrawWindowTextQt(hdc, rect, text ? text : "", color, format);
 #else
@@ -1255,7 +1256,7 @@ bool UIRoMapWnd::BuildOverlayImageForRenderer(QImage* outImage) const
         static_cast<qreal>(kWindowCornerRadius));
     painter.drawRect(QRectF(mapRect.x() + 0.5, mapRect.y() + 0.5, static_cast<qreal>(mapRect.width() - 1), static_cast<qreal>(mapRect.height() - 1)));
 
-    QFont font(QStringLiteral("MS Sans Serif"));
+    QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
     font.setPixelSize(11);
     font.setStyleStrategy(QFont::NoAntialias);
     painter.setFont(font);

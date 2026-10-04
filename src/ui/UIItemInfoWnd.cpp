@@ -1,4 +1,5 @@
 #include "UIItemInfoWnd.h"
+#include "ui/UiTheme.h"
 
 #include "NpcDialogColoredText.h"
 #include "UIWindowMgr.h"
@@ -86,7 +87,7 @@ HFONT GetItemInfoDescriptionFont()
         CLIP_DEFAULT_PRECIS,
         NONANTIALIASED_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        "MS Sans Serif");
+        uitheme::kUiFontFamily);
     return s_font;
 }
 

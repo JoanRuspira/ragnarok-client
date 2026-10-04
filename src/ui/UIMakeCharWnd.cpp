@@ -1,4 +1,5 @@
 #include "UIMakeCharWnd.h"
+#include "ui/UiTheme.h"
 
 #include "core/File.h"
 #include "render/DC.h"
@@ -219,7 +220,7 @@ QFont BuildMakeCharFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("Tahoma");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 11);
     font.setBold(logFont.lfWeight >= FW_BOLD);
@@ -1231,7 +1232,7 @@ void UIMakeCharWnd::OnDraw()
         const int valueX = m_x + 484;
         HFONT statFont = CreateFontA(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-            DEFAULT_PITCH | FF_DONTCARE, "Tahoma");
+            DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
         HGDIOBJ oldFont = nullptr;
         if (statFont) {
             oldFont = SelectObject(hdc, statFont);

@@ -24,6 +24,7 @@
 #include "qtui/QtUiRuntime.h"
 #include "ui/UIOptionWnd.h"
 #include "ui/UiScale.h"
+#include "ui/UiTheme.h"
 #include "ui/UIWindowMgr.h"
 #include "render3d/Device.h"
 #include "render3d/RenderBackend.h"
@@ -839,6 +840,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     // Install an unhandled exception filter that writes a minidump next to the executable.
     SetUnhandledExceptionFilter(WriteUnhandledCrashDump);
     std::atexit(LogWinMainAtExit);
+    uitheme::InitializeFonts();
 
     // Initialise high-resolution timer
     TIMECAPS tc{};

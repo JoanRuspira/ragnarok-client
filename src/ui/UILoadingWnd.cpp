@@ -2,6 +2,7 @@
 
 #include "qtui/QtUiRuntime.h"
 #include "render/DC.h"
+#include "ui/UiTheme.h"
 
 #include <windows.h>
 
@@ -46,7 +47,7 @@ QFont BuildLoadingFontFromHdc(HDC hdc)
 
     const QString family = logFont.lfFaceName[0] != '\0'
         ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QStringLiteral("Tahoma");
+        : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
     font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : 16);
     font.setBold(logFont.lfWeight >= FW_BOLD);
@@ -185,14 +186,14 @@ void UILoadingWnd::OnDraw()
     const int fillWidth = static_cast<int>((barBackRect.right - barBackRect.left - 4) * m_progress);
     const RECT barFillRect = MakeRect(barBackRect.left + 2, barBackRect.top + 2, barBackRect.left + 2 + fillWidth, barBackRect.bottom - 2);
 
-    FillSolidRect(hdc, shadowRect, RGB(8, 12, 16));
-    FillSolidRect(hdc, panelRect, RGB(25, 31, 38));
-    FillSolidRect(hdc, barBackRect, RGB(50, 58, 68));
+    FillSolidRect(hdc, shadowRect, uitheme::kShadow);
+    FillSolidRect(hdc, panelRect, uitheme::kPanelBackground);
+    FillSolidRect(hdc, barBackRect, uitheme::kControlBackground);
     if (fillWidth > 0) {
-        FillSolidRect(hdc, barFillRect, RGB(230, 198, 88));
+        FillSolidRect(hdc, barFillRect, uitheme::kAccent);
     }
 
-    HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(194, 176, 103));
+    HPEN borderPen = CreatePen(PS_SOLID, 1, uitheme::kFrame);
     HGDIOBJ oldPen = SelectObject(hdc, borderPen);
     HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
     Rectangle(hdc, panelRect.left, panelRect.top, panelRect.right, panelRect.bottom);
@@ -202,19 +203,19 @@ void UILoadingWnd::OnDraw()
     DeleteObject(borderPen);
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(245, 239, 221));
+    SetTextColor(hdc, uitheme::kUiText);
 
     HFONT titleFont = CreateFontA(-22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-        DEFAULT_PITCH | FF_SWISS, "Tahoma");
+        DEFAULT_PITCH | FF_SWISS, uitheme::kUiFontFamily);
     HFONT bodyFont = CreateFontA(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-        DEFAULT_PITCH | FF_SWISS, "Tahoma");
+        DEFAULT_PITCH | FF_SWISS, uitheme::kUiFontFamily);
 
     HGDIOBJ oldFont = SelectObject(hdc, titleFont);
     RECT titleRect = MakeRect(panelLeft + 22, panelTop + 10, panelLeft + panelWidth - 22, panelTop + 32);
 #if RO_ENABLE_QT6_UI
-    DrawLoadingText(hdc, titleRect, "Loading", RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    DrawLoadingText(hdc, titleRect, "Loading", uitheme::kUiText, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 #else
     DrawTextA(hdc, "Loading", -1, &titleRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 #endif
@@ -222,7 +223,7 @@ void UILoadingWnd::OnDraw()
     SelectObject(hdc, bodyFont);
     RECT messageRect = MakeRect(panelLeft + 24, panelTop + 28, panelLeft + panelWidth - 24, panelTop + 48);
 // #if RO_ENABLE_QT6_UI
-//     DrawLoadingText(hdc, messageRect, m_message.c_str(), RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+//     DrawLoadingText(hdc, messageRect, m_message.c_str(), uitheme::kUiText, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 // #else
 //     DrawTextA(hdc, m_message.c_str(), -1, &messageRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 // #endif
@@ -231,7 +232,7 @@ void UILoadingWnd::OnDraw()
     std::snprintf(percentText, sizeof(percentText), "%d%%", static_cast<int>(m_progress * 100.0f + 0.5f));
     RECT percentRect = MakeRect(panelLeft + panelWidth - 70, panelTop + 10, panelLeft + panelWidth - 20, panelTop + 32);
 #if RO_ENABLE_QT6_UI
-    DrawLoadingText(hdc, percentRect, percentText, RGB(245, 239, 221), DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+    DrawLoadingText(hdc, percentRect, percentText, uitheme::kUiText, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 #else
     DrawTextA(hdc, percentText, -1, &percentRect, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 #endif

@@ -6,6 +6,11 @@ Item {
     height: parent ? parent.height : 720
     property bool loginCaretVisible: true
     property real uiScale: Math.max(0.5, uiState.uiScale || 1.0)
+    readonly property var uiTheme: uiState.uiTheme
+
+    component UiText: Text {
+        font.family: uiState.uiTheme.uiFontFamily
+    }
 
     function rgbaColor(red, green, blue, alpha) {
         return Qt.rgba(red / 255.0, green / 255.0, blue / 255.0, Math.max(0.0, Math.min(1.0, alpha)))
@@ -269,7 +274,7 @@ Item {
                     Qt.point(0, 2)
                 ] : []
 
-                delegate: Text {
+                delegate: UiText {
                     required property var modelData
                     x: label.x + modelData.x
                     y: label.y + modelData.y
@@ -312,9 +317,9 @@ Item {
         width: Math.min(540, parent.width - 80)
         height: 92
         radius: 8
-        color: "#e6191f26"
+        color: root.uiTheme.panelBackground
         border.width: 1
-        border.color: "#c2b067"
+        border.color: root.uiTheme.frame
         visible: uiState.loadingVisible
 
         Column {
@@ -325,10 +330,10 @@ Item {
             Row {
                 width: parent.width
 
-                Text {
+                UiText {
                     id: loadingTitle
                     text: uiState.loadingProgress > 0 ? "Entering World" : uiState.modeName
-                    color: "#f5efdd"
+                    color: root.uiTheme.uiText
                     font.pixelSize: 22
                     font.bold: true
                 }
@@ -338,20 +343,20 @@ Item {
                     height: 1
                 }
 
-                Text {
+                UiText {
                     id: loadingPercent
                     text: Math.round(uiState.loadingProgress * 100) + "%"
-                    color: "#f5efdd"
+                    color: root.uiTheme.uiText
                     font.pixelSize: 22
                     font.bold: true
                     visible: uiState.loadingProgress > 0
                 }
             }
 
-            Text {
+            UiText {
                 width: parent.width
                 text: uiState.loadingMessage
-                color: "#f5efdd"
+                color: root.uiTheme.uiText
                 font.pixelSize: 16
                 elide: Text.ElideRight
             }
@@ -360,9 +365,9 @@ Item {
                 width: parent.width
                 height: 20
                 radius: 4
-                color: "#323a44"
+                color: root.uiTheme.controlBackground
                 border.width: 1
-                border.color: "#c2b067"
+                border.color: root.uiTheme.frame
                 visible: uiState.loadingProgress > 0
 
                 Rectangle {
@@ -372,7 +377,7 @@ Item {
                     width: Math.max(0, (parent.width - 4) * uiState.loadingProgress)
                     height: parent.height - 4
                     radius: 3
-                    color: "#e6c658"
+                    color: root.uiTheme.accent
                 }
             }
         }
@@ -413,7 +418,7 @@ Item {
                 border.color: "#70ffffff"
             }
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: modelData.title
                 color: "#f7f2df"
@@ -454,7 +459,7 @@ Item {
                     border.width: (index === uiState.npcMenuSelectedIndex || index === uiState.npcMenuHoverIndex) ? 1 : 0
                     border.color: "#a0b4cd"
 
-                    Text {
+                    UiText {
                         anchors.left: parent.left
                         anchors.leftMargin: 4
                         anchors.verticalCenter: parent.verticalCenter
@@ -481,7 +486,7 @@ Item {
                 border.width: 1
                 border.color: "#6e6e6e"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -502,7 +507,7 @@ Item {
         border.color: "#828282"
         visible: uiState.sayDialogVisible
 
-        Text {
+        UiText {
             x: 10
             y: 10
             width: parent.width - 20
@@ -524,7 +529,7 @@ Item {
             border.width: 1
             border.color: "#6e6e6e"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.sayDialogActionButton.label || ""
                 color: "#000000"
@@ -544,7 +549,7 @@ Item {
         border.color: "#828282"
         visible: uiState.npcInputVisible
 
-        Text {
+        UiText {
             x: 10
             y: 9
             width: parent.width - 20
@@ -587,7 +592,7 @@ Item {
                 border.width: 1
                 border.color: "#6e6e6e"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -624,7 +629,7 @@ Item {
                 border.width: 1
                 border.color: "#8f8f8f"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData
                     color: "#1a1a1a"
@@ -652,7 +657,7 @@ Item {
             color: "#52657b"
         }
 
-        Text {
+        UiText {
             x: 6
             y: 1
             text: uiState.itemShopData.title || uiState.itemShopTitle
@@ -681,7 +686,7 @@ Item {
                     height: 17
                     color: "#dee5ed"
 
-                    Text {
+                    UiText {
                         x: 26
                         y: 2
                         width: (uiState.itemShopData.showQuantity || false) ? 160 : (parent.width - 110)
@@ -690,7 +695,7 @@ Item {
                         font.pixelSize: 11
                     }
 
-                    Text {
+                    UiText {
                         x: 190
                         y: 2
                         width: 38
@@ -701,7 +706,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Text {
+                    UiText {
                         x: width - 60
                         y: 2
                         width: 54
@@ -721,7 +726,7 @@ Item {
                         height: 18
                         color: modelData.selected ? "#bccce2" : (modelData.hover ? "#e2eaf4" : "transparent")
 
-                        Text {
+                        UiText {
                             x: 24
                             y: 2
                             width: (uiState.itemShopData.showQuantity || false) ? 160 : (parent.width - 110)
@@ -731,7 +736,7 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        Text {
+                        UiText {
                             x: 188
                             y: 2
                             width: 38
@@ -742,7 +747,7 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                         }
 
-                        Text {
+                        UiText {
                             x: parent.width - 76
                             y: 2
                             width: 70
@@ -775,7 +780,7 @@ Item {
             color: "#52657b"
         }
 
-        Text {
+        UiText {
             x: 6
             y: 1
             text: uiState.itemPurchaseData.title || ""
@@ -804,7 +809,7 @@ Item {
                     height: 17
                     color: "#dee5ed"
 
-                    Text {
+                    UiText {
                         x: 4
                         y: 2
                         text: uiState.itemPurchaseData.nameLabel || ""
@@ -812,7 +817,7 @@ Item {
                         font.pixelSize: 11
                     }
 
-                    Text {
+                    UiText {
                         x: 126
                         y: 2
                         width: 34
@@ -822,7 +827,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Text {
+                    UiText {
                         x: width - 64
                         y: 2
                         width: 56
@@ -842,7 +847,7 @@ Item {
                         height: 18
                         color: modelData.selected ? "#bccce2" : (modelData.hover ? "#e2eaf4" : "transparent")
 
-                        Text {
+                        UiText {
                             x: 4
                             y: 2
                             width: 126
@@ -852,7 +857,7 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        Text {
+                        UiText {
                             x: 126
                             y: 2
                             width: 34
@@ -862,7 +867,7 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                         }
 
-                        Text {
+                        UiText {
                             x: parent.width - 64
                             y: 2
                             width: 56
@@ -876,7 +881,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 10
             y: height - 75
             text: uiState.itemPurchaseData.totalLabel || ""
@@ -884,7 +889,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Text {
+        UiText {
             x: 90
             y: height - 75
             width: 138
@@ -907,7 +912,7 @@ Item {
                 border.width: 1
                 border.color: "#585858"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#181818"
@@ -935,7 +940,7 @@ Item {
             color: "#52657b"
         }
 
-        Text {
+        UiText {
             x: 6
             y: 1
             text: uiState.itemSellData.title || ""
@@ -964,7 +969,7 @@ Item {
                     height: 17
                     color: "#dee5ed"
 
-                    Text {
+                    UiText {
                         x: 4
                         y: 2
                         text: uiState.itemSellData.nameLabel || ""
@@ -972,7 +977,7 @@ Item {
                         font.pixelSize: 11
                     }
 
-                    Text {
+                    UiText {
                         x: 126
                         y: 2
                         width: 34
@@ -982,7 +987,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Text {
+                    UiText {
                         x: width - 64
                         y: 2
                         width: 56
@@ -1002,7 +1007,7 @@ Item {
                         height: 18
                         color: modelData.selected ? "#bccce2" : (modelData.hover ? "#e2eaf4" : "transparent")
 
-                        Text {
+                        UiText {
                             x: 4
                             y: 2
                             width: 126
@@ -1012,7 +1017,7 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        Text {
+                        UiText {
                             x: 126
                             y: 2
                             width: 34
@@ -1022,7 +1027,7 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                         }
 
-                        Text {
+                        UiText {
                             x: parent.width - 64
                             y: 2
                             width: 56
@@ -1036,7 +1041,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 10
             y: height - 75
             text: uiState.itemSellData.totalLabel || ""
@@ -1044,7 +1049,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Text {
+        UiText {
             x: 90
             y: height - 75
             width: 138
@@ -1067,7 +1072,7 @@ Item {
                 border.width: 1
                 border.color: "#585858"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#181818"
@@ -1114,7 +1119,7 @@ Item {
                     visible: modelData.occupied && source !== ""
                 }
 
-                Text {
+                UiText {
                     anchors.fill: parent
                     anchors.margins: 2
                     horizontalAlignment: Text.AlignHCenter
@@ -1152,7 +1157,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: uiState.basicInfoMini ? 9 : 17
             y: 3
             text: uiState.basicInfoMini ? (uiState.basicInfoData.name || "") : "Basic Info"
@@ -1176,7 +1181,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -1186,7 +1191,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 17
             y: 18
             visible: uiState.basicInfoMini
@@ -1195,7 +1200,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Text {
+        UiText {
             x: 17
             y: 33
             visible: uiState.basicInfoMini
@@ -1204,7 +1209,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Text {
+        UiText {
             x: 9
             y: 24
             visible: !uiState.basicInfoMini
@@ -1213,7 +1218,7 @@ Item {
             font.pixelSize: 12
         }
 
-        Text {
+        UiText {
             x: 9
             y: 38
             visible: !uiState.basicInfoMini
@@ -1260,7 +1265,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 95
             y: 31
             visible: !uiState.basicInfoMini
@@ -1269,7 +1274,7 @@ Item {
             font.pixelSize: 10
         }
 
-        Text {
+        UiText {
             x: 95
             y: 52
             visible: !uiState.basicInfoMini
@@ -1278,7 +1283,7 @@ Item {
             font.pixelSize: 10
         }
 
-        Text {
+        UiText {
             x: 17
             y: 72
             visible: !uiState.basicInfoMini
@@ -1306,7 +1311,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 17
             y: 84
             visible: !uiState.basicInfoMini
@@ -1334,7 +1339,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 5
             y: 103
             visible: !uiState.basicInfoMini
@@ -1343,7 +1348,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Text {
+        UiText {
             x: 107
             y: 103
             visible: !uiState.basicInfoMini
@@ -1367,7 +1372,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -1400,7 +1405,7 @@ Item {
             border.color: uiState.statusMini ? "#8b877b" : "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 3
             text: uiState.statusData.title || ""
@@ -1424,7 +1429,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -1434,7 +1439,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 96
             y: 3
             visible: uiState.statusMini
@@ -1474,7 +1479,7 @@ Item {
                     border.color: "#8c8578"
                     visible: modelData.visible || false
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label || ""
                         color: "#000000"
@@ -1498,7 +1503,7 @@ Item {
                         width: 90
                         height: 14
 
-                        Text {
+                        UiText {
                             x: 0
                             y: 0
                             text: modelData.label
@@ -1507,7 +1512,7 @@ Item {
                             font.bold: true
                         }
 
-                        Text {
+                        UiText {
                             x: 26
                             y: 0
                             width: 34
@@ -1527,7 +1532,7 @@ Item {
                             border.width: 1
                             border.color: "#7f7a70"
 
-                            Text {
+                            UiText {
                                 anchors.centerIn: parent
                                 text: modelData.increaseLabel || ""
                                 color: "#000000"
@@ -1536,7 +1541,7 @@ Item {
                             }
                         }
 
-                        Text {
+                        UiText {
                             x: 78
                             y: 0
                             width: 10
@@ -1549,7 +1554,7 @@ Item {
                 }
             }
 
-            Text {
+            UiText {
                 x: 132
                 y: 10
                 visible: uiState.statusPage === 0
@@ -1558,7 +1563,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 152
                 y: 10
                 width: 40
@@ -1569,7 +1574,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 132
                 y: 26
                 visible: uiState.statusPage === 0
@@ -1578,7 +1583,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 152
                 y: 26
                 width: 40
@@ -1589,7 +1594,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 132
                 y: 42
                 visible: uiState.statusPage === 0
@@ -1598,7 +1603,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 152
                 y: 42
                 width: 40
@@ -1609,7 +1614,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 132
                 y: 58
                 visible: uiState.statusPage === 0
@@ -1618,7 +1623,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 152
                 y: 58
                 width: 40
@@ -1629,7 +1634,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 204
                 y: 74
                 visible: uiState.statusPage === 0
@@ -1639,7 +1644,7 @@ Item {
                 font.bold: true
             }
 
-            Text {
+            UiText {
                 x: 243
                 y: 74
                 width: 30
@@ -1651,7 +1656,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 204
                 y: 10
                 visible: uiState.statusPage === 0
@@ -1660,7 +1665,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 233
                 y: 10
                 width: 40
@@ -1671,7 +1676,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 204
                 y: 26
                 visible: uiState.statusPage === 0
@@ -1680,7 +1685,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 233
                 y: 26
                 width: 40
@@ -1691,7 +1696,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 204
                 y: 42
                 visible: uiState.statusPage === 0
@@ -1700,7 +1705,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 233
                 y: 42
                 width: 40
@@ -1711,7 +1716,7 @@ Item {
                 horizontalAlignment: Text.AlignRight
             }
 
-            Text {
+            UiText {
                 x: 204
                 y: 58
                 visible: uiState.statusPage === 0
@@ -1720,7 +1725,7 @@ Item {
                 font.pixelSize: 11
             }
 
-            Text {
+            UiText {
                 x: 233
                 y: 58
                 width: 40
@@ -1792,11 +1797,11 @@ Item {
                     border.width: 1
                     border.color: modelData.active ? root.rgbaColor(200, 211, 223, 0.96) : root.rgbaColor(117, 141, 164, 0.68 * chatWindowChrome.chromeOpacity)
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label
                         color: modelData.active ? "#16212b" : "#ebf1f7"
-                        font.family: "Segoe UI"
+                        font.family: uiState.uiTheme.uiFontFamily
                         font.pixelSize: 13
                         font.bold: true
                     }
@@ -1856,13 +1861,13 @@ Item {
                 Repeater {
                     model: uiState.chatWindowLines
 
-                    delegate: Text {
+                    delegate: UiText {
                         required property var modelData
                         width: chatLinesColumn.width
                         text: modelData.text
                         textFormat: Text.PlainText
                         color: modelData.color
-                        font.family: "Segoe UI"
+                        font.family: uiState.uiTheme.uiFontFamily
                         font.pixelSize: parent.parent.parent.chatFontSize
                         wrapMode: Text.WordWrap
                     }
@@ -1975,22 +1980,22 @@ Item {
             color: "#364453"
         }
 
-        Text {
+        UiText {
             x: 14
             y: 12
             text: "Chat Settings"
             color: "#f4f7fb"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 17
             font.bold: true
         }
 
-        Text {
+        UiText {
             x: 14
             y: 50
             text: "Tabs"
             color: "#24313b"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2013,11 +2018,11 @@ Item {
                     border.width: 1
                     border.color: modelData.active ? "#8d9fb3" : "#c8d0d9"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label
                         color: "#1a2630"
-                        font.family: "Segoe UI"
+                        font.family: uiState.uiTheme.uiFontFamily
                         font.pixelSize: 12
                         font.bold: modelData.active
                     }
@@ -2025,12 +2030,12 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 120
             y: 50
             text: "Font"
             color: "#24313b"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2046,12 +2051,12 @@ Item {
             border.color: "#c8d0d9"
         }
 
-        Text {
+        UiText {
             x: 132
             y: 79
             text: "Size " + (uiState.chatWindowUi.fontPixelSize || 13)
             color: "#1a2630"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2066,11 +2071,11 @@ Item {
             border.width: 1
             border.color: "#b8c5d2"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: "-"
                 color: "#24313b"
-                font.family: "Segoe UI"
+                font.family: uiState.uiTheme.uiFontFamily
                 font.pixelSize: 16
                 font.bold: true
             }
@@ -2086,22 +2091,22 @@ Item {
             border.width: 1
             border.color: "#b8c5d2"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: "+"
                 color: "#24313b"
-                font.family: "Segoe UI"
+                font.family: uiState.uiTheme.uiFontFamily
                 font.pixelSize: 16
                 font.bold: true
             }
         }
 
-        Text {
+        UiText {
             x: 120
             y: 112
             text: "Transparency"
             color: "#24313b"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2117,12 +2122,12 @@ Item {
             border.color: "#c8d0d9"
         }
 
-        Text {
+        UiText {
             x: 132
             y: 135
             text: (uiState.chatWindowUi.windowOpacityPercent || 84) + "%"
             color: "#1a2630"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2155,12 +2160,12 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 120
             y: 192
             text: "Message Types"
             color: "#24313b"
-            font.family: "Segoe UI"
+            font.family: uiState.uiTheme.uiFontFamily
             font.pixelSize: 12
             font.bold: true
         }
@@ -2185,11 +2190,11 @@ Item {
                     border.width: 1
                     border.color: modelData.enabled ? "#7ca28a" : "#c8d0d9"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label
                         color: modelData.enabled ? "#1f4930" : "#2a3640"
-                        font.family: "Segoe UI"
+                        font.family: uiState.uiTheme.uiFontFamily
                         font.pixelSize: 12
                         font.bold: modelData.enabled
                     }
@@ -2207,11 +2212,11 @@ Item {
             border.width: 1
             border.color: "#b8c5d2"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: "Reset Tab"
                 color: "#24313b"
-                font.family: "Segoe UI"
+                font.family: uiState.uiTheme.uiFontFamily
                 font.pixelSize: 12
                 font.bold: true
             }
@@ -2335,7 +2340,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 18
             y: 2
             width: Math.max(0, parent.width - 40)
@@ -2346,7 +2351,7 @@ Item {
             elide: Text.ElideRight
         }
 
-        Text {
+        UiText {
             x: (uiState.minimapData.coordsX || 0) - parent.x
             y: (uiState.minimapData.coordsY || 0) - parent.y
             width: Math.max(0, uiState.minimapData.coordsWidth || 0)
@@ -2367,7 +2372,7 @@ Item {
             border.width: 1
             border.color: "#4d5662"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.minimapData.closeLabel || ""
                 color: "#18202a"
@@ -2422,7 +2427,7 @@ Item {
                             radius: 8
                         }
 
-                        Text {
+                        UiText {
                             anchors.centerIn: parent
                             visible: !statusIconImage.visible
                             text: modelData.shortName || "?"
@@ -2468,7 +2473,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 3
             text: uiState.inventoryData.title || "Inventory"
@@ -2492,7 +2497,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -2524,7 +2529,7 @@ Item {
                     border.color: "#8c8578"
                     visible: modelData.visible || false
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label || ""
                         color: "#000000"
@@ -2559,7 +2564,7 @@ Item {
                         visible: source !== "" && status === Image.Ready
                     }
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         width: parent.width - 4
                         text: modelData.occupied ? modelData.label : ""
@@ -2570,7 +2575,7 @@ Item {
                         visible: modelData.occupied && !inventoryIcon.visible
                     }
 
-                    Text {
+                    UiText {
                         anchors.right: parent.right
                         anchors.rightMargin: 3
                         anchors.bottom: parent.bottom
@@ -2613,7 +2618,7 @@ Item {
                 border.width: 1
                 border.color: "#bcb4a7"
 
-                Text {
+                UiText {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
@@ -2647,7 +2652,7 @@ Item {
             border.color: "#655238"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 3
             text: uiState.storageData.title || "Kafra Storage"
@@ -2671,7 +2676,7 @@ Item {
                 border.color: "#8a775a"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -2703,7 +2708,7 @@ Item {
                     border.color: "#8d7b62"
                     visible: modelData.visible || false
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label || ""
                         color: "#000000"
@@ -2722,7 +2727,7 @@ Item {
                 border.width: 1
                 border.color: "#b6a891"
 
-                Text {
+                UiText {
                     x: 8
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Item"
@@ -2731,7 +2736,7 @@ Item {
                     font.bold: true
                 }
 
-                Text {
+                UiText {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
@@ -2779,7 +2784,7 @@ Item {
                         visible: modelData.occupied && !storageIcon.visible
                     }
 
-                    Text {
+                    UiText {
                         x: 30
                         width: parent.width - 88
                         anchors.verticalCenter: parent.verticalCenter
@@ -2792,7 +2797,7 @@ Item {
                         visible: modelData.occupied && !storageIcon.visible
                     }
 
-                    Text {
+                    UiText {
                         x: 30
                         width: parent.width - 88
                         anchors.verticalCenter: parent.verticalCenter
@@ -2805,7 +2810,7 @@ Item {
                         visible: modelData.occupied && storageIcon.visible
                     }
 
-                    Text {
+                    UiText {
                         anchors.right: parent.right
                         anchors.rightMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
@@ -2847,7 +2852,7 @@ Item {
                 border.width: 1
                 border.color: "#bcaf9b"
 
-                Text {
+                UiText {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
@@ -2881,7 +2886,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 3
             text: uiState.equipData.title || ""
@@ -2905,7 +2910,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -2981,7 +2986,7 @@ Item {
                         }
                     }
 
-                    Text {
+                    UiText {
                         x: modelData.leftColumn ? (modelData.width + 4) : 0
                         y: 0
                         width: width - modelData.width - 4
@@ -3022,7 +3027,7 @@ Item {
             border.color: "#3c4a3e"
         }
 
-        Text {
+        UiText {
             x: 10
             y: 2
             text: uiState.friendPartyData.title || "Friend / Party"
@@ -3046,7 +3051,7 @@ Item {
                 border.color: "#6e604a"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#222222"
@@ -3077,7 +3082,7 @@ Item {
                     border.width: 1
                     border.color: modelData.active ? "#7a623e" : "#978972"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label || ""
                         color: "#2a2a2a"
@@ -3096,7 +3101,7 @@ Item {
                 border.width: 1
                 border.color: "#ab9e88"
 
-                Text {
+                UiText {
                     x: 6
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Name"
@@ -3105,7 +3110,7 @@ Item {
                     font.bold: true
                 }
 
-                Text {
+                UiText {
                     x: 110
                     anchors.verticalCenter: parent.verticalCenter
                     text: (uiState.friendPartyData.currentTab || 0) === 0 ? "State" : "Role"
@@ -3114,7 +3119,7 @@ Item {
                     font.bold: true
                 }
 
-                Text {
+                UiText {
                     x: 171
                     anchors.verticalCenter: parent.verticalCenter
                     text: (uiState.friendPartyData.currentTab || 0) === 0 ? "Memo" : "Map"
@@ -3155,7 +3160,7 @@ Item {
                                            1.0)
                         }
 
-                        Text {
+                        UiText {
                             x: 14
                             width: 88
                             anchors.verticalCenter: parent.verticalCenter
@@ -3165,7 +3170,7 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        Text {
+                        UiText {
                             x: 109
                             width: 50
                             anchors.verticalCenter: parent.verticalCenter
@@ -3175,7 +3180,7 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        Text {
+                        UiText {
                             x: 171
                             width: parent.width - 175
                             anchors.verticalCenter: parent.verticalCenter
@@ -3224,7 +3229,7 @@ Item {
                     border.color: "#796a4f"
                     visible: modelData.visible || false
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.label || ""
                         color: "#1c1c1c"
@@ -3243,7 +3248,7 @@ Item {
                 border.width: 1
                 border.color: "#b1a590"
 
-                Text {
+                UiText {
                     x: 6
                     y: 4
                     text: uiState.friendPartyData.summaryTitle || ""
@@ -3252,7 +3257,7 @@ Item {
                     font.bold: true
                 }
 
-                Text {
+                UiText {
                     x: 86
                     width: parent.width - 92
                     y: 4
@@ -3262,7 +3267,7 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Text {
+                UiText {
                     x: 6
                     y: 18
                     width: parent.width - 12
@@ -3297,7 +3302,7 @@ Item {
             border.color: "#3c4a3e"
         }
 
-        Text {
+        UiText {
             x: 10
             y: 2
             text: uiState.partySetupData.title || "Party Setup"
@@ -3309,7 +3314,7 @@ Item {
         Repeater {
             model: uiState.partySetupData.labels || []
 
-            delegate: Text {
+            delegate: UiText {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.partySetupX
                 y: (modelData.y || 0) - uiState.partySetupY
@@ -3338,7 +3343,7 @@ Item {
                 border.width: 1
                 border.color: "#796a4f"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: "?"
                     color: "#1c1c1c"
@@ -3360,6 +3365,7 @@ Item {
             border.color: "#000000"
 
             Text {
+                font.family: (uiState.partySetupData.showNameEdit || false) ? Qt.application.font.family : uiState.uiTheme.uiFontFamily
                 x: (uiState.partySetupData.showNameEdit || false) ? 6 : 0
                 width: parent.width - ((uiState.partySetupData.showNameEdit || false) ? 12 : 0)
                 anchors.verticalCenter: parent.verticalCenter
@@ -3399,7 +3405,7 @@ Item {
                     }
                 }
 
-                Text {
+                UiText {
                     x: 20
                     width: parent.width - 20
                     anchors.verticalCenter: parent.verticalCenter
@@ -3426,7 +3432,7 @@ Item {
                 border.color: "#796a4f"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#1c1c1c"
@@ -3447,7 +3453,7 @@ Item {
             border.color: "#606060"
             z: 10
 
-            Text {
+            UiText {
                 id: tooltipText
                 x: 8
                 y: 6
@@ -3493,7 +3499,7 @@ Item {
             border.color: "#a5967d"
         }
 
-        Text {
+        UiText {
             x: 10
             y: 2
             text: uiState.partyInviteData.title || "Party Invitation"
@@ -3502,7 +3508,7 @@ Item {
             font.bold: true
         }
 
-        Text {
+        UiText {
             x: 20
             y: 34
             width: parent.width - 40
@@ -3529,7 +3535,7 @@ Item {
                 border.width: 1
                 border.color: "#796a4f"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#1c1c1c"
@@ -3562,7 +3568,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 3
             text: uiState.skillListData.title || ""
@@ -3586,7 +3592,7 @@ Item {
                 border.color: "#7f7a70"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#000000"
@@ -3650,7 +3656,7 @@ Item {
                     }
                 }
 
-                Text {
+                UiText {
                     x: 48
                     y: 3
                     width: parent.width - 88
@@ -3660,7 +3666,7 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Text {
+                UiText {
                     x: 48
                     y: 18
                     width: 80
@@ -3669,7 +3675,7 @@ Item {
                     font.pixelSize: 10
                 }
 
-                Text {
+                UiText {
                     x: 165
                     y: 18
                     width: parent.width - 198
@@ -3689,7 +3695,7 @@ Item {
                     border.width: 1
                     border.color: "#7e95bf"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: uiState.skillListData.upgradeLabel || ""
                         color: "#000000"
@@ -3731,7 +3737,7 @@ Item {
             border.color: "#bcb4a7"
         }
 
-        Text {
+        UiText {
             x: 13
             y: parent.height - 18
             text: uiState.skillListData.skillPointText || ""
@@ -3754,7 +3760,7 @@ Item {
                 border.width: 1
                 border.color: "#8c8578"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label
                     color: "#000000"
@@ -3787,7 +3793,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 8
             y: 3
             text: uiState.itemInfoData.title || "Item Information"
@@ -3806,7 +3812,7 @@ Item {
             border.width: 1
             border.color: "#7f7a70"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemInfoData.closeButton.label || "X"
                 color: "#000000"
@@ -3846,7 +3852,7 @@ Item {
                 border.width: 1
                 border.color: "#8c8578"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: uiState.itemInfoData.graphicsButton.label || "View"
                     color: "#000000"
@@ -3855,7 +3861,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 112
             y: 25
             width: parent.width - 120
@@ -3876,7 +3882,7 @@ Item {
             Repeater {
                 model: uiState.itemInfoData.detailLines || []
 
-                delegate: Text {
+                delegate: UiText {
                     required property var modelData
                     width: parent.width
                     text: modelData
@@ -3887,7 +3893,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 112
             y: itemInfoDetailsColumn.y + itemInfoDetailsColumn.height + 4
             width: parent.width - 120
@@ -3935,7 +3941,7 @@ Item {
                     border.width: 1
                     border.color: "#606060"
 
-                    Text {
+                    UiText {
                         id: tooltipText
                         anchors.centerIn: parent
                         text: modelData.tooltip || ""
@@ -3970,7 +3976,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 8
             y: 3
             text: uiState.skillDescribeData.title || "Skill Information"
@@ -3989,7 +3995,7 @@ Item {
             border.width: 1
             border.color: "#7f7a70"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.skillDescribeData.closeButton.label || "X"
                 color: "#000000"
@@ -4017,7 +4023,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             x: 68
             y: 25
             width: parent.width - 76
@@ -4037,7 +4043,7 @@ Item {
             Repeater {
                 model: uiState.skillDescribeData.detailLines || []
 
-                delegate: Text {
+                delegate: UiText {
                     required property var modelData
                     width: parent.width
                     text: modelData
@@ -4056,7 +4062,7 @@ Item {
             color: "transparent"
             clip: true
 
-            Text {
+            UiText {
                 x: 0
                 y: -(uiState.skillDescribeData.descriptionScrollOffset || 0)
                 width: parent.width
@@ -4114,7 +4120,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 8
             y: 3
             text: uiState.itemCollectionData.title || "Card illustration"
@@ -4133,7 +4139,7 @@ Item {
             border.width: 1
             border.color: "#7f7a70"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemCollectionData.closeButton.label || "X"
                 color: "#000000"
@@ -4189,7 +4195,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 8
             y: 3
             text: uiState.itemIdentifyData.title || "Identify Item"
@@ -4208,7 +4214,7 @@ Item {
             border.width: 1
             border.color: "#7f7a70"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemIdentifyData.closeButton.label || "X"
                 color: "#000000"
@@ -4228,7 +4234,7 @@ Item {
             border.color: "#c4c0b5"
             clip: true
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 visible: (uiState.itemIdentifyData.rows || []).length === 0
                 text: uiState.itemIdentifyData.emptyText || "No unidentified items available."
@@ -4268,7 +4274,7 @@ Item {
                         }
                     }
 
-                    Text {
+                    UiText {
                         x: 34
                         y: 5
                         width: parent.width - 70
@@ -4279,7 +4285,7 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    Text {
+                    UiText {
                         anchors.right: parent.right
                         anchors.rightMargin: 8
                         y: 5
@@ -4325,7 +4331,7 @@ Item {
             border.width: 1
             border.color: "#8c8578"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemIdentifyData.okButton.label || "OK"
                 color: "#000000"
@@ -4343,7 +4349,7 @@ Item {
             border.width: 1
             border.color: "#8c8578"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemIdentifyData.cancelButton.label || "Cancel"
                 color: "#000000"
@@ -4375,7 +4381,7 @@ Item {
             border.color: "#4e5d6c"
         }
 
-        Text {
+        UiText {
             x: 8
             y: 3
             text: uiState.itemCompositionData.title || "Compound Item"
@@ -4394,7 +4400,7 @@ Item {
             border.width: 1
             border.color: "#7f7a70"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemCompositionData.closeButton.label || "X"
                 color: "#000000"
@@ -4414,7 +4420,7 @@ Item {
             border.color: "#c4c0b5"
             clip: true
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 visible: (uiState.itemCompositionData.rows || []).length === 0
                 text: uiState.itemCompositionData.emptyText || "No equipment can accept this card."
@@ -4454,7 +4460,7 @@ Item {
                         }
                     }
 
-                    Text {
+                    UiText {
                         x: 34
                         y: 5
                         width: parent.width - 70
@@ -4465,7 +4471,7 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    Text {
+                    UiText {
                         anchors.right: parent.right
                         anchors.rightMargin: 8
                         y: 5
@@ -4511,7 +4517,7 @@ Item {
             border.width: 1
             border.color: "#8c8578"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemCompositionData.okButton.label || "OK"
                 color: "#000000"
@@ -4529,7 +4535,7 @@ Item {
             border.width: 1
             border.color: "#8c8578"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: uiState.itemCompositionData.cancelButton.label || "Cancel"
                 color: "#000000"
@@ -4567,7 +4573,7 @@ Item {
             color: "#62729e"
         }
 
-        Text {
+        UiText {
             x: 17
             y: 2
             text: uiState.optionData.title || ""
@@ -4591,7 +4597,7 @@ Item {
                 border.color: "#607096"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#28375c"
@@ -4627,7 +4633,7 @@ Item {
                 border.width: 1
                 border.color: modelData.active ? "#5f7096" : "#7a88a7"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label
                     color: "#000000"
@@ -4658,7 +4664,7 @@ Item {
                     border.color: "#7a88a7"
                 }
 
-                Text {
+                UiText {
                     anchors.left: parent.left
                     anchors.leftMargin: modelData.width + 8
                     anchors.verticalCenter: parent.verticalCenter
@@ -4667,7 +4673,7 @@ Item {
                     font.pixelSize: 11
                 }
 
-                Text {
+                UiText {
                     anchors.centerIn: optionToggleBox
                     text: modelData.checked ? "X" : ""
                     color: "#28375c"
@@ -4691,7 +4697,7 @@ Item {
                 readonly property int sliderMax: modelData.maxValue !== undefined ? Math.max(sliderMin + 1, modelData.maxValue) : 127
                 readonly property real sliderRange: Math.max(1, sliderMax - sliderMin)
 
-                Text {
+                UiText {
                     x: -60
                     y: -1
                     width: 56
@@ -4722,7 +4728,7 @@ Item {
                     border.color: "#576588"
                 }
 
-                Text {
+                UiText {
                     x: parent.width + 8
                     y: -1
                     width: 42
@@ -4748,7 +4754,7 @@ Item {
                 border.width: 1
                 border.color: "#b0bad0"
 
-                Text {
+                UiText {
                     x: 8
                     y: 4
                     text: modelData.label
@@ -4756,7 +4762,7 @@ Item {
                     font.pixelSize: 11
                 }
 
-                Text {
+                UiText {
                     x: 110
                     y: 4
                     width: Math.max(0, parent.width - 170)
@@ -4776,7 +4782,7 @@ Item {
                     border.width: 1
                     border.color: "#607096"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.prevLabel || ""
                         color: "#28375c"
@@ -4795,7 +4801,7 @@ Item {
                     border.width: 1
                     border.color: "#607096"
 
-                    Text {
+                    UiText {
                         anchors.centerIn: parent
                         text: modelData.nextLabel || ""
                         color: "#28375c"
@@ -4819,7 +4825,7 @@ Item {
             border.width: 1
             border.color: "#607096"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: optionRestartButton.restartButtonData.label || ""
                 color: "#28375c"
@@ -4840,7 +4846,7 @@ Item {
             border.width: 1
             border.color: "#607096"
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 text: optionApplyButton.applyButtonData.label || ""
                 color: "#28375c"
@@ -4860,7 +4866,7 @@ Item {
         border.color: "#7f7a70"
         visible: uiState.shopChoiceVisible
 
-        Text {
+        UiText {
             x: 12
             y: 10
             text: uiState.shopChoiceTitle
@@ -4869,7 +4875,7 @@ Item {
             font.bold: true
         }
 
-        Text {
+        UiText {
             x: 14
             y: 28
             width: parent.width - 28
@@ -4893,7 +4899,7 @@ Item {
                 border.width: 1
                 border.color: "#585858"
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label
                     color: "#181818"
@@ -4919,7 +4925,7 @@ Item {
             anchors.margins: 10
             spacing: 4
 
-            Text {
+            UiText {
                 text: uiState.serverPanelData.title || ""
                 color: "#303030"
                 font.pixelSize: 14
@@ -4971,7 +4977,7 @@ Item {
                         visible: isSelected
                     }
 
-                    Text {
+                    UiText {
                         id: serverLabel
                         x: labelLeft
                         width: Math.max(1, parent.width - labelLeft - statusWidth - 12)
@@ -4985,7 +4991,7 @@ Item {
                         z: 1
                     }
 
-                    Text {
+                    UiText {
                         id: serverStatus
                         x: parent.width - statusWidth - 8
                         width: statusWidth
@@ -5009,82 +5015,90 @@ Item {
         y: uiState.loginPanelY
         width: uiState.loginPanelWidth
         height: uiState.loginPanelHeight
-        color: "transparent"
-        border.width: 0
+        radius: 8
+        color: root.uiTheme.panelBackground
+        border.width: 1
+        border.color: root.uiTheme.frame
         visible: uiState.loginPanelVisible
 
-        Image {
-            anchors.fill: parent
-            fillMode: Image.Stretch
-            smooth: false
-            cache: false
-            source: parent.visible ? "image://openmidgard/loginpanel" : ""
+        UiText {
+            x: 24
+            y: 18
+            height: 26
+            text: uiState.loginPanelLabels.title || "Login"
+            color: root.uiTheme.uiText
+            font.pixelSize: 22
+            font.bold: true
+            verticalAlignment: Text.AlignVCenter
         }
 
-        Rectangle {
-            x: 92
-            y: 29
-            width: 125
+        UiText {
+            x: 24
+            y: 54
             height: 18
-            color: "#f2f2f2"
-            border.width: 1
-            border.color: uiState.loginPasswordFocused ? "#b0b0b0" : "#707070"
+            text: uiState.loginPanelLabels.userLabel || "User"
+            color: root.uiTheme.uiText
+            font.pixelSize: 14
+            verticalAlignment: Text.AlignVCenter
         }
 
-        Text {
-            x: 98
-            y: 31
-            width: 112
-            text: uiState.loginUserId + (!uiState.loginPasswordFocused && root.loginCaretVisible ? "|" : "")
-            color: "#202020"
-            font.pixelSize: 12
-            elide: Text.ElideRight
-        }
-
+        // Field bounds match UILoginWnd's input hit areas.
         Rectangle {
-            x: 92
-            y: 61
-            width: 125
-            height: 18
-            color: "#f2f2f2"
+            x: 24
+            y: 76
+            width: 272
+            height: 30
+            radius: 4
+            color: root.uiTheme.controlBackgroundText
             border.width: 1
-            border.color: uiState.loginPasswordFocused ? "#707070" : "#b0b0b0"
-        }
-
-        Text {
-            x: 98
-            y: 63
-            width: 112
-            text: uiState.loginPasswordMask + (uiState.loginPasswordFocused && root.loginCaretVisible ? "|" : "")
-            color: "#202020"
-            font.pixelSize: 12
-            elide: Text.ElideRight
-        }
-
-        Rectangle {
-            x: 232
-            y: 33
-            width: 16
-            height: 16
-            color: "#ffffff"
-            border.width: 1
-            border.color: "#404040"
+            border.color: uiState.loginPasswordFocused ? root.uiTheme.frame : root.uiTheme.accent
 
             Text {
-                anchors.centerIn: parent
-                text: uiState.loginSaveAccountChecked ? "X" : ""
-                color: "#202020"
-                font.pixelSize: 11
-                font.bold: true
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                text: uiState.loginUserId + (!uiState.loginPasswordFocused && root.loginCaretVisible ? "|" : "")
+                textFormat: Text.PlainText
+                color: root.uiTheme.writableText
+                font.pixelSize: 14
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                clip: true
             }
         }
 
-        Text {
-            x: 250
-            y: 31
-            text: uiState.loginPanelLabels.saveLabel || ""
-            color: "#303030"
-            font.pixelSize: 11
+        UiText {
+            x: 24
+            y: 118
+            height: 18
+            text: uiState.loginPanelLabels.passwordLabel || "Password"
+            color: root.uiTheme.uiText
+            font.pixelSize: 14
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        Rectangle {
+            x: 24
+            y: 140
+            width: 272
+            height: 30
+            radius: 4
+            color: root.uiTheme.controlBackgroundText
+            border.width: 1
+            border.color: uiState.loginPasswordFocused ? root.uiTheme.accent : root.uiTheme.frame
+
+            Text {
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                text: uiState.loginPasswordMask + (uiState.loginPasswordFocused && root.loginCaretVisible ? "|" : "")
+                textFormat: Text.PlainText
+                color: root.uiTheme.writableText
+                font.pixelSize: 14
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                clip: true
+            }
         }
 
         Repeater {
@@ -5096,16 +5110,16 @@ Item {
                 y: (modelData.y || 0) - uiState.loginPanelY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 3
-                color: "#d8d0c4"
+                radius: 4
+                color: modelData.id === 120 ? root.uiTheme.accent : root.uiTheme.controlBackground
                 border.width: 1
-                border.color: "#6f6558"
+                border.color: root.uiTheme.frame
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
-                    color: "#202020"
-                    font.pixelSize: 11
+                    color: modelData.id === 120 ? root.uiTheme.controlBackground : root.uiTheme.uiText
+                    font.pixelSize: 14
                     font.bold: true
                 }
             }
@@ -5156,7 +5170,7 @@ Item {
         Repeater {
             model: uiState.charSelectSelectedDetails.fields || []
 
-            delegate: Text {
+            delegate: UiText {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.charSelectPanelX
                 y: (modelData.y || 0) - uiState.charSelectPanelY
@@ -5181,7 +5195,7 @@ Item {
                 color: "transparent"
                 border.width: 0
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#5a5448"
@@ -5206,7 +5220,7 @@ Item {
                 border.color: "#6f6558"
                 visible: modelData.visible || false
 
-                Text {
+                UiText {
                     anchors.centerIn: parent
                     text: modelData.label || ""
                     color: "#202020"
@@ -5261,7 +5275,7 @@ Item {
         Repeater {
             model: uiState.makeCharStatFields
 
-            delegate: Text {
+            delegate: UiText {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.makeCharPanelX
                 y: (modelData.y || 0) - uiState.makeCharPanelY

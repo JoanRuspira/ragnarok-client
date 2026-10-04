@@ -3,4 +3,8 @@
         <file>qml/GameOverlay.qml</file>
         <file>qml/SpikeOverlay.qml</file>
     </qresource>
+    <qresource prefix="/fonts">
+        <file alias="TrajanPro-Regular.otf">../../assets/fonts/TrajanPro-Regular.otf</file>
+        <file alias="TrajanPro-Bold.otf">../../assets/fonts/TrajanPro-Bold.otf</file>
+    </qresource>
 </RCC>

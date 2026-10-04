@@ -2,8 +2,8 @@
 #include "ui/UiTheme.h"
 
 #include "UIShopCommon.h"
-#include "UINewChatWnd.h"
 #include "UIWindowMgr.h"
+#include "UIExperienceBarWnd.h"
 #include "UiScale.h"
 #include "gamemode/GameMode.h"
 #include "gamemode/Mode.h"
@@ -26,43 +26,37 @@
 
 namespace {
 
-constexpr int kDefaultWindowWidth = UIShortCutWnd::kVisibleSlotCount * UIShortCutWnd::kSlotSize + 2 * UIShortCutWnd::kSlotPadding;
-constexpr int kDefaultWindowHeight = UIShortCutWnd::kSlotSize + 2 * UIShortCutWnd::kSlotPadding;
-constexpr int kChatGap = 4;
-constexpr int kSlotLabelFontSize = 18;
+constexpr int kDefaultWindowWidth = UIShortCutWnd::kSlotsPerRow * UIShortCutWnd::kSlotWidth
+    + UIShortCutWnd::kGroupsPerRow * (UIShortCutWnd::kSlotsPerGroup - 1) * UIShortCutWnd::kSlotGap
+    + (UIShortCutWnd::kGroupsPerRow - 1) * UIShortCutWnd::kGroupGap + 2 * UIShortCutWnd::kSlotPadding;
+constexpr int kDefaultWindowHeight = UIShortCutWnd::kRowCount * UIShortCutWnd::kSlotHeight
+    + (UIShortCutWnd::kRowCount - 1) * UIShortCutWnd::kSlotGap + 2 * UIShortCutWnd::kSlotPadding;
+constexpr int kSlotLabelFontSize = 12;
 
-void DrawShortcutPanel(HDC hdc, const RECT& rect)
+int GetSlotSizeForClientWidth(int clientWidth)
 {
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-    if (!hdc || width <= 0 || height <= 0) {
-        return;
-    }
-
-    // Match chat's 75% stippled coverage. This also works with the legacy
-    // overlay's color-key transparency, which cannot retain partial alpha.
-    static shopui::BitmapPixels background;
-    if (background.width != width || background.height != height) {
-        background.width = width;
-        background.height = height;
-        background.pixels.resize(static_cast<size_t>(width) * height);
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                background.pixels[static_cast<size_t>(y) * width + x] = ((x + y) % 4) == 0 ? 0u : 0xFF000000u;
-            }
-        }
-    }
-    shopui::DrawBitmapPixelsTransparent(hdc, background, rect);
+    const int availableWidth = clientWidth - 2 * UIShortCutWnd::kSlotPadding
+        - UIShortCutWnd::kGroupsPerRow * (UIShortCutWnd::kSlotsPerGroup - 1) * UIShortCutWnd::kSlotGap
+        - (UIShortCutWnd::kGroupsPerRow - 1) * UIShortCutWnd::kGroupGap;
+    return std::clamp(availableWidth / UIShortCutWnd::kSlotsPerRow, 2, UIShortCutWnd::kSlotWidth);
 }
 
-HFONT GetShortcutLabelFont()
+HFONT GetShortcutLabelFont(int fontSize)
 {
 #if RO_PLATFORM_WINDOWS
-    static HFONT font = CreateFontA(-kSlotLabelFontSize, 0, 0, 0, FW_BOLD,
+    static std::unordered_map<int, HFONT> fonts;
+    const auto found = fonts.find(fontSize);
+    if (found != fonts.end()) {
+        return found->second;
+    }
+    const HFONT font = CreateFontA(-fontSize, 0, 0, 0, FW_BOLD,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
-    return font ? font : shopui::GetUiFont();
+    const HFONT selectedFont = font ? font : shopui::GetUiFont();
+    fonts.emplace(fontSize, selectedFont);
+    return selectedFont;
 #else
+    (void)fontSize;
     return shopui::GetUiFont();
 #endif
 }
@@ -73,7 +67,7 @@ void DrawBitmapFit(HDC hdc, const shopui::BitmapPixels& bitmap, const RECT& rect
 }
 
 #if RO_ENABLE_QT6_UI
-QFont BuildShortCutFontFromHdc(HDC hdc)
+QFont BuildShortCutFontFromHdc(HDC hdc, int fontSize)
 {
     LOGFONTA logFont{};
     if (hdc) {
@@ -86,13 +80,13 @@ QFont BuildShortCutFontFromHdc(HDC hdc)
         ? QString::fromLocal8Bit(logFont.lfFaceName)
         : QString::fromLatin1(uitheme::kUiFontFamily);
     QFont font(family);
-    font.setPixelSize(kSlotLabelFontSize);
+    font.setPixelSize(fontSize);
     font.setBold(true);
     font.setStyleStrategy(QFont::NoAntialias);
     return font;
 }
 
-void DrawShortCutTextPass(HDC hdc, const RECT& rect, const QString& text, COLORREF color)
+void DrawShortCutTextPass(HDC hdc, const RECT& rect, const QString& text, COLORREF color, int fontSize, bool alignRight)
 {
     if (!hdc || text.isEmpty() || rect.right <= rect.left || rect.bottom <= rect.top) {
         return;
@@ -109,62 +103,53 @@ void DrawShortCutTextPass(HDC hdc, const RECT& rect, const QString& text, COLORR
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, false);
     painter.setRenderHint(QPainter::TextAntialiasing, false);
-    painter.setFont(BuildShortCutFontFromHdc(hdc));
+    painter.setFont(BuildShortCutFontFromHdc(hdc, fontSize));
     painter.setPen(QColor(GetRValue(color), GetGValue(color), GetBValue(color)));
-    painter.drawText(QRect(0, 0, width, height), Qt::AlignCenter, text);
+    painter.drawText(QRect(0, 0, width, height), Qt::AlignVCenter | (alignRight ? Qt::AlignRight : Qt::AlignHCenter), text);
     AlphaBlendArgbToHdc(hdc, rect.left, rect.top, width, height, pixels.data(), width, height);
 }
 #endif
 
-void DrawOutlinedText(HDC hdc, RECT rect, const std::string& text, COLORREF fillColor, COLORREF outlineColor = RGB(0, 0, 0))
+void DrawOutlinedText(HDC hdc, RECT rect, const std::string& text, COLORREF fillColor, int fontSize, bool alignRight = false)
 {
     if (!hdc || text.empty()) {
         return;
     }
 
-    SetBkMode(hdc, TRANSPARENT);
-    HGDIOBJ oldFont = SelectObject(hdc, GetShortcutLabelFont());
+    const COLORREF outlineColor = RGB(0, 0, 0);
+    const int oldBkMode = SetBkMode(hdc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(hdc, outlineColor);
+    HGDIOBJ oldFont = SelectObject(hdc, GetShortcutLabelFont(fontSize));
 
 #if RO_ENABLE_QT6_UI
     const QString label = QString::fromLocal8Bit(text.c_str());
-    RECT shadowRect = rect;
-    OffsetRect(&shadowRect, -1, 0);
-    DrawShortCutTextPass(hdc, shadowRect, label, outlineColor);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 1, 0);
-    DrawShortCutTextPass(hdc, shadowRect, label, outlineColor);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 0, -1);
-    DrawShortCutTextPass(hdc, shadowRect, label, outlineColor);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 0, 1);
-    DrawShortCutTextPass(hdc, shadowRect, label, outlineColor);
-    DrawShortCutTextPass(hdc, rect, label, fillColor);
 #else
-    // DrawText only supports DT_VCENTER for a single line. Center the measured
-    // text block explicitly so the key label and optional count stay together.
-    RECT measured = rect;
-    DrawTextA(hdc, text.c_str(), -1, &measured, DT_CALCRECT | DT_CENTER | DT_NOPREFIX);
-    const int textHeight = measured.bottom - measured.top;
-    rect.top += (std::max)(0, static_cast<int>(rect.bottom - rect.top - textHeight) / 2);
-    rect.bottom = rect.top + textHeight;
-    RECT shadowRect = rect;
-    SetTextColor(hdc, outlineColor);
-    OffsetRect(&shadowRect, -1, 0);
-    DrawTextA(hdc, text.c_str(), -1, &shadowRect, DT_CENTER | DT_NOPREFIX);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 1, 0);
-    DrawTextA(hdc, text.c_str(), -1, &shadowRect, DT_CENTER | DT_NOPREFIX);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 0, -1);
-    DrawTextA(hdc, text.c_str(), -1, &shadowRect, DT_CENTER | DT_NOPREFIX);
-    shadowRect = rect;
-    OffsetRect(&shadowRect, 0, 1);
-    DrawTextA(hdc, text.c_str(), -1, &shadowRect, DT_CENTER | DT_NOPREFIX);
-
-    SetTextColor(hdc, fillColor);
-    DrawTextA(hdc, text.c_str(), -1, &rect, DT_CENTER | DT_NOPREFIX);
+    const UINT flags = (alignRight ? DT_RIGHT : DT_CENTER) | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX;
 #endif
+
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            RECT outlineRect = rect;
+            OffsetRect(&outlineRect, dx, dy);
+#if RO_ENABLE_QT6_UI
+            DrawShortCutTextPass(hdc, outlineRect, label, outlineColor, fontSize, alignRight);
+#else
+            DrawTextA(hdc, text.c_str(), -1, &outlineRect, flags);
+#endif
+        }
+    }
+
+#if RO_ENABLE_QT6_UI
+    DrawShortCutTextPass(hdc, rect, label, fillColor, fontSize, alignRight);
+#else
+    SetTextColor(hdc, fillColor);
+    DrawTextA(hdc, text.c_str(), -1, &rect, flags);
+#endif
+    SetTextColor(hdc, oldTextColor);
+    SetBkMode(hdc, oldBkMode);
     SelectObject(hdc, oldFont);
 }
 
@@ -192,7 +177,11 @@ std::string BuildShortcutSlotKeyLabel(int visibleSlot)
     if (visibleSlot < 0 || visibleSlot >= UIShortCutWnd::kVisibleSlotCount) {
         return std::string();
     }
-    return "F" + std::to_string(visibleSlot + 1);
+    if (visibleSlot < UIShortCutWnd::kFunctionKeySlotCount) {
+        return "F" + std::to_string(visibleSlot + 1);
+    }
+    const int numberSlot = visibleSlot - UIShortCutWnd::kFunctionKeySlotCount;
+    return numberSlot < 10 ? std::to_string((numberSlot + 1) % 10) : std::string();
 }
 
 int ResolveShortcutSkillUseLevel(const SHORTCUT_SLOT& slot, const PLAYER_SKILL_INFO* skill)
@@ -301,12 +290,24 @@ UIShortCutWnd::UIShortCutWnd()
       m_startGlobalY(0),
       m_orgX(0),
       m_orgY(0),
+      m_slotSize(kSlotWidth),
+      m_dockedToBottomLeft(true),
       m_lastDrawStateToken(0ull),
       m_hasDrawStateToken(false)
 {
     Create(kDefaultWindowWidth, kDefaultWindowHeight);
     g_session.SetShortcutPage(0);
+    Layout();
+}
 
+int UIShortCutWnd::GetWindowHeightForClientWidth(int clientWidth)
+{
+    return kRowCount * GetSlotSizeForClientWidth(clientWidth)
+        + (kRowCount - 1) * kSlotGap + 2 * kSlotPadding;
+}
+
+void UIShortCutWnd::Layout()
+{
     RECT clientRect{ 0, 0, WINDOW_WIDTH > 0 ? WINDOW_WIDTH : 640, WINDOW_HEIGHT > 0 ? WINDOW_HEIGHT : 480 };
     if (g_hMainWnd) {
         GetClientRect(g_hMainWnd, &clientRect);
@@ -319,21 +320,19 @@ UIShortCutWnd::UIShortCutWnd()
         ? UiScaleRawToLogicalCoordinate(clientRect.bottom - clientRect.top)
         : static_cast<int>(clientRect.bottom - clientRect.top));
 
-    // Start beside chat on the bottom edge each time. Dragging remains available
-    // for the current window's lifetime, as it does for chat.
-    const int maxX = (std::max)(0, clientWidth - m_w);
-    int x = 0;
-    int y = (std::max)(0, clientHeight - m_h);
-    const UINewChatWnd* chat = g_windowMgr.m_chatWnd;
-    if (chat && chat->m_show != 0) {
-        x = chat->m_x + chat->m_w + kChatGap;
-        if (x > maxX) {
-            // Stack above chat when the client is too narrow for both windows.
-            x = std::clamp(chat->m_x, 0, maxX);
-            y = (std::max)(0, chat->m_y - m_h - kChatGap);
-        }
+    // Reserve wider gaps between groups and spread the six groups across the viewport.
+    m_slotSize = GetSlotSizeForClientWidth(clientWidth);
+    Resize(clientWidth, GetWindowHeightForClientWidth(clientWidth));
+    m_maxY = (std::max)(0, clientHeight - m_h - UIExperienceBarWnd::kReservedHeight);
+    if (m_dockedToBottomLeft) {
+        Move(0, m_maxY);
+    } else {
+        int x = m_x;
+        int y = m_y;
+        g_windowMgr.ClampWindowToClient(&x, &y, m_w, m_h);
+        y = (std::min)(y, m_maxY);
+        Move(x, y);
     }
-    Move(x, y);
 }
 
 UIShortCutWnd::~UIShortCutWnd() = default;
@@ -341,6 +340,11 @@ UIShortCutWnd::~UIShortCutWnd() = default;
 void UIShortCutWnd::SetShow(int show)
 {
     UIWindow::SetShow(show);
+}
+
+void UIShortCutWnd::OnProcess()
+{
+    Layout();
 }
 
 bool UIShortCutWnd::IsUpdateNeed()
@@ -424,13 +428,12 @@ void UIShortCutWnd::OnDraw()
         return;
     }
 
-    const RECT bounds{ m_x, m_y, m_x + m_w, m_y + m_h };
-    DrawShortcutPanel(hdc, bounds);
-    shopui::FrameRectColor(hdc, bounds, RGB(96, 96, 96));
-
     for (int slotIndex = 0; slotIndex < kVisibleSlotCount; ++slotIndex) {
         const RECT slotRect = GetSlotRect(slotIndex);
-        shopui::FrameRectColor(hdc, slotRect, m_hoverSlot == slotIndex ? RGB(192, 192, 192) : RGB(96, 96, 96));
+        const COLORREF frameColor = m_hoverSlot == slotIndex ? uitheme::kAccent : uitheme::kFrame;
+        shopui::FillRectColor(hdc, slotRect,
+            m_hoverSlot == slotIndex ? uitheme::kControlHover : uitheme::kPanelBackground);
+        shopui::FrameRectColor(hdc, slotRect, frameColor);
 
         const SHORTCUT_SLOT* slot = g_session.GetShortcutSlotByVisibleIndex(slotIndex);
         if (!slot || slot->id == 0) {
@@ -468,7 +471,15 @@ void UIShortCutWnd::OnDraw()
     }
 
     for (int slotIndex = 0; slotIndex < kVisibleSlotCount; ++slotIndex) {
-        DrawOutlinedText(hdc, GetSlotRect(slotIndex), GetSlotDisplayText(slotIndex), RGB(255, 255, 255));
+        const RECT slotRect = GetSlotRect(slotIndex);
+        const int labelHeight = GetSlotLabelHeight();
+        const int fontSize = GetSlotLabelFontSize();
+        const RECT labelRect{ slotRect.left + 2, slotRect.bottom - labelHeight - 2,
+            slotRect.right - 2, slotRect.bottom - 2 };
+        DrawOutlinedText(hdc, labelRect, GetSlotKeyLabel(slotIndex), uitheme::kUiText, fontSize);
+        const RECT quantityRect{ slotRect.left + 3, slotRect.top + 3,
+            slotRect.right - 4, slotRect.top + 3 + labelHeight };
+        DrawOutlinedText(hdc, quantityRect, GetSlotQuantityText(slotIndex), RGB(255, 255, 255), fontSize, true);
     }
 
     ReleaseDrawTarget(hdc);
@@ -532,10 +543,14 @@ void UIShortCutWnd::OnLBtnUp(int x, int y)
 void UIShortCutWnd::OnMouseMove(int x, int y)
 {
     if (m_isDragging != 0) {
+        if (x != m_startGlobalX || y != m_startGlobalY) {
+            m_dockedToBottomLeft = false;
+        }
         int snappedX = m_orgX + (x - m_startGlobalX);
         int snappedY = m_orgY + (y - m_startGlobalY);
         g_windowMgr.SnapWindowToNearby(this, &snappedX, &snappedY);
         g_windowMgr.ClampWindowToClient(&snappedX, &snappedY, m_w, m_h);
+        snappedY = (std::min)(snappedY, m_maxY);
         Move(snappedX, snappedY);
         return;
     }
@@ -605,6 +620,16 @@ int UIShortCutWnd::GetHoverSlot() const
     return m_hoverSlot;
 }
 
+int UIShortCutWnd::GetSlotLabelFontSize() const
+{
+    return std::clamp((m_slotSize - 4) / 2, 1, kSlotLabelFontSize);
+}
+
+int UIShortCutWnd::GetSlotLabelHeight() const
+{
+    return (std::min)({ kSlotLabelHeight, GetSlotLabelFontSize() + 4, m_slotSize - 2 });
+}
+
 bool UIShortCutWnd::GetHoveredItemForQt(shopui::ItemHoverInfo* outData) const
 {
     if (!outData || m_show == 0 || m_hoverSlot < 0) {
@@ -668,12 +693,17 @@ RECT UIShortCutWnd::GetSlotRect(int visibleSlot) const
     if (visibleSlot < 0 || visibleSlot >= kVisibleSlotCount) {
         return RECT{};
     }
-    return RECT{
-        m_x + kSlotPadding + visibleSlot * kSlotSize,
-        m_y + kSlotPadding,
-        m_x + kSlotPadding + (visibleSlot + 1) * kSlotSize,
-        m_y + kSlotPadding + kSlotSize
-    };
+    const int column = visibleSlot % kSlotsPerRow;
+    const int row = visibleSlot / kSlotsPerRow;
+    const int group = column / kSlotsPerGroup;
+    const int slotInGroup = column % kSlotsPerGroup;
+    const int groupWidth = kSlotsPerGroup * m_slotSize + (kSlotsPerGroup - 1) * kSlotGap;
+    const int spaceBetweenGroups = (std::max)(0, m_w - 2 * kSlotPadding - kGroupsPerRow * groupWidth);
+    // Divide after multiplying so rounding never leaves unused space at the right edge.
+    const int groupOffset = group * groupWidth + group * spaceBetweenGroups / (kGroupsPerRow - 1);
+    const int left = m_x + kSlotPadding + groupOffset + slotInGroup * (m_slotSize + kSlotGap);
+    const int top = m_y + kSlotPadding + row * (m_slotSize + kSlotGap);
+    return RECT{ left, top, left + m_slotSize, top + m_slotSize };
 }
 
 void UIShortCutWnd::ActivateSlot(int visibleSlot)
@@ -681,31 +711,24 @@ void UIShortCutWnd::ActivateSlot(int visibleSlot)
     g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse, visibleSlot, 0, 0);
 }
 
-std::string UIShortCutWnd::GetSlotDisplayText(int visibleSlot) const
+std::string UIShortCutWnd::GetSlotKeyLabel(int visibleSlot) const
 {
-    std::string text = BuildShortcutSlotKeyLabel(visibleSlot);
-    if (text.empty()) {
-        return text;
-    }
+    return BuildShortcutSlotKeyLabel(visibleSlot);
+}
 
+std::string UIShortCutWnd::GetSlotQuantityText(int visibleSlot) const
+{
     const SHORTCUT_SLOT* slot = g_session.GetShortcutSlotByVisibleIndex(visibleSlot);
-    if (!slot || slot->id == 0) {
-        return text;
-    }
-
-    if (slot->isSkill != 0) {
+    if (!slot || slot->id == 0 || slot->isSkill != 0) {
         return {};
     }
 
-    int value = 0;
     if (const ITEM_INFO* item = g_session.GetInventoryItemByItemId(slot->id)) {
-        value = item->m_num;
+        if (item->m_num > 0) {
+            return std::to_string(item->m_num);
+        }
     }
-    if (value > 0) {
-        text += '\n';
-        text += std::to_string(value);
-    }
-    return text;
+    return {};
 }
 
 const shopui::BitmapPixels* UIShortCutWnd::GetItemIcon(const ITEM_INFO& item)

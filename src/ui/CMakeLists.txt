@@ -53,6 +53,8 @@ add_library(ro_ui STATIC
     UIItemIdentifyWnd.cpp
     UIShortCutWnd.h
     UIShortCutWnd.cpp
+    UIExperienceBarWnd.h
+    UIExperienceBarWnd.cpp
     UIItemShopWnd.h
     UIItemShopWnd.cpp
     UIItemPurchaseWnd.h

@@ -146,6 +146,7 @@ class QtUiState : public QObject {
     Q_PROPERTY(int shortCutPage READ shortCutPage NOTIFY shortCutPageChanged)
     Q_PROPERTY(int shortCutHoverSlot READ shortCutHoverSlot NOTIFY shortCutHoverSlotChanged)
     Q_PROPERTY(QVariantList shortCutSlots READ shortCutSlots NOTIFY shortCutSlotsChanged)
+    Q_PROPERTY(QVariantMap experienceBarData READ experienceBarData NOTIFY experienceBarDataChanged)
     Q_PROPERTY(bool basicInfoVisible READ basicInfoVisible NOTIFY basicInfoVisibleChanged)
     Q_PROPERTY(int basicInfoX READ basicInfoX NOTIFY basicInfoGeometryChanged)
     Q_PROPERTY(int basicInfoY READ basicInfoY NOTIFY basicInfoGeometryChanged)
@@ -441,6 +442,7 @@ public:
     int shortCutPage() const { return m_shortCutPage; }
     int shortCutHoverSlot() const { return m_shortCutHoverSlot; }
     const QVariantList& shortCutSlots() const { return m_shortCutSlots; }
+    const QVariantMap& experienceBarData() const { return m_experienceBarData; }
     bool basicInfoVisible() const { return m_basicInfoVisible; }
     int basicInfoX() const { return m_basicInfoX; }
     int basicInfoY() const { return m_basicInfoY; }
@@ -1292,6 +1294,14 @@ public:
         emit shortCutSlotsChanged();
     }
 
+    void setExperienceBarData(const QVariantMap& value) {
+        if (m_experienceBarData == value) {
+            return;
+        }
+        m_experienceBarData = value;
+        emit experienceBarDataChanged();
+    }
+
     void setBasicInfoVisible(bool value) {
         if (m_basicInfoVisible == value) {
             return;
@@ -2024,6 +2034,7 @@ signals:
     void shortCutPageChanged();
     void shortCutHoverSlotChanged();
     void shortCutSlotsChanged();
+    void experienceBarDataChanged();
     void basicInfoVisibleChanged();
     void basicInfoGeometryChanged();
     void basicInfoMiniChanged();
@@ -2235,6 +2246,7 @@ private:
     int m_shortCutPage = 0;
     int m_shortCutHoverSlot = -1;
     QVariantList m_shortCutSlots;
+    QVariantMap m_experienceBarData;
     bool m_basicInfoVisible = false;
     int m_basicInfoX = 0;
     int m_basicInfoY = 0;

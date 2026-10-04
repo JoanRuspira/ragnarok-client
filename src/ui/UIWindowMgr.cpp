@@ -24,6 +24,7 @@
 #include "UIItemSellWnd.h"
 #include "UIItemShopWnd.h"
 #include "UIShortCutWnd.h"
+#include "UIExperienceBarWnd.h"
 #include "UISkillDescribeWnd.h"
 #include "UIMinimapWnd.h"
 #include "UISkillListWnd.h"
@@ -54,6 +55,10 @@
 #include "DebugLog.h"
 
 #include <windows.h>
+
+#if RO_ENABLE_QT6_UI && !RO_PLATFORM_WINDOWS
+#include <QGuiApplication>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -939,6 +944,14 @@ UIWindow* UIWindowMgr::MakeWindow(int windowId)
         m_shortCutWnd->SetShow(1);
         return m_shortCutWnd;
 
+    case WID_EXPERIENCEBARWND:
+        if (!m_experienceBarWnd) {
+            m_experienceBarWnd = new UIExperienceBarWnd();
+            m_children.push_back(m_experienceBarWnd);
+        }
+        m_experienceBarWnd->SetShow(1);
+        return m_experienceBarWnd;
+
     case WID_NOTIFYLEVELUPWND:
         if (!m_notifyLevelUpWnd) {
             m_notifyLevelUpWnd = new UINotifyLevelUpWnd();
@@ -1318,6 +1331,9 @@ void UIWindowMgr::DeleteWindow(UIWindow* window)
     if (window == m_shortCutWnd) {
         m_shortCutWnd = nullptr;
     }
+    if (window == m_experienceBarWnd) {
+        m_experienceBarWnd = nullptr;
+    }
     if (window == m_notifyLevelUpWnd) {
         m_notifyLevelUpWnd = nullptr;
     }
@@ -1397,6 +1413,7 @@ void UIWindowMgr::RemoveAllWindows()
     m_itemSellWnd = nullptr;
     m_storageWnd = nullptr;
     m_shortCutWnd = nullptr;
+    m_experienceBarWnd = nullptr;
     m_chatWnd = nullptr;
     m_basicInfoWnd = nullptr;
     m_notifyLevelUpWnd = nullptr;
@@ -2276,13 +2293,34 @@ bool UIWindowMgr::HasFrontMenuUiVisible() const
         || (m_makeCharWnd && m_makeCharWnd->m_show != 0);
 }
 
-bool UIWindowMgr::HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool hasFrontMenuUi)
+bool UIWindowMgr::HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool isShiftDown, bool hasFrontMenuUi)
 {
-    // Keep skill bar keys available while chat input has focus.
-    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey < VK_F1 + UIShortCutWnd::kVisibleSlotCount
+    // Keep function keys available while chat input has focus.
+    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey < VK_F1 + UIShortCutWnd::kFunctionKeySlotCount
         && !HasBlockingUiForGameplayHotkeys()) {
         g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse, virtualKey - VK_F1, 0, 0);
         return true;
+    }
+
+    if (!hasFrontMenuUi && virtualKey >= '0' && virtualKey <= '9'
+        && !isAltDown && !isCtrlDown && !isShiftDown && !HasBlockingUiForGameplayHotkeys()) {
+        bool textInputActive = m_chatWnd && m_chatWnd->m_show != 0 && m_chatWnd->IsInputActive();
+        if (m_editWindow && m_editWindow->CanReceiveKeyInput()) {
+            bool editVisible = true;
+            for (const UIWindow* window = m_editWindow; window; window = window->m_parent) {
+                if (window->m_show == 0) {
+                    editVisible = false;
+                    break;
+                }
+            }
+            textInputActive = textInputActive || editVisible;
+        }
+        if (!textInputActive) {
+            const int numberSlot = virtualKey == '0' ? 9 : virtualKey - '1';
+            g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse,
+                UIShortCutWnd::kFunctionKeySlotCount + numberSlot, 0, 0);
+            return true;
+        }
     }
 
     if (isCtrlDown && virtualKey == VK_TAB && !hasFrontMenuUi) {
@@ -2351,10 +2389,8 @@ bool UIWindowMgr::HasBlockingUiForGameplayHotkeys() const
 
 bool UIWindowMgr::OnQtKeyDown(int virtualKey, bool isAltDown, bool isCtrlDown, bool isShiftDown)
 {
-    (void)isShiftDown;
-
     const bool hasFrontMenuUi = HasFrontMenuUiVisible();
-    if (HandleHotkeyBeforeFocusedUi(virtualKey, isAltDown, isCtrlDown, hasFrontMenuUi)) {
+    if (HandleHotkeyBeforeFocusedUi(virtualKey, isAltDown, isCtrlDown, isShiftDown, hasFrontMenuUi)) {
         return true;
     }
 
@@ -2376,10 +2412,19 @@ bool UIWindowMgr::OnQtKeyDown(int virtualKey, bool isAltDown, bool isCtrlDown, b
 void UIWindowMgr::OnKeyDown(int virtualKey)
 {
     const bool hasFrontMenuUi = HasFrontMenuUiVisible();
+#if RO_ENABLE_QT6_UI && !RO_PLATFORM_WINDOWS
+    // Qt forwards unhandled keys here; the compatibility GetKeyState is a stub.
+    const Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
+    const bool isAltDown = modifiers.testFlag(Qt::AltModifier);
+    const bool isCtrlDown = modifiers.testFlag(Qt::ControlModifier);
+    const bool isShiftDown = modifiers.testFlag(Qt::ShiftModifier);
+#else
     const bool isAltDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
     const bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+#endif
 
-    if (HandleHotkeyBeforeFocusedUi(virtualKey, isAltDown, isCtrlDown, hasFrontMenuUi)) {
+    if (HandleHotkeyBeforeFocusedUi(virtualKey, isAltDown, isCtrlDown, isShiftDown, hasFrontMenuUi)) {
         return;
     }
 

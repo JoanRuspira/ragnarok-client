@@ -51,6 +51,7 @@
 #include "ui/UISkillDescribeWnd.h"
 #include "ui/UISkillListWnd.h"
 #include "ui/UIShortCutWnd.h"
+#include "ui/UIExperienceBarWnd.h"
 #include "ui/UIStatusWnd.h"
 #include "ui/UIShopCommon.h"
 #include "ui/UIWaitWnd.h"
@@ -156,6 +157,7 @@ void ClearGameplayUiState(QtUiState* state)
     state->setShortCutPage(0);
     state->setShortCutHoverSlot(-1);
     state->setShortCutSlots(QVariantList{});
+    state->setExperienceBarData(QVariantMap{});
 
     state->setBasicInfoVisible(false);
     state->setBasicInfoGeometry(0, 0, 0, 0);
@@ -1570,8 +1572,10 @@ void PopulateShortCutState(QtUiState* state)
         slotEntry.insert(QStringLiteral("y"), static_cast<int>(slotRect.top) - shortCutWnd->m_y);
         slotEntry.insert(QStringLiteral("width"), static_cast<int>(slotRect.right - slotRect.left));
         slotEntry.insert(QStringLiteral("height"), static_cast<int>(slotRect.bottom - slotRect.top));
-        slotEntry.insert(QStringLiteral("keyLabel"), QStringLiteral("F%1").arg(slotIndex + 1));
-        slotEntry.insert(QStringLiteral("displayText"), ToQString(shortCutWnd->GetSlotDisplayText(slotIndex)));
+        slotEntry.insert(QStringLiteral("labelHeight"), shortCutWnd->GetSlotLabelHeight());
+        slotEntry.insert(QStringLiteral("labelFontSize"), shortCutWnd->GetSlotLabelFontSize());
+        slotEntry.insert(QStringLiteral("keyLabel"), ToQString(shortCutWnd->GetSlotKeyLabel(slotIndex)));
+        slotEntry.insert(QStringLiteral("quantityText"), ToQString(shortCutWnd->GetSlotQuantityText(slotIndex)));
 
         const SHORTCUT_SLOT* slot = g_session.GetShortcutSlotByVisibleIndex(slotIndex);
         if (slot && slot->id != 0) {
@@ -1592,6 +1596,31 @@ void PopulateShortCutState(QtUiState* state)
         shortcutSlots.push_back(slotEntry);
     }
     state->setShortCutSlots(shortcutSlots);
+}
+
+void PopulateExperienceBarState(QtUiState* state)
+{
+    if (!state) {
+        return;
+    }
+    const UIExperienceBarWnd* const bars = g_windowMgr.m_experienceBarWnd;
+    if (!IsGameplayWindowVisible(state, bars)) {
+        state->setExperienceBarData(QVariantMap{});
+        return;
+    }
+    QVariantMap data;
+    data.insert(QStringLiteral("visible"), true);
+    data.insert(QStringLiteral("x"), bars->m_x);
+    data.insert(QStringLiteral("y"), bars->m_y);
+    data.insert(QStringLiteral("width"), bars->m_w);
+    data.insert(QStringLiteral("height"), bars->m_h);
+    data.insert(QStringLiteral("baseProgress"), bars->GetBaseProgress());
+    data.insert(QStringLiteral("jobProgress"), bars->GetJobProgress());
+    data.insert(QStringLiteral("baseColor"), ToCssColor(GetRValue(UIExperienceBarWnd::kBaseColor),
+        GetGValue(UIExperienceBarWnd::kBaseColor), GetBValue(UIExperienceBarWnd::kBaseColor)));
+    data.insert(QStringLiteral("jobColor"), ToCssColor(GetRValue(UIExperienceBarWnd::kJobColor),
+        GetGValue(UIExperienceBarWnd::kJobColor), GetBValue(UIExperienceBarWnd::kJobColor)));
+    state->setExperienceBarData(data);
 }
 
 void PopulateBasicInfoState(QtUiState* state)
@@ -1834,11 +1863,24 @@ void PopulateChatWindowState(QtUiState* state)
     for (const ChatLine& line : visibleLines) {
         QVariantMap entry;
         entry.insert(QStringLiteral("text"), ToQString(line.text));
+        const ChatSpeakerRange speaker = line.GetSpeakerRange();
+        QString styledText = ToQString(line.text).toHtmlEscaped();
+        if (speaker.length > 0) {
+            const QString nameColor = QStringLiteral("#%1").arg(ChatLine::kSpeakerColor, 6, 16, QLatin1Char('0'));
+            styledText = ToQString(line.text.substr(0, speaker.start)).toHtmlEscaped()
+                + QStringLiteral("<font color=\"%1\">").arg(nameColor)
+                + ToQString(line.text.substr(speaker.start, speaker.length)).toHtmlEscaped()
+                + QStringLiteral("</font>")
+                + ToQString(line.text.substr(speaker.start + speaker.length)).toHtmlEscaped();
+        }
+        styledText.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+        entry.insert(QStringLiteral("styledText"), styledText);
+        const u32 displayColor = line.GetDisplayColor();
         entry.insert(QStringLiteral("color"),
             ToCssColor(
-                static_cast<u8>((line.color >> 16) & 0xFFu),
-                static_cast<u8>((line.color >> 8) & 0xFFu),
-                static_cast<u8>(line.color & 0xFFu)));
+                static_cast<u8>((displayColor >> 16) & 0xFFu),
+                static_cast<u8>((displayColor >> 8) & 0xFFu),
+                static_cast<u8>(displayColor & 0xFFu)));
         lines.push_back(entry);
     }
     state->setChatWindowLines(lines);
@@ -1852,6 +1894,26 @@ void PopulateChatWindowState(QtUiState* state)
     state->setChatWindowScrollBar(scrollBar);
 
     QVariantMap chatUi;
+    const ChatLayoutRects layout = chatWnd->GetDisplayLayout();
+    const auto localRect = [chatWnd, &layout](const RECT& rect, bool config = false) {
+        const int originX = config ? layout.configPanel.left : chatWnd->m_x;
+        const int originY = config ? layout.configPanel.top : chatWnd->m_y;
+        QVariantMap result;
+        result.insert(QStringLiteral("x"), static_cast<int>(rect.left) - originX);
+        result.insert(QStringLiteral("y"), static_cast<int>(rect.top) - originY);
+        result.insert(QStringLiteral("width"), static_cast<int>(rect.right - rect.left));
+        result.insert(QStringLiteral("height"), static_cast<int>(rect.bottom - rect.top));
+        return result;
+    };
+    chatUi.insert(QStringLiteral("body"), localRect(layout.body));
+    chatUi.insert(QStringLiteral("history"), localRect(layout.history));
+    chatUi.insert(QStringLiteral("whisperInput"), localRect(layout.whisperInput));
+    chatUi.insert(QStringLiteral("messageInput"), localRect(layout.messageInput));
+    chatUi.insert(QStringLiteral("fontMinusButton"), localRect(layout.fontMinusButton, true));
+    chatUi.insert(QStringLiteral("fontPlusButton"), localRect(layout.fontPlusButton, true));
+    chatUi.insert(QStringLiteral("fontValue"), localRect(layout.fontValue, true));
+    chatUi.insert(QStringLiteral("opacityValue"), localRect(layout.transparencyValue, true));
+    chatUi.insert(QStringLiteral("opacityTrack"), localRect(layout.transparencyTrack, true));
     QVariantList tabs;
     tabs.reserve(chatWnd->GetTabCount());
     for (int index = 0; index < chatWnd->GetTabCount(); ++index) {
@@ -1864,6 +1926,7 @@ void PopulateChatWindowState(QtUiState* state)
         entry.insert(QStringLiteral("id"), tab.id);
         entry.insert(QStringLiteral("label"), ToQString(tab.label));
         entry.insert(QStringLiteral("active"), tab.active != 0);
+        entry.insert(QStringLiteral("bounds"), localRect(tab.bounds));
         tabs.push_back(entry);
     }
     chatUi.insert(QStringLiteral("tabs"), tabs);
@@ -1882,21 +1945,6 @@ void PopulateChatWindowState(QtUiState* state)
         chatUi.insert(QStringLiteral("configHeight"), configHeight);
     }
 
-    QVariantList filters;
-    filters.reserve(chatWnd->GetFilterOptionCount());
-    for (int index = 0; index < chatWnd->GetFilterOptionCount(); ++index) {
-        ChatFilterOptionDisplay filter{};
-        if (!chatWnd->GetFilterOptionDisplay(index, &filter)) {
-            continue;
-        }
-
-        QVariantMap entry;
-        entry.insert(QStringLiteral("id"), filter.id);
-        entry.insert(QStringLiteral("label"), ToQString(filter.label));
-        entry.insert(QStringLiteral("enabled"), filter.enabled != 0);
-        filters.push_back(entry);
-    }
-    chatUi.insert(QStringLiteral("filters"), filters);
     state->setChatWindowUi(chatUi);
 }
 
@@ -3609,6 +3657,7 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
     PopulateItemPurchaseState(m_state);
     PopulateItemSellState(m_state);
     PopulateShortCutState(m_state);
+    PopulateExperienceBarState(m_state);
     PopulateBasicInfoState(m_state);
     PopulateStatusState(m_state);
     PopulateChatWindowState(m_state);

@@ -538,8 +538,8 @@ UIWindow* UIWindow::HitTestDeep(int x, int y)
             return hit;
         }
     }
-    // Check self bounds
-    if (m_w > 0 && m_h > 0 &&
+    // Decorative windows can leave input to the windows or world beneath them.
+    if (ShouldDoHitTest() && m_w > 0 && m_h > 0 &&
         x >= m_x && x < m_x + m_w &&
         y >= m_y && y < m_y + m_h) {
         return this;

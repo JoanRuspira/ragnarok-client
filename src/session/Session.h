@@ -91,6 +91,8 @@ struct SessionFogParameter {
 // Packet 0x02B9 always contains 27 entries, independent of the visible bar layout.
 constexpr int kShortcutSlotCount = 27;
 constexpr int kShortcutSlotsPerPage = 12;
+// Expose 24 shortcuts from the existing storage without changing the packet layout.
+constexpr int kShortcutVisibleSlotCount = 2 * kShortcutSlotsPerPage;
 constexpr int kShortcutPageCount = (kShortcutSlotCount + kShortcutSlotsPerPage - 1) / kShortcutSlotsPerPage;
 
 class CSession
@@ -195,6 +197,8 @@ public:
     void SetNextJobExpValue(int value);
     bool TryGetBaseExpPercent(int* outPercent) const;
     bool TryGetJobExpPercent(int* outPercent) const;
+    double GetBaseExpProgress() const;
+    double GetJobExpProgress() const;
     void ClearInventoryItems();
     void ClearEquipmentInventoryItems();
     void ClearStorageItems();

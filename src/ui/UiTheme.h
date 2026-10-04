@@ -10,7 +10,7 @@ inline constexpr char kUiFontFamily[] = "Trajan Pro";
 
 void InitializeFonts();
 
-inline constexpr COLORREF kPanelBackground = RGB(32, 46, 92);
+inline constexpr COLORREF kPanelBackground = RGB(21, 42, 76);
 inline constexpr COLORREF kControlBackground = RGB(32, 32, 32);
 inline constexpr COLORREF kControlBackgroundText = RGB(255, 255, 255); // Textbox background.
 inline constexpr COLORREF kFrame = RGB(242, 206, 150);

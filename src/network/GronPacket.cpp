@@ -225,6 +225,7 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x017B, kVariablePacketSize);
     SetPacketSize(0x017C, 6);
     SetPacketSize(0x017D, 7);
+    SetPacketSize(0x017F, kVariablePacketSize); // ZC_GUILD_CHAT
     SetPacketSize(0x0177, kVariablePacketSize);
     SetPacketSize(0x0178, 4);
     SetPacketSize(0x0179, 5);

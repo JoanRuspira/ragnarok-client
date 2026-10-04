@@ -3,13 +3,24 @@
 #include "UIWindow.h"
 
 #include <array>
+#include <cstddef>
 #include <vector>
 
+struct ChatSpeakerRange {
+    std::size_t start = 0;
+    std::size_t length = 0;
+};
+
 struct ChatLine {
+    static constexpr u32 kSpeakerColor = 0x004DA6FFu;
+
     std::string text;
     u32 color;
     u8 channel;
     u32 tick;
+
+    ChatSpeakerRange GetSpeakerRange() const;
+    u32 GetDisplayColor() const;
 };
 
 struct ChatScrollBarState {
@@ -24,12 +35,24 @@ struct ChatTabDisplay {
     const char* label = "";
     int active = 0;
     u32 channelMask = 0;
+    RECT bounds{};
 };
 
-struct ChatFilterOptionDisplay {
-    int id = 0;
-    const char* label = "";
-    int enabled = 0;
+struct ChatLayoutRects {
+    RECT panel{};
+    RECT body{};
+    RECT header{};
+    std::array<RECT, 3> tabs{};
+    RECT history{};
+    RECT whisperInput{};
+    RECT messageInput{};
+    RECT configPanel{};
+    RECT fontMinusButton{};
+    RECT fontPlusButton{};
+    RECT fontValue{};
+    RECT transparencyValue{};
+    RECT transparencyTrack{};
+    RECT transparencyThumb{};
 };
 
 class UINewChatWnd : public UIWindow {
@@ -73,8 +96,7 @@ public:
     bool GetConfigRectForQt(int* x, int* y, int* width, int* height) const;
     int GetTabCount() const;
     bool GetTabDisplay(int index, ChatTabDisplay* outData) const;
-    int GetFilterOptionCount() const;
-    bool GetFilterOptionDisplay(int index, ChatFilterOptionDisplay* outData) const;
+    ChatLayoutRects GetDisplayLayout() const;
     void ClearLines();
     bool HandleKeyDown(int virtualKey);
     bool HandleChar(char c);
@@ -92,8 +114,6 @@ private:
     void SaveSettings() const;
     void Layout();
     void RefreshVisibleLines(u32 nowTick);
-    void ResetTabDefaults();
-    void ResetTabDefault(int index);
     void SetActiveTab(int index);
     void SetConfigVisible(bool visible);
     void SetWindowOpacityPercent(int value);
@@ -134,5 +154,5 @@ private:
     int m_isDragging;
     int m_resizeEdges;
     int m_transparencyDragActive;
-    std::array<u32, 4> m_tabChannelMasks;
+    bool m_dockedAboveShortCut;
 };

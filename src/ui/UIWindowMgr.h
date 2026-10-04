@@ -29,6 +29,7 @@ class UISkillDescribeWnd;
 class UISkillListWnd;
 class UIOptionWnd;
 class UIShortCutWnd;
+class UIExperienceBarWnd;
 class UIItemDropCntWnd;
 class UISayDialogWnd;
 class UINpcMenuWnd;
@@ -97,6 +98,7 @@ public:
         WID_NOTIFYLEVELUPWND  = 21,
         WID_ITEMSELLWND       = 22,
         WID_SHORTCUTWND       = 23,
+        WID_EXPERIENCEBARWND  = 0x96,
         WID_SELECTCARTWND     = 0x5F,
         WID_STORAGEWND        = 50,
         WID_CHOOSEWND         = 17,
@@ -207,6 +209,7 @@ public:
     UIItemSellWnd* m_itemSellWnd;
     UIStorageWnd* m_storageWnd;
     UIShortCutWnd* m_shortCutWnd;
+    UIExperienceBarWnd* m_experienceBarWnd = nullptr;
     UINewChatWnd* m_chatWnd;
     UILoginWnd* m_loginWnd;
     UISelectServerWnd* m_selectServerWnd;
@@ -246,7 +249,7 @@ private:
     bool m_loadingScreenActive = false;
     UIWindow* HitTestWindow(int x, int y) const;
     bool HasFrontMenuUiVisible() const;
-    bool HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool hasFrontMenuUi);
+    bool HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool isShiftDown, bool hasFrontMenuUi);
     bool HandleHotkeyAfterFocusedUi(int virtualKey, bool hasFrontMenuUi);
     bool HasBlockingUiForGameplayHotkeys() const;
     void ReleaseComposeSurface();

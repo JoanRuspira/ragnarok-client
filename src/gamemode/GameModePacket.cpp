@@ -3257,6 +3257,7 @@ enum : u8 {
     kChatChannelBroadcast = 4,
     kChatChannelBattlefield = 5,
     kChatChannelSystem = 6,
+    kChatChannelGuild = 7,
 };
 
 struct ChatEntry {
@@ -7618,6 +7619,19 @@ void HandleNotifyChatParty(CGameMode& mode, const PacketView& packet)
     }
 }
 
+void HandleNotifyChatGuild(CGameMode& mode, const PacketView& packet)
+{
+    // ZC_GUILD_CHAT: packet id, length, then a null-terminated message.
+    if (!packet.data || packet.packetLength < 5) {
+        return;
+    }
+
+    const std::string text = ExtractPacketString(packet, 4);
+    if (!text.empty()) {
+        RecordChat(mode, text, 0x00FFFFFF, kChatChannelGuild);
+    }
+}
+
 std::string ExtractFixedPacketString(const u8* data, size_t length)
 {
     if (!data || length == 0) {
@@ -8969,6 +8983,7 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x008D, HandleNotifyChat);
     router.Register(0x008E, HandleNotifyPlayerChat);
     router.Register(0x0109, HandleNotifyChatParty);
+    router.Register(0x017F, HandleNotifyChatGuild);
     router.Register(0x0097, HandleWhisper);
     router.Register(0x0098, HandleAckWhisper);
     RegisterHandlerIfValid(router, receiveProfile.broadcastBasic, HandleBroadcast);

@@ -10,16 +10,29 @@ struct ITEM_INFO;
 
 class UIShortCutWnd : public UIWindow {
 public:
-    static constexpr int kVisibleSlotCount = kShortcutSlotsPerPage;
+    static constexpr int kFunctionKeySlotCount = kShortcutSlotsPerPage;
+    static constexpr int kVisibleSlotCount = kShortcutVisibleSlotCount;
+    static constexpr int kSlotsPerRow = kVisibleSlotCount;
+    static constexpr int kRowCount = kVisibleSlotCount / kSlotsPerRow;
+    static constexpr int kSlotsPerGroup = 4;
+    static constexpr int kGroupsPerRow = kSlotsPerRow / kSlotsPerGroup;
     static constexpr int kIconSize = 64;
     // Reserve a one-pixel border on each side so 64x64 icons draw at native size.
-    static constexpr int kSlotSize = kIconSize + 2;
-    static constexpr int kSlotPadding = 4;
+    static constexpr int kSlotWidth = kIconSize + 2;
+    static constexpr int kSlotLabelHeight = 16;
+    static constexpr int kSlotHeight = kSlotWidth;
+    static constexpr int kSlotGap = 4;
+    static constexpr int kGroupGap = 16;
+    static constexpr int kSlotPadding = 6;
+    static constexpr int kChatGap = 4;
+
+    static int GetWindowHeightForClientWidth(int clientWidth);
 
     UIShortCutWnd();
     ~UIShortCutWnd() override;
 
     void SetShow(int show) override;
+    void OnProcess() override;
     bool IsUpdateNeed() override;
     void DragAndDrop(int x, int y, const DRAG_INFO* const info) override;
     void OnDraw() override;
@@ -30,11 +43,15 @@ public:
     void OnMouseHover(int x, int y) override;
     void OnRBtnDown(int x, int y) override;
     int GetHoverSlot() const;
+    int GetSlotLabelFontSize() const;
+    int GetSlotLabelHeight() const;
     RECT GetSlotRect(int visibleSlot) const;
-    std::string GetSlotDisplayText(int visibleSlot) const;
+    std::string GetSlotKeyLabel(int visibleSlot) const;
+    std::string GetSlotQuantityText(int visibleSlot) const;
     bool GetHoveredItemForQt(shopui::ItemHoverInfo* outData) const;
 
 private:
+    void Layout();
     void UpdateHoverSlot(int globalX, int globalY);
     int GetSlotAtGlobalPoint(int globalX, int globalY) const;
     void ActivateSlot(int visibleSlot);
@@ -53,6 +70,9 @@ private:
     int m_startGlobalY;
     int m_orgX;
     int m_orgY;
+    int m_slotSize;
+    int m_maxY = 0;
+    bool m_dockedToBottomLeft;
     unsigned long long m_lastDrawStateToken;
     bool m_hasDrawStateToken;
 };

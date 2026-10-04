@@ -1598,6 +1598,22 @@ bool CSession::TryGetJobExpPercent(int* outPercent) const
     return true;
 }
 
+double CSession::GetBaseExpProgress() const
+{
+    if (m_hasBaseExpValue && m_hasNextBaseExpValue && m_nextBaseExpValue > 0) {
+        return std::clamp(static_cast<double>(m_baseExpValue) / m_nextBaseExpValue, 0.0, 1.0);
+    }
+    return 0.0;
+}
+
+double CSession::GetJobExpProgress() const
+{
+    if (m_hasJobExpValue && m_hasNextJobExpValue && m_nextJobExpValue > 0) {
+        return std::clamp(static_cast<double>(m_jobExpValue) / m_nextJobExpValue, 0.0, 1.0);
+    }
+    return 0.0;
+}
+
 void CSession::ClearInventoryItems()
 {
     m_inventoryItems.clear();
@@ -2221,7 +2237,7 @@ void CSession::SetShortcutPage(int page)
 
 int CSession::GetShortcutSlotAbsoluteIndex(int visibleSlot) const
 {
-    if (visibleSlot < 0 || visibleSlot >= kShortcutSlotsPerPage) {
+    if (visibleSlot < 0 || visibleSlot >= kShortcutVisibleSlotCount) {
         return -1;
     }
     const int absoluteIndex = GetShortcutPage() * kShortcutSlotsPerPage + visibleSlot;

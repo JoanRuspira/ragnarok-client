@@ -1,5 +1,7 @@
 #include "UINewChatWnd.h"
 
+#include "UIShortCutWnd.h"
+#include "UIExperienceBarWnd.h"
 #include "UIWindowMgr.h"
 #include "ui/UiTheme.h"
 #include "UiScale.h"
@@ -16,6 +18,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QString>
+#include <QTextLayout>
 #endif
 
 #include <algorithm>
@@ -37,60 +40,47 @@ constexpr char kChatWindowOpacityValue[] = "OpacityPercent";
 constexpr char kChatWindowWidthValue[] = "WindowWidth";
 constexpr char kChatWindowHeightValue[] = "WindowHeight";
 constexpr char kChatActiveTabValue[] = "ActiveTab";
-constexpr char kChatTabMaskPrefix[] = "TabMask";
+constexpr char kChatLayoutVersionValue[] = "LayoutVersion";
+constexpr int kChatLayoutVersion = 2;
 
 constexpr size_t kMaxChatLines = 50;
-constexpr int kChatDefaultWindowWidth = 486;
+constexpr int kChatDefaultWindowWidth = 600;
 constexpr int kChatTabBarHeight = 34;
 constexpr int kChatLineHeight = 19;
-constexpr int kChatInputHeight = 28;
-constexpr int kChatWhisperInputWidth = 126;
-constexpr int kChatInputGap = 8;
+constexpr int kChatInputHeight = 32;
+constexpr int kChatWhisperInputWidth = 108;
+constexpr int kChatInputGap = 0;
 constexpr int kChatPanelPadding = 10;
 constexpr int kChatMessageGap = 2;
-constexpr int kChatVisibleLineCount = 12;
+constexpr int kChatVisibleLineCount = 6;
 constexpr int kChatHistoryHeight =
-    (kChatLineHeight * kChatVisibleLineCount) + (kChatMessageGap * (kChatVisibleLineCount - 1));
-constexpr int kChatDefaultWindowHeight = kChatTabBarHeight + kChatHistoryHeight + kChatInputHeight + (kChatPanelPadding * 4);
+    (kChatLineHeight * kChatVisibleLineCount) + (kChatMessageGap * (kChatVisibleLineCount - 1)) + 8;
+constexpr int kChatDefaultWindowHeight = kChatTabBarHeight + kChatHistoryHeight + kChatInputHeight + (kChatPanelPadding * 2) + 1;
 constexpr int kChatMinVisibleLineCount = 4;
 constexpr int kChatMinHistoryHeight =
-    (kChatLineHeight * kChatMinVisibleLineCount) + (kChatMessageGap * (kChatMinVisibleLineCount - 1));
+    (kChatLineHeight * kChatMinVisibleLineCount) + (kChatMessageGap * (kChatMinVisibleLineCount - 1)) + 8;
 constexpr int kChatWindowMinWidth = 360;
-constexpr int kChatWindowMinHeight = kChatTabBarHeight + kChatMinHistoryHeight + kChatInputHeight + (kChatPanelPadding * 4);
+constexpr int kChatWindowMinHeight = kChatTabBarHeight + kChatMinHistoryHeight + kChatInputHeight + (kChatPanelPadding * 2) + 1;
 constexpr int kChatResizeBorder = 6;
 constexpr int kChatScrollbarWidth = 8;
 constexpr int kChatScrollbarGap = 4;
-constexpr int kChatTabGap = 6;
-constexpr int kChatGearButtonSize = 24;
+constexpr int kChatTabWidth = 104;
 constexpr int kChatConfigPanelWidth = 336;
-constexpr int kChatConfigPanelHeight = 392;
-constexpr int kChatConfigListWidth = 92;
+constexpr int kChatConfigPanelHeight = 204;
 constexpr int kChatConfigButtonHeight = 28;
-constexpr int kChatConfigButtonGap = 8;
 constexpr int kChatSliderTrackHeight = 8;
 constexpr int kChatSliderThumbWidth = 14;
 constexpr int kChatFontSizeMin = 11;
 constexpr int kChatFontSizeMax = 18;
-constexpr int kChatFontSizeDefault = 13;
+constexpr int kChatFontSizeDefault = 14;
 constexpr int kChatWindowOpacityMin = 20;
 constexpr int kChatWindowOpacityMax = 100;
-constexpr int kChatWindowOpacityDefault = 84;
+constexpr int kChatWindowOpacityDefault = 50;
 constexpr size_t kMaxWhisperTargetChars = 24;
 constexpr size_t kMaxInputChars = 180;
 constexpr size_t kMaxInputHistory = 5;
 constexpr int kChatWheelScrollLines = 3;
-constexpr int kChatTabCount = 4;
-constexpr int kChatFilterCount = 7;
-
-enum ChatFilterId {
-    ChatFilter_Normal = 0,
-    ChatFilter_Player,
-    ChatFilter_Whisper,
-    ChatFilter_Party,
-    ChatFilter_Broadcast,
-    ChatFilter_Battlefield,
-    ChatFilter_System,
-};
+constexpr int kChatTabCount = 3;
 
 enum ChatChannelId {
     ChatChannel_Normal = 0,
@@ -100,6 +90,7 @@ enum ChatChannelId {
     ChatChannel_Broadcast = 4,
     ChatChannel_Battlefield = 5,
     ChatChannel_System = 6,
+    ChatChannel_Guild = 7,
 };
 
 enum ChatResizeEdge {
@@ -120,66 +111,17 @@ constexpr u32 ChatChannelBit(int channel)
     return channel >= 0 && channel < 32 ? (1u << channel) : 0u;
 }
 
-constexpr u32 kAllChatChannelsMask =
-    ChatChannelBit(ChatChannel_Normal)
-    | ChatChannelBit(ChatChannel_Player)
-    | ChatChannelBit(ChatChannel_Whisper)
-    | ChatChannelBit(ChatChannel_Party)
-    | ChatChannelBit(ChatChannel_Broadcast)
-    | ChatChannelBit(ChatChannel_Battlefield)
-    | ChatChannelBit(ChatChannel_System);
-
+// General includes every channel except the two group chats.
 constexpr std::array<ChatTabPreset, kChatTabCount> kChatTabPresets = {{
-    { "All", kAllChatChannelsMask },
-    { "Chat", ChatChannelBit(ChatChannel_Normal) | ChatChannelBit(ChatChannel_Player) | ChatChannelBit(ChatChannel_Whisper) },
-    { "Group", ChatChannelBit(ChatChannel_Party) | ChatChannelBit(ChatChannel_Broadcast) | ChatChannelBit(ChatChannel_Battlefield) },
-    { "Info", ChatChannelBit(ChatChannel_System) | ChatChannelBit(ChatChannel_Broadcast) | ChatChannelBit(ChatChannel_Whisper) },
-}};
-
-constexpr std::array<const char*, kChatFilterCount> kChatFilterLabels = {{
-    "Normal",
-    "Player",
-    "Whisper",
-    "Party",
-    "Broadcast",
-    "Battle",
-    "System",
-}};
-
-constexpr std::array<u8, kChatFilterCount> kChatFilterChannels = {{
-    ChatChannel_Normal,
-    ChatChannel_Player,
-    ChatChannel_Whisper,
-    ChatChannel_Party,
-    ChatChannel_Broadcast,
-    ChatChannel_Battlefield,
-    ChatChannel_System,
+    { "General", ~(ChatChannelBit(ChatChannel_Party) | ChatChannelBit(ChatChannel_Guild)) },
+    { "Party", ChatChannelBit(ChatChannel_Party) },
+    { "Guild", ChatChannelBit(ChatChannel_Guild) },
 }};
 
 int ClampChatWindowOpacityPercent(int value)
 {
     return std::clamp(value, kChatWindowOpacityMin, kChatWindowOpacityMax);
 }
-
-struct ChatLayoutRects {
-    RECT panel;
-    RECT header;
-    std::array<RECT, kChatTabCount> tabs;
-    RECT gearButton;
-    RECT history;
-    RECT whisperInput;
-    RECT messageInput;
-    RECT configPanel;
-    std::array<RECT, kChatTabCount> configTabs;
-    RECT fontMinusButton;
-    RECT fontPlusButton;
-    RECT fontValue;
-    RECT transparencyValue;
-    RECT transparencyTrack;
-    RECT transparencyThumb;
-    std::array<RECT, kChatFilterCount> filterButtons;
-    RECT resetButton;
-};
 
 int ClampChatFontPixelSize(int value)
 {
@@ -222,12 +164,33 @@ void DrawBitmapPixelsTransparent(HDC target, const shopui::BitmapPixels& bitmap,
 }
 
 #if RO_ENABLE_QT6_UI
-QFont BuildChatUiFont(int pixelSize, bool writable = false)
+QFont BuildChatUiFont(int pixelSize, bool themeFont = false)
 {
-    QFont font(writable ? QStringLiteral("Segoe UI") : QString::fromLatin1(uitheme::kUiFontFamily));
+    QFont font(themeFont ? QString::fromLatin1(uitheme::kUiFontFamily) : QStringLiteral("Segoe UI"));
     font.setPixelSize(ClampChatFontPixelSize(pixelSize));
+    font.setBold(themeFont);
     font.setStyleStrategy(QFont::PreferAntialias);
     return font;
+}
+
+qreal LayoutChatText(QTextLayout& layout, int width)
+{
+    QTextOption option;
+    option.setWrapMode(QTextOption::WordWrap);
+    layout.setTextOption(option);
+    layout.beginLayout();
+    qreal height = 0;
+    for (;;) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid()) {
+            break;
+        }
+        line.setLineWidth(width);
+        line.setPosition(QPointF(0, height));
+        height += line.height();
+    }
+    layout.endLayout();
+    return height;
 }
 
 int MeasureWrappedTextHeightQt(const std::string& text, int width, int pixelSize)
@@ -237,14 +200,14 @@ int MeasureWrappedTextHeightQt(const std::string& text, int width, int pixelSize
     }
 
     const QFont font = BuildChatUiFont(pixelSize);
-    const QFontMetrics metrics(font);
-    const QString label = QString::fromLocal8Bit(text.c_str());
-    const QRect bounds = metrics.boundingRect(QRect(0, 0, width, 4096), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, label);
-    return (std::max)(kChatLineHeight, bounds.height());
+    QString label = QString::fromLocal8Bit(text.c_str());
+    label.replace(QLatin1Char('\n'), QChar::LineSeparator);
+    QTextLayout layout(label, font);
+    return (std::max)(kChatLineHeight, static_cast<int>(std::ceil(LayoutChatText(layout, width))));
 }
 
 void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF color,
-    bool wrap, int pixelSize, bool writable = false)
+    bool wrap, int pixelSize, bool themeFont = false, ChatSpeakerRange speaker = {})
 {
     if (!hdc || rect.right <= rect.left || rect.bottom <= rect.top) {
         return;
@@ -253,7 +216,7 @@ void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF
     QString label = QString::fromLocal8Bit(text.c_str());
     const int width = rect.right - rect.left;
     const int height = rect.bottom - rect.top;
-    const QFont font = BuildChatUiFont(pixelSize, writable);
+    const QFont font = BuildChatUiFont(pixelSize, themeFont);
     if (!wrap) {
         const QFontMetrics metrics(font);
         label = metrics.elidedText(label, Qt::ElideRight, width);
@@ -273,12 +236,27 @@ void DrawChatTextQt(HDC hdc, const RECT& rect, const std::string& text, COLORREF
     const int flags = wrap
         ? (Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap)
         : (Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine);
-    painter.drawText(QRect(0, 0, width, height), flags, label);
+    if (wrap) {
+        label.replace(QLatin1Char('\n'), QChar::LineSeparator);
+        QTextLayout layout(label, font);
+        if (speaker.length > 0) {
+            QTextLayout::FormatRange nameFormat;
+            nameFormat.start = static_cast<int>(QString::fromLocal8Bit(text.data(), static_cast<int>(speaker.start)).size());
+            nameFormat.length = static_cast<int>(QString::fromLocal8Bit(text.data() + speaker.start,
+                static_cast<int>(speaker.length)).size());
+            nameFormat.format.setForeground(QColor::fromRgb(ChatLine::kSpeakerColor));
+            layout.setFormats({ nameFormat });
+        }
+        LayoutChatText(layout, width);
+        layout.draw(&painter, QPointF(0, 0));
+    } else {
+        painter.drawText(QRect(0, 0, width, height), flags, label);
+    }
     AlphaBlendArgbToHdc(hdc, rect.left, rect.top, width, height, pixels.data(), width, height);
 }
 #endif
 
-HFONT GetChatUiFont(int pixelSize, bool writable = false);
+HFONT GetChatUiFont(int pixelSize, bool themeFont = false);
 
 int MeasureWrappedTextHeight(const std::string& text, int width, int pixelSize)
 {
@@ -304,12 +282,12 @@ int MeasureWrappedTextHeight(const std::string& text, int width, int pixelSize)
 #endif
 }
 
-HFONT GetChatUiFont(int pixelSize, bool writable)
+HFONT GetChatUiFont(int pixelSize, bool themeFont)
 {
     static std::array<HFONT, kChatFontSizeMax + 1> s_chatUiFonts{};
-    static std::array<HFONT, kChatFontSizeMax + 1> s_chatWritableFonts{};
+    static std::array<HFONT, kChatFontSizeMax + 1> s_chatThemeFonts{};
     const int clampedPixelSize = ClampChatFontPixelSize(pixelSize);
-    auto& fonts = writable ? s_chatWritableFonts : s_chatUiFonts;
+    auto& fonts = themeFont ? s_chatThemeFonts : s_chatUiFonts;
     HFONT& cachedFont = fonts[static_cast<size_t>(clampedPixelSize)];
     if (!cachedFont) {
         cachedFont = CreateFontA(
@@ -317,7 +295,7 @@ HFONT GetChatUiFont(int pixelSize, bool writable)
             0,
             0,
             0,
-            FW_NORMAL,
+            themeFont ? FW_BOLD : FW_NORMAL,
             FALSE,
             FALSE,
             FALSE,
@@ -326,44 +304,52 @@ HFONT GetChatUiFont(int pixelSize, bool writable)
             CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY,
             DEFAULT_PITCH | FF_DONTCARE,
-            writable ? "Segoe UI" : uitheme::kUiFontFamily);
+            themeFont ? uitheme::kUiFontFamily : "Segoe UI");
     }
     return cachedFont;
 }
 
-const shopui::BitmapPixels& GetHistoryPanelPattern()
+const shopui::BitmapPixels& GetHistoryPanelPattern(int opacityPercent)
 {
     static shopui::BitmapPixels s_pattern;
-    if (s_pattern.IsValid()) {
+    static int s_opacityPercent = -1;
+    if (s_pattern.IsValid() && s_opacityPercent == opacityPercent) {
         return s_pattern;
     }
+    s_opacityPercent = opacityPercent;
 
     constexpr int kPatternSize = 4;
+    constexpr int thresholds[kPatternSize][kPatternSize] = {
+        { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 }
+    };
     s_pattern.width = kPatternSize;
     s_pattern.height = kPatternSize;
     s_pattern.pixels.resize(static_cast<size_t>(kPatternSize) * kPatternSize);
 
-    const u32 darkGrey = 0xFF181818u;
+    const COLORREF navy = uitheme::kPanelBackground;
+    const u32 background = 0xFF000000u | (static_cast<u32>(GetRValue(navy)) << 16)
+        | (static_cast<u32>(GetGValue(navy)) << 8) | GetBValue(navy);
     const u32 transparent = 0x00000000u;
     for (int y = 0; y < kPatternSize; ++y) {
         for (int x = 0; x < kPatternSize; ++x) {
-            const bool useTransparentPixel = ((x + y) % 4) == 0;
-            s_pattern.pixels[static_cast<size_t>(y) * kPatternSize + x] = useTransparentPixel ? transparent : darkGrey;
+            // Native rendering uses a dithered fill; 50% leaves exactly half the pixels clear.
+            const bool useTransparentPixel = thresholds[y][x] * 100 >= opacityPercent * 16;
+            s_pattern.pixels[static_cast<size_t>(y) * kPatternSize + x] = useTransparentPixel ? transparent : background;
         }
     }
 
     return s_pattern;
 }
 
-void FillRectStippled(HDC target, const RECT& rect)
+void FillRectStippled(HDC target, const RECT& rect, int opacityPercent)
 {
     if (!target || rect.right <= rect.left || rect.bottom <= rect.top) {
         return;
     }
 
-    const shopui::BitmapPixels& pattern = GetHistoryPanelPattern();
+    const shopui::BitmapPixels& pattern = GetHistoryPanelPattern(opacityPercent);
     if (!pattern.IsValid()) {
-        HBRUSH brush = CreateSolidBrush(RGB(24, 24, 24));
+        HBRUSH brush = CreateSolidBrush(uitheme::kPanelBackground);
         FillRect(target, &rect, brush);
         DeleteObject(brush);
         return;
@@ -403,13 +389,24 @@ RECT GetChatLogicalClientRect()
     return logicalRect;
 }
 
+RECT GetChatAvailableClientRect()
+{
+    RECT rect = GetChatLogicalClientRect();
+    // Reserve the EXP strip, skill bar and chat gap even when chat is created first.
+    const int shortcutHeight = UIShortCutWnd::GetWindowHeightForClientWidth(rect.right - rect.left);
+    rect.bottom = (std::max)(static_cast<int>(rect.top) + 1,
+        static_cast<int>(rect.bottom) - UIExperienceBarWnd::kReservedHeight
+        - shortcutHeight - UIShortCutWnd::kChatGap);
+    return rect;
+}
+
 void ClampChatWindowPosition(int* x, int* y, int w, int h)
 {
     if (!x || !y) {
         return;
     }
 
-    const RECT logicalClientRect = GetChatLogicalClientRect();
+    const RECT logicalClientRect = GetChatAvailableClientRect();
     const int minX = static_cast<int>(logicalClientRect.left);
     const int minY = static_cast<int>(logicalClientRect.top);
     const int maxX = (std::max)(minX, static_cast<int>(logicalClientRect.right) - (std::max)(1, w));
@@ -420,7 +417,7 @@ void ClampChatWindowPosition(int* x, int* y, int w, int h)
 
 void GetChatWindowSizeLimits(int* outMinWidth, int* outMinHeight, int* outMaxWidth, int* outMaxHeight)
 {
-    const RECT logicalClientRect = GetChatLogicalClientRect();
+    const RECT logicalClientRect = GetChatAvailableClientRect();
     const int availableWidth = (std::max)(1, static_cast<int>(logicalClientRect.right - logicalClientRect.left));
     const int availableHeight = (std::max)(1, static_cast<int>(logicalClientRect.bottom - logicalClientRect.top));
     if (outMaxWidth) {
@@ -464,64 +461,29 @@ ChatLayoutRects BuildChatLayoutRects(int x, int y, int w, int h)
     ChatLayoutRects rects{};
     rects.panel = { x, y, x + w, y + h };
 
-    rects.header = {
-        x + kChatPanelPadding,
-        y + kChatPanelPadding,
-        x + w - kChatPanelPadding,
-        y + kChatPanelPadding + kChatTabBarHeight
-    };
-
-    rects.gearButton = {
-        rects.header.right - kChatGearButtonSize,
-        rects.header.top + (kChatTabBarHeight - kChatGearButtonSize) / 2,
-        rects.header.right,
-        rects.header.top + (kChatTabBarHeight - kChatGearButtonSize) / 2 + kChatGearButtonSize
-    };
-
-    const int tabsLeft = rects.header.left;
-    const int tabsRight = rects.gearButton.left - kChatTabGap;
-    const int availableTabWidth = (std::max)(0, tabsRight - tabsLeft - (kChatTabGap * (kChatTabCount - 1)));
-    const int tabWidth = kChatTabCount > 0 ? availableTabWidth / kChatTabCount : 0;
-    int tabX = tabsLeft;
+    rects.header = { x, y, x + w, y + kChatTabBarHeight };
+    rects.body = { x, rects.header.bottom, x + w, y + h };
+    const int tabWidth = (std::min)(kChatTabWidth, (std::max)(0, w) / kChatTabCount);
     for (int index = 0; index < kChatTabCount; ++index) {
-        const int right = (index + 1 == kChatTabCount) ? tabsRight : tabX + tabWidth;
         rects.tabs[static_cast<size_t>(index)] = {
-            tabX,
-            rects.header.top + 2,
-            right,
-            rects.header.bottom - 2
+            x + index * tabWidth, y, x + (index + 1) * tabWidth, rects.header.bottom + 1
         };
-        tabX = right + kChatTabGap;
     }
 
-    const int inputLeft = x + kChatPanelPadding;
-    const int inputRight = x + w - kChatPanelPadding;
-    const int inputTop = y + h - kChatInputHeight - kChatPanelPadding;
-    const int inputBottom = y + h - kChatPanelPadding;
-    const int totalInputWidth = (std::max)(0, inputRight - inputLeft);
-    int whisperWidth = (std::min)(kChatWhisperInputWidth, (std::max)(80, totalInputWidth / 3));
-    whisperWidth = (std::min)(whisperWidth, (std::max)(80, totalInputWidth - (48 + kChatInputGap)));
-
-    rects.whisperInput = {
-        inputLeft,
-        inputTop,
-        inputLeft + whisperWidth,
-        inputBottom
-    };
-    rects.messageInput = {
-        rects.whisperInput.right + kChatInputGap,
-        inputTop,
-        inputRight,
-        inputBottom
-    };
+    const int inputLeft = x + 1;
+    const int inputRight = (std::max)(inputLeft, x + w - 1);
+    const int inputTop = (std::max)(static_cast<int>(rects.body.top), y + h - kChatInputHeight - 1);
+    const int inputBottom = y + h - 1;
+    const int totalInputWidth = inputRight - inputLeft;
+    const int whisperWidth = (std::min)(kChatWhisperInputWidth, totalInputWidth / 3);
+    rects.whisperInput = { inputLeft, inputTop, inputLeft + whisperWidth, inputBottom };
+    rects.messageInput = { rects.whisperInput.right + kChatInputGap, inputTop, inputRight, inputBottom };
     rects.history = {
-        inputLeft,
-        rects.header.bottom + kChatPanelPadding,
-        inputRight,
-        inputTop - kChatPanelPadding
+        x + kChatPanelPadding, rects.body.top + kChatPanelPadding,
+        x + w - kChatPanelPadding, inputTop - kChatPanelPadding
     };
 
-    const RECT clientRect = GetChatLogicalClientRect();
+    const RECT clientRect = GetChatAvailableClientRect();
     rects.configPanel = {
         rects.panel.right + 10,
         rects.panel.top,
@@ -537,19 +499,7 @@ ChatLayoutRects BuildChatLayoutRects(int x, int y, int w, int h)
         rects.configPanel.bottom = rects.configPanel.top + kChatConfigPanelHeight;
     }
 
-    const int configLeft = rects.configPanel.left + 12;
-    const int configTabsTop = rects.configPanel.top + 72;
-    for (int index = 0; index < kChatTabCount; ++index) {
-        const int rowTop = configTabsTop + index * (kChatConfigButtonHeight + 6);
-        rects.configTabs[static_cast<size_t>(index)] = {
-            configLeft,
-            rowTop,
-            configLeft + kChatConfigListWidth,
-            rowTop + kChatConfigButtonHeight
-        };
-    }
-
-    const int editorLeft = rects.configPanel.left + 120;
+    const int editorLeft = rects.configPanel.left + 12;
     rects.fontValue = {
         editorLeft,
         rects.configPanel.top + 72,
@@ -576,7 +526,7 @@ ChatLayoutRects BuildChatLayoutRects(int x, int y, int w, int h)
         rects.configPanel.top + 128 + kChatConfigButtonHeight
     };
     rects.transparencyTrack = {
-        rects.configPanel.left + 130,
+        rects.configPanel.left + 22,
         rects.configPanel.top + 168,
         rects.configPanel.right - 22,
         rects.configPanel.top + 168 + kChatSliderTrackHeight
@@ -588,30 +538,46 @@ ChatLayoutRects BuildChatLayoutRects(int x, int y, int w, int h)
         rects.transparencyTrack.bottom + 5
     };
 
-    const int filterWidth = ((rects.configPanel.right - 12) - editorLeft - kChatConfigButtonGap) / 2;
-    const int filtersTop = rects.configPanel.top + 216;
-    for (int index = 0; index < kChatFilterCount; ++index) {
-        const int column = index % 2;
-        const int row = index / 2;
-        const int left = editorLeft + column * (filterWidth + kChatConfigButtonGap);
-        const int top = filtersTop + row * (kChatConfigButtonHeight + 8);
-        rects.filterButtons[static_cast<size_t>(index)] = {
-            left,
-            top,
-            left + filterWidth,
-            top + kChatConfigButtonHeight
-        };
-    }
-    rects.resetButton = {
-        rects.configPanel.right - 116,
-        rects.configPanel.bottom - 40,
-        rects.configPanel.right - 12,
-        rects.configPanel.bottom - 12
-    };
     return rects;
 }
 
 } // namespace
+
+ChatSpeakerRange ChatLine::GetSpeakerRange() const
+{
+    if (channel == ChatChannel_Whisper) {
+        // Whispers arrive as "(From Name) message", rather than "Name : message".
+        constexpr size_t nameStart = 6;
+        if (text.compare(0, nameStart, "(From ") == 0) {
+            const size_t nameEnd = text.find(") ", nameStart);
+            if (nameEnd != std::string::npos && nameEnd > nameStart) {
+                return { nameStart, nameEnd - nameStart };
+            }
+        }
+        return {};
+    }
+
+    if (channel != ChatChannel_Normal && channel != ChatChannel_Player
+        && channel != ChatChannel_Party && channel != ChatChannel_Guild) {
+        return {};
+    }
+    const size_t separator = text.find(':');
+    if (separator == std::string::npos) {
+        return {};
+    }
+    const size_t nameStart = text.find_first_not_of(" \t");
+    const size_t nameEnd = separator > 0 ? text.find_last_not_of(" \t", separator - 1) : std::string::npos;
+    if (nameStart == std::string::npos || nameEnd == std::string::npos
+        || nameStart > nameEnd || nameEnd - nameStart + 1 > kMaxWhisperTargetChars) {
+        return {};
+    }
+    return { nameStart, nameEnd - nameStart + 1 };
+}
+
+u32 ChatLine::GetDisplayColor() const
+{
+    return GetSpeakerRange().length > 0 ? 0x00FFFFFFu : color;
+}
 
 UINewChatWnd::UINewChatWnd()
     : m_lastDrawTick(0),
@@ -633,18 +599,16 @@ UINewChatWnd::UINewChatWnd()
       m_isDragging(0),
       m_resizeEdges(ChatResizeEdge_None),
       m_transparencyDragActive(0),
-      m_tabChannelMasks{}
+      m_dockedAboveShortCut(true)
 {
-    ResetTabDefaults();
     int initialWidth = kChatDefaultWindowWidth;
     int initialHeight = kChatDefaultWindowHeight;
     LoadSettings(&initialWidth, &initialHeight);
 
     Create(initialWidth, initialHeight);
 
-    // Always open chat at the bottom-left; dragging changes its position for
-    // the current window's lifetime.
-    const RECT logicalClientRect = GetChatLogicalClientRect();
+    // Open chat left-aligned above the skill bar, leaving a gap between them.
+    const RECT logicalClientRect = GetChatAvailableClientRect();
     int defaultX = logicalClientRect.left;
     int defaultY = logicalClientRect.bottom - initialHeight;
     ClampChatWindowPosition(&defaultX, &defaultY, initialWidth, initialHeight);
@@ -656,37 +620,29 @@ UINewChatWnd::~UINewChatWnd() = default;
 
 void UINewChatWnd::LoadSettings(int* outWindowWidth, int* outWindowHeight)
 {
-    ResetTabDefaults();
-
     int storedValue = 0;
     if (TryLoadSettingsIniInt(kChatWndSection, kChatFontSizeValue, &storedValue)) {
         m_fontPixelSize = ClampChatFontPixelSize(storedValue);
     }
-    if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowOpacityValue, &storedValue)) {
-        m_windowOpacityPercent = ClampChatWindowOpacityPercent(storedValue);
-    }
-    if (TryLoadSettingsIniInt(kChatWndSection, kChatActiveTabValue, &storedValue)) {
-        m_activeTab = std::clamp(storedValue, 0, kChatTabCount - 1);
-    }
-
-    char keyName[32] = {};
-    for (int index = 0; index < kChatTabCount; ++index) {
-        std::snprintf(keyName, sizeof(keyName), "%s%d", kChatTabMaskPrefix, index);
-        if (TryLoadSettingsIniInt(kChatWndSection, keyName, &storedValue)) {
-            m_tabChannelMasks[static_cast<size_t>(index)] = static_cast<u32>(storedValue) & kAllChatChannelsMask;
-        }
-        if (m_tabChannelMasks[static_cast<size_t>(index)] == 0u) {
-            ResetTabDefault(index);
-        }
-    }
-
+    // Migrate the old four-tab layout once, including its size and opacity.
+    int storedVersion = 0;
+    const bool currentLayout = TryLoadSettingsIniInt(kChatWndSection, kChatLayoutVersionValue, &storedVersion)
+        && storedVersion >= kChatLayoutVersion;
     int storedWidth = kChatDefaultWindowWidth;
     int storedHeight = kChatDefaultWindowHeight;
-    if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowWidthValue, &storedValue)) {
-        storedWidth = storedValue;
-    }
-    if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowHeightValue, &storedValue)) {
-        storedHeight = storedValue;
+    if (currentLayout) {
+        if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowOpacityValue, &storedValue)) {
+            m_windowOpacityPercent = ClampChatWindowOpacityPercent(storedValue);
+        }
+        if (TryLoadSettingsIniInt(kChatWndSection, kChatActiveTabValue, &storedValue)) {
+            m_activeTab = std::clamp(storedValue, 0, kChatTabCount - 1);
+        }
+        if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowWidthValue, &storedValue)) {
+            storedWidth = storedValue;
+        }
+        if (TryLoadSettingsIniInt(kChatWndSection, kChatWindowHeightValue, &storedValue)) {
+            storedHeight = storedValue;
+        }
     }
 
     int minWidth = kChatWindowMinWidth;
@@ -711,12 +667,8 @@ void UINewChatWnd::SaveSettings() const
     SaveSettingsIniInt(kChatWndSection, kChatWindowWidthValue, m_w);
     SaveSettingsIniInt(kChatWndSection, kChatWindowHeightValue, m_h);
     SaveSettingsIniInt(kChatWndSection, kChatActiveTabValue, m_activeTab);
+    SaveSettingsIniInt(kChatWndSection, kChatLayoutVersionValue, kChatLayoutVersion);
 
-    char keyName[32] = {};
-    for (int index = 0; index < kChatTabCount; ++index) {
-        std::snprintf(keyName, sizeof(keyName), "%s%d", kChatTabMaskPrefix, index);
-        SaveSettingsIniInt(kChatWndSection, keyName, static_cast<int>(m_tabChannelMasks[static_cast<size_t>(index)]));
-    }
 }
 
 void UINewChatWnd::AddChatLine(const char* text, u32 color, u8 channel, u32 tick)
@@ -738,7 +690,8 @@ void UINewChatWnd::AddChatLine(const char* text, u32 color, u8 channel, u32 tick
     line.tick = tick;
     m_lines.push_back(std::move(line));
 
-    if (!wasPinnedBottom) {
+    if (!wasPinnedBottom
+        && (kChatTabPresets[static_cast<size_t>(m_activeTab)].channelMask & ChatChannelBit(channel)) != 0u) {
         ++m_scrollLineOffset;
     }
     ClampScrollOffset();
@@ -828,7 +781,7 @@ ChatScrollBarState UINewChatWnd::GetScrollBarState() const
 {
     ChatScrollBarState state{};
     for (const ChatLine& line : m_lines) {
-        if ((m_tabChannelMasks[static_cast<size_t>(m_activeTab)] & ChatChannelBit(line.channel)) != 0u) {
+        if ((kChatTabPresets[static_cast<size_t>(m_activeTab)].channelMask & ChatChannelBit(line.channel)) != 0u) {
             ++state.totalLines;
         }
     }
@@ -881,26 +834,14 @@ bool UINewChatWnd::GetTabDisplay(int index, ChatTabDisplay* outData) const
     outData->id = index;
     outData->label = kChatTabPresets[static_cast<size_t>(index)].label;
     outData->active = index == m_activeTab ? 1 : 0;
-    outData->channelMask = m_tabChannelMasks[static_cast<size_t>(index)];
+    outData->channelMask = kChatTabPresets[static_cast<size_t>(index)].channelMask;
+    outData->bounds = GetDisplayLayout().tabs[static_cast<size_t>(index)];
     return true;
 }
 
-int UINewChatWnd::GetFilterOptionCount() const
+ChatLayoutRects UINewChatWnd::GetDisplayLayout() const
 {
-    return kChatFilterCount;
-}
-
-bool UINewChatWnd::GetFilterOptionDisplay(int index, ChatFilterOptionDisplay* outData) const
-{
-    if (!outData || index < 0 || index >= kChatFilterCount) {
-        return false;
-    }
-
-    const u32 channelBit = ChatChannelBit(kChatFilterChannels[static_cast<size_t>(index)]);
-    outData->id = index;
-    outData->label = kChatFilterLabels[static_cast<size_t>(index)];
-    outData->enabled = (m_tabChannelMasks[static_cast<size_t>(m_activeTab)] & channelBit) != 0u ? 1 : 0;
-    return true;
+    return BuildChatLayoutRects(m_x, m_y, m_w, m_h);
 }
 
 void UINewChatWnd::OnProcess()
@@ -965,25 +906,28 @@ void UINewChatWnd::OnDraw()
     SelectObject(hdc, GetChatUiFont(m_fontPixelSize));
 
     const ChatLayoutRects layout = BuildChatLayoutRects(m_x, m_y, m_w, m_h);
-    RECT panelRc = layout.panel;
     RECT historyRc = layout.history;
     RECT whisperInputRc = layout.whisperInput;
     RECT messageInputRc = layout.messageInput;
-    const RECT topStrip = { panelRc.left, panelRc.top, panelRc.right, historyRc.top };
-    const RECT leftStrip = { panelRc.left, historyRc.top, historyRc.left, panelRc.bottom };
-    const RECT rightStrip = { historyRc.right, historyRc.top, panelRc.right, panelRc.bottom };
-    const RECT middleStrip = { panelRc.left, historyRc.bottom, panelRc.right, whisperInputRc.top };
-    const RECT bottomStrip = { panelRc.left, whisperInputRc.bottom, panelRc.right, panelRc.bottom };
-    FillRectStippled(hdc, topStrip);
-    FillRectStippled(hdc, leftStrip);
-    FillRectStippled(hdc, rightStrip);
-    FillRectStippled(hdc, middleStrip);
-    FillRectStippled(hdc, bottomStrip);
-    FillRectStippled(hdc, historyRc);
-    FrameRect(hdc, &panelRc, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    HBRUSH frameBrush = CreateSolidBrush(uitheme::kFrame);
+    HBRUSH accentBrush = CreateSolidBrush(uitheme::kAccent);
+    FillRectStippled(hdc, layout.body, m_windowOpacityPercent);
+    FrameRect(hdc, &layout.body, frameBrush);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, RGB(255, 255, 255));
+    SelectObject(hdc, GetChatUiFont(14, true));
+    for (int index = 0; index < kChatTabCount; ++index) {
+        const RECT& tab = layout.tabs[static_cast<size_t>(index)];
+        FillRectStippled(hdc, tab, m_windowOpacityPercent);
+        FrameRect(hdc, &tab, index == m_activeTab ? accentBrush : frameBrush);
+        RECT label = tab;
+        DrawTextA(hdc, kChatTabPresets[static_cast<size_t>(index)].label, -1, &label,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
 
     const int historyClipDc = SaveDC(hdc);
     IntersectClipRect(hdc, historyRc.left, historyRc.top, historyRc.right, historyRc.bottom);
+    SelectObject(hdc, GetChatUiFont(m_fontPixelSize));
     SetBkMode(hdc, TRANSPARENT);
     const int textInset = 4;
     const ChatScrollBarState scrollState = GetScrollBarState();
@@ -991,19 +935,11 @@ void UINewChatWnd::OnDraw()
     const int textWidth = (historyRc.right - historyRc.left) - (textInset * 2) - reservedScrollbarWidth;
     const size_t lineCount = m_visibleLines.size();
     std::vector<int> measuredHeights(lineCount, kChatLineHeight);
-    int usedHeight = 0;
     for (size_t index = 0; index < lineCount; ++index) {
         measuredHeights[index] = MeasureWrappedTextHeight(m_visibleLines[index].text, textWidth, m_fontPixelSize);
-        usedHeight += measuredHeights[index];
-        if (index + 1 < lineCount) {
-            usedHeight += kChatMessageGap;
-        }
     }
 
-    int lineY = historyRc.bottom - textInset - usedHeight;
-    if (lineY < historyRc.top + textInset) {
-        lineY = historyRc.top + textInset;
-    }
+    int lineY = historyRc.top + textInset;
     for (size_t index = 0; index < lineCount; ++index) {
         const ChatLine& line = m_visibleLines[index];
         const int textHeight = measuredHeights[index];
@@ -1013,11 +949,26 @@ void UINewChatWnd::OnDraw()
             historyRc.right - textInset - reservedScrollbarWidth,
             lineY + textHeight
         };
-        SetTextColor(hdc, ToColorRef(line.color));
+        const ChatSpeakerRange speaker = line.GetSpeakerRange();
+        const COLORREF textColor = ToColorRef(line.GetDisplayColor());
+        SetTextColor(hdc, textColor);
 #if RO_ENABLE_QT6_UI
-        DrawChatTextQt(hdc, textRc, line.text, ToColorRef(line.color), true, m_fontPixelSize);
+        DrawChatTextQt(hdc, textRc, line.text, textColor, true, m_fontPixelSize, false, speaker);
 #else
         DrawTextA(hdc, line.text.c_str(), -1, &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX);
+        if (speaker.length > 0) {
+            // Repaint the name with the same wrapping and restore any whisper prefix.
+            RECT nameRc = textRc;
+            const std::string namePrefix = line.text.substr(0, speaker.start + speaker.length);
+            SetTextColor(hdc, ToColorRef(ChatLine::kSpeakerColor));
+            DrawTextA(hdc, namePrefix.c_str(), -1, &nameRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX);
+            if (speaker.start > 0) {
+                RECT prefixRc = textRc;
+                const std::string prefix = line.text.substr(0, speaker.start);
+                SetTextColor(hdc, textColor);
+                DrawTextA(hdc, prefix.c_str(), -1, &prefixRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX);
+            }
+        }
 #endif
         lineY += textHeight + kChatMessageGap;
     }
@@ -1030,10 +981,7 @@ void UINewChatWnd::OnDraw()
             historyRc.right - textInset,
             historyRc.bottom - textInset
         };
-        HBRUSH trackBrush = CreateSolidBrush(RGB(40, 40, 40));
-        FillRect(hdc, &trackRc, trackBrush);
-        DeleteObject(trackBrush);
-        FrameRect(hdc, &trackRc, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+        FrameRect(hdc, &trackRc, frameBrush);
 
         const int trackHeight = trackRc.bottom - trackRc.top;
         const int visibleLineCount = (std::max)(1, scrollState.visibleLineCount);
@@ -1043,26 +991,19 @@ void UINewChatWnd::OnDraw()
         const int scrollDenom = (std::max)(1, totalLines - visibleLineCount);
         const int thumbTop = trackRc.top + (maxTravel * scrollState.firstVisibleLine) / scrollDenom;
         RECT thumbRc = { trackRc.left + 1, thumbTop, trackRc.right - 1, thumbTop + thumbHeight };
-        HBRUSH thumbBrush = CreateSolidBrush(RGB(184, 184, 184));
+        HBRUSH thumbBrush = CreateSolidBrush(uitheme::kFrame);
         FillRect(hdc, &thumbRc, thumbBrush);
         DeleteObject(thumbBrush);
     }
 
-    HBRUSH whisperBg = CreateSolidBrush(IsWhisperTargetActive() ? RGB(245, 245, 220) : RGB(210, 210, 210));
-    FillRect(hdc, &whisperInputRc, whisperBg);
-    DeleteObject(whisperBg);
-    FrameRect(hdc, &whisperInputRc, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-
-    HBRUSH messageBg = CreateSolidBrush(IsMessageInputActive() ? RGB(245, 245, 220) : RGB(210, 210, 210));
-    FillRect(hdc, &messageInputRc, messageBg);
-    DeleteObject(messageBg);
-    FrameRect(hdc, &messageInputRc, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    // Inputs share the body's single translucent fill; only their borders differ.
+    FrameRect(hdc, &whisperInputRc, IsWhisperTargetActive() ? accentBrush : frameBrush);
+    FrameRect(hdc, &messageInputRc, IsMessageInputActive() ? accentBrush : frameBrush);
 
     std::string whisperDrawText = m_whisperTargetText;
-    COLORREF whisperTextColor = RGB(16, 16, 16);
+    COLORREF whisperTextColor = RGB(255, 255, 255);
     if (whisperDrawText.empty() && !IsWhisperTargetActive()) {
-        whisperDrawText = "To";
-        whisperTextColor = RGB(96, 96, 96);
+        whisperDrawText = "Whisper...";
     }
     if (IsWhisperTargetActive()) {
         whisperDrawText += '_';
@@ -1072,23 +1013,60 @@ void UINewChatWnd::OnDraw()
     if (IsMessageInputActive()) {
         messageDrawText += '_';
     }
+    const bool messagePlaceholder = messageDrawText.empty();
+    const COLORREF messageTextColor = RGB(255, 255, 255);
+    if (messagePlaceholder) {
+        messageDrawText = "Type a message...";
+    }
 
-    RECT whisperTextRc = { whisperInputRc.left + 4, whisperInputRc.top + 2, whisperInputRc.right - 2, whisperInputRc.bottom - 2 };
-    SelectObject(hdc, GetChatUiFont(m_fontPixelSize, true));
+    RECT whisperTextRc = { whisperInputRc.left + 10, whisperInputRc.top + 2, whisperInputRc.right - 2, whisperInputRc.bottom - 2 };
+    SelectObject(hdc, GetChatUiFont(12, true));
     SetTextColor(hdc, whisperTextColor);
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, m_fontPixelSize, true);
+    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, 12, true);
 #else
     DrawTextA(hdc, whisperDrawText.c_str(), -1, &whisperTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
 
-    RECT messageTextRc = { messageInputRc.left + 4, messageInputRc.top + 2, messageInputRc.right - 2, messageInputRc.bottom - 2 };
-    SetTextColor(hdc, RGB(16, 16, 16));
+    RECT messageTextRc = { messageInputRc.left + 10, messageInputRc.top + 2, messageInputRc.right - 2, messageInputRc.bottom - 2 };
+    SelectObject(hdc, GetChatUiFont(m_fontPixelSize, true));
+    SetTextColor(hdc, messageTextColor);
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, messageTextRc, messageDrawText, RGB(16, 16, 16), false, m_fontPixelSize, true);
+    DrawChatTextQt(hdc, messageTextRc, messageDrawText, messageTextColor, false, m_fontPixelSize, true);
 #else
     DrawTextA(hdc, messageDrawText.c_str(), -1, &messageTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
+
+    if (m_configVisible != 0) {
+        FillRectStippled(hdc, layout.configPanel, m_windowOpacityPercent);
+        FrameRect(hdc, &layout.configPanel, frameBrush);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        RECT title = { layout.configPanel.left + 12, layout.configPanel.top + 14,
+            layout.configPanel.right - 12, layout.configPanel.top + 36 };
+        DrawTextA(hdc, "Chat settings", -1, &title, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        RECT fontLabel = layout.fontValue;
+        const std::string fontText = "Font size: " + std::to_string(m_fontPixelSize);
+        DrawTextA(hdc, fontText.c_str(), -1, &fontLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        FrameRect(hdc, &layout.fontMinusButton, frameBrush);
+        FrameRect(hdc, &layout.fontPlusButton, frameBrush);
+        RECT minusLabel = layout.fontMinusButton;
+        RECT plusLabel = layout.fontPlusButton;
+        DrawTextA(hdc, "-", -1, &minusLabel, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawTextA(hdc, "+", -1, &plusLabel, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        RECT opacityLabel = layout.transparencyValue;
+        const std::string opacityText = "Background opacity: " + std::to_string(m_windowOpacityPercent) + "%";
+        DrawTextA(hdc, opacityText.c_str(), -1, &opacityLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        FrameRect(hdc, &layout.transparencyTrack, frameBrush);
+        RECT thumb = layout.transparencyThumb;
+        const int travel = layout.transparencyTrack.right - layout.transparencyTrack.left;
+        const int offset = std::clamp(travel * (m_windowOpacityPercent - kChatWindowOpacityMin)
+            / (kChatWindowOpacityMax - kChatWindowOpacityMin) - kChatSliderThumbWidth / 2,
+            0, (std::max)(0, travel - kChatSliderThumbWidth));
+        OffsetRect(&thumb, offset, 0);
+        FillRect(hdc, &thumb, frameBrush);
+    }
+    DeleteObject(accentBrush);
+    DeleteObject(frameBrush);
 
     RestoreDC(hdc, savedDc);
     ReleaseDrawTarget(hdc);
@@ -1109,7 +1087,7 @@ void UINewChatWnd::RefreshVisibleLines(u32 nowTick)
     if (!m_lines.empty()) {
         std::vector<const ChatLine*> filteredLines;
         filteredLines.reserve(m_lines.size());
-        const u32 activeMask = m_tabChannelMasks[static_cast<size_t>(m_activeTab)];
+        const u32 activeMask = kChatTabPresets[static_cast<size_t>(m_activeTab)].channelMask;
         for (const ChatLine& line : m_lines) {
             if ((activeMask & ChatChannelBit(line.channel)) != 0u) {
                 filteredLines.push_back(&line);
@@ -1174,12 +1152,6 @@ bool UINewChatWnd::HandlePointerDown(int x, int y)
     const ChatLayoutRects layout = BuildChatLayoutRects(m_x, m_y, m_w, m_h);
 
     if (m_configVisible != 0 && RectIsValid(layout.configPanel) && PointInRectXY(layout.configPanel, x, y)) {
-        for (int index = 0; index < kChatTabCount; ++index) {
-            if (PointInRectXY(layout.configTabs[static_cast<size_t>(index)], x, y)) {
-                SetActiveTab(index);
-                return true;
-            }
-        }
         if (PointInRectXY(layout.fontMinusButton, x, y)) {
             m_fontPixelSize = ClampChatFontPixelSize(m_fontPixelSize - 1);
             SaveSettings();
@@ -1197,28 +1169,6 @@ bool UINewChatWnd::HandlePointerDown(int x, int y)
         if (PointInRectXY(layout.transparencyValue, x, y) || PointInRectXY(layout.transparencyTrack, x, y)) {
             m_transparencyDragActive = 1;
             UpdateWindowOpacityFromPointer(x, layout.transparencyTrack);
-            return true;
-        }
-        for (int index = 0; index < kChatFilterCount; ++index) {
-            if (PointInRectXY(layout.filterButtons[static_cast<size_t>(index)], x, y)) {
-                const u32 channelBit = ChatChannelBit(kChatFilterChannels[static_cast<size_t>(index)]);
-                m_tabChannelMasks[static_cast<size_t>(m_activeTab)] ^= channelBit;
-                if (m_tabChannelMasks[static_cast<size_t>(m_activeTab)] == 0u) {
-                    m_tabChannelMasks[static_cast<size_t>(m_activeTab)] = channelBit;
-                }
-                SaveSettings();
-                ClampScrollOffset();
-                RefreshVisibleLines(GetTickCount());
-                Invalidate();
-                return true;
-            }
-        }
-        if (PointInRectXY(layout.resetButton, x, y)) {
-            ResetTabDefault(m_activeTab);
-            SaveSettings();
-            ClampScrollOffset();
-            RefreshVisibleLines(GetTickCount());
-            Invalidate();
             return true;
         }
         return true;
@@ -1240,11 +1190,6 @@ bool UINewChatWnd::HandlePointerDown(int x, int y)
 
     if (!PointInRectXY(layout.panel, x, y)) {
         return false;
-    }
-
-    if (PointInRectXY(layout.gearButton, x, y)) {
-        SetConfigVisible(m_configVisible == 0);
-        return true;
     }
 
     for (int index = 0; index < kChatTabCount; ++index) {
@@ -1314,6 +1259,7 @@ bool UINewChatWnd::HandlePointerMove(int x, int y)
     const int dy = y - m_dragStartGlobalY;
     if (m_isDragging == 0 && ((dx * dx) + (dy * dy)) >= 16) {
         m_isDragging = 1;
+        m_dockedAboveShortCut = false;
     }
 
     if (m_isDragging == 0) {
@@ -1327,7 +1273,7 @@ bool UINewChatWnd::HandlePointerMove(int x, int y)
         int maxHeight = kChatDefaultWindowHeight;
         GetChatWindowSizeLimits(&minWidth, &minHeight, &maxWidth, &maxHeight);
 
-        const RECT logicalClientRect = GetChatLogicalClientRect();
+        const RECT logicalClientRect = GetChatAvailableClientRect();
         int nextX = m_dragStartWindowX;
         int nextY = m_dragStartWindowY;
         int nextW = m_dragStartWindowW;
@@ -1600,8 +1546,9 @@ void UINewChatWnd::Layout()
         Resize(nextWidth, nextHeight);
     }
 
-    int clampedX = m_x;
-    int clampedY = m_y;
+    const RECT availableRect = GetChatAvailableClientRect();
+    int clampedX = m_dockedAboveShortCut ? static_cast<int>(availableRect.left) : m_x;
+    int clampedY = m_dockedAboveShortCut ? static_cast<int>(availableRect.bottom) - nextHeight : m_y;
     ClampChatWindowPosition(&clampedX, &clampedY, nextWidth, nextHeight);
     Move(clampedX, clampedY);
     if (sizeChanged) {
@@ -1624,7 +1571,7 @@ void UINewChatWnd::AdjustScroll(int lineDelta)
 void UINewChatWnd::ClampScrollOffset()
 {
     int filteredCount = 0;
-    const u32 activeMask = m_tabChannelMasks[static_cast<size_t>(m_activeTab)];
+    const u32 activeMask = kChatTabPresets[static_cast<size_t>(m_activeTab)].channelMask;
     for (const ChatLine& line : m_lines) {
         if ((activeMask & ChatChannelBit(line.channel)) != 0u) {
             ++filteredCount;
@@ -1632,21 +1579,6 @@ void UINewChatWnd::ClampScrollOffset()
     }
     const int maxOffset = filteredCount > 0 ? filteredCount - 1 : 0;
     m_scrollLineOffset = std::clamp(m_scrollLineOffset, 0, maxOffset);
-}
-
-void UINewChatWnd::ResetTabDefaults()
-{
-    for (int index = 0; index < kChatTabCount; ++index) {
-        ResetTabDefault(index);
-    }
-}
-
-void UINewChatWnd::ResetTabDefault(int index)
-{
-    if (index < 0 || index >= kChatTabCount) {
-        return;
-    }
-    m_tabChannelMasks[static_cast<size_t>(index)] = kChatTabPresets[static_cast<size_t>(index)].channelMask;
 }
 
 void UINewChatWnd::SetActiveTab(int index)

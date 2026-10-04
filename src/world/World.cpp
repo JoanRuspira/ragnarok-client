@@ -2586,46 +2586,76 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
         alpha = (std::min)(alpha, clampedAlpha);
     }
 
-    const u32 billboardColor = (alpha << 24) | 0x00FFFFFFu;
-
-    RPFace* face = g_renderer.BorrowNullRP();
-    if (!face) {
-        return false;
+    const ActorPresentationFlash& flash = actor->m_presentationFlash;
+    const u32 flashAge = now - flash.startTick;
+    const bool flashing = flashAge < flash.endMs;
+    u32 tint = 0xFFFFFF;
+    if (flashing) {
+        const bool rising = flashAge < flash.peakMs;
+        const u32 from = rising ? flash.startColor : flash.peakColor;
+        const u32 to = rising ? flash.peakColor : 0xFFFFFF;
+        const float fraction = rising ? static_cast<float>(flashAge) / flash.peakMs
+            : static_cast<float>(flashAge - flash.peakMs) / (flash.endMs - flash.peakMs);
+        tint = 0;
+        for (int shift : { 0, 8, 16 }) {
+            const float channel = static_cast<float>((from >> shift) & 255);
+            const float target = static_cast<float>((to >> shift) & 255);
+            tint |= static_cast<u32>(channel + (target - channel) * fraction) << shift;
+        }
     }
+    const u32 billboardColor = (alpha << 24) | tint;
 
-    face->primType = D3DPT_TRIANGLESTRIP;
-    face->verts = face->m_verts;
-    face->numVerts = 4;
-    face->indices = nullptr;
-    face->numIndices = 0;
-    face->tex = actor->m_billboardTexture;
-    face->mtPreset = 0;
-    face->cullMode = D3DCULL_NONE;
-    face->srcAlphaMode = D3DBLEND_SRCALPHA;
-    face->destAlphaMode = D3DBLEND_INVSRCALPHA;
-    face->alphaSortKey = 0.0f;
+    const auto submit = [&](u32 color, float offsetX, float offsetY, D3DBLEND destBlend) {
+        RPFace* face = g_renderer.BorrowNullRP();
+        if (!face) {
+            return false;
+        }
 
-    tlvertex3d* verts = face->m_verts;
-    for (int index = 0; index < 4; ++index) {
-        verts[index].x = entry.renderX[index];
-        verts[index].y = entry.renderY[index];
+        face->primType = D3DPT_TRIANGLESTRIP;
+        face->verts = face->m_verts;
+        face->numVerts = 4;
+        face->indices = nullptr;
+        face->numIndices = 0;
+        face->tex = actor->m_billboardTexture;
+        face->mtPreset = 0;
+        face->cullMode = D3DCULL_NONE;
+        face->srcAlphaMode = D3DBLEND_SRCALPHA;
+        face->destAlphaMode = destBlend;
+        face->alphaSortKey = 0.0f;
+
+        tlvertex3d* verts = face->m_verts;
+        for (int index = 0; index < 4; ++index) {
+            verts[index].x = entry.renderX[index] + offsetX;
+            verts[index].y = entry.renderY[index] + offsetY;
+        }
+        for (int index = 0; index < 4; ++index) {
+            verts[index].z = (std::max)(0.0f, entry.renderZ[index] - kActorBillboardDepthBias);
+            verts[index].oow = entry.renderOow[index];
+            verts[index].color = color;
+            verts[index].specular = 0xFF000000u;
+        }
+
+        for (int index = 0; index < 4; ++index) {
+            verts[index].tu = entry.renderU[index];
+            verts[index].tv = entry.renderV[index];
+        }
+
+        face->alphaSortKey = entry.depthKey;
+
+        g_renderer.AddRP(face, 1);
+        return true;
+    };
+    const bool rendered = submit(billboardColor, 0.0f, 0.0f, D3DBLEND_INVSRCALPHA);
+    if (rendered && flashing && flash.haloAlpha > 0.0f && flash.haloRadius > 0.0f) {
+        const float fade = 1.0f - static_cast<float>(flashAge) / flash.endMs;
+        const u32 haloColor = (static_cast<u32>(alpha * flash.haloAlpha * fade / 8.0f) << 24) | tint;
+        for (int index = 0; index < 8; ++index) {
+            const float angle = static_cast<float>(index) * 0.78539816f;
+            submit(haloColor, std::cos(angle) * flash.haloRadius,
+                std::sin(angle) * flash.haloRadius, D3DBLEND_ONE);
+        }
     }
-    for (int index = 0; index < 4; ++index) {
-        verts[index].z = (std::max)(0.0f, entry.renderZ[index] - kActorBillboardDepthBias);
-        verts[index].oow = entry.renderOow[index];
-        verts[index].color = billboardColor;
-        verts[index].specular = 0xFF000000u;
-    }
-
-    for (int index = 0; index < 4; ++index) {
-        verts[index].tu = entry.renderU[index];
-        verts[index].tv = entry.renderV[index];
-    }
-
-    face->alphaSortKey = entry.depthKey;
-
-    g_renderer.AddRP(face, 1);
-    return true;
+    return rendered;
 }
 
 bool BuildBillboardRenderEntry(CPc* actor,

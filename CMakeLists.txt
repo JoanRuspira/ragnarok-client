@@ -244,6 +244,14 @@ endif()
 
 ro_add_qt_runtime_deploy(open_midgard "$<TARGET_FILE_DIR:open_midgard>")
 
+# Keep the editable presentation catalog beside every executable, including non-dev builds.
+add_custom_command(TARGET open_midgard POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/skill_presentation.lua"
+            "$<TARGET_FILE_DIR:open_midgard>/skill_presentation.lua"
+    VERBATIM
+)
+
 if(RO_ENABLE_DEV_DEPLOY)
     add_custom_command(TARGET open_midgard POST_BUILD
         COMMAND ${CMAKE_COMMAND}
@@ -252,6 +260,13 @@ if(RO_ENABLE_DEV_DEPLOY)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BestEffortCopy.cmake"
         VERBATIM
         COMMENT "Copying executable to ${RO_DEV_DEPLOY_DIR}"
+    )
+    add_custom_command(TARGET open_midgard POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DRO_SRC=${CMAKE_SOURCE_DIR}/skill_presentation.lua"
+                "-DRO_DST=${RO_DEV_DEPLOY_DIR}/skill_presentation.lua"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BestEffortCopy.cmake"
+        VERBATIM
     )
     ro_add_qt_runtime_deploy(open_midgard "${RO_DEV_DEPLOY_DIR}")
 endif()

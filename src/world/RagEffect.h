@@ -11,6 +11,7 @@
 #include <vector>
 
 class CTexture;
+struct SkillEffectPresentation;
 
 enum EFFECTPRIMID {
     PP_3DCIRCLE = 0,
@@ -196,10 +197,18 @@ private:
     bool m_cancelled = false;
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
+    float m_presentationOffsetY = 0.0f;
+    std::string m_pendingPresentationSound;
+    const SkillEffectPresentation* m_proceduralPresentation = nullptr;
+    CTexture* m_presentationTexture = nullptr;
+    bool m_presentationStarted = false;
+    u32 m_presentationStartTick = 0;
+    std::vector<float> m_burstAngles;
     std::vector<std::unique_ptr<CRagEffect>> m_componentEffects;
     enum class Handler {
         None,
         EzStr,
+        BodyBurst,
         GroundSurface,
         Sprite,
         Entry2,
@@ -251,6 +260,7 @@ private:
     void SpawnGroundSurface();
     void SpawnSprite();
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
+    void RenderBodyBurst(const matrix& viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;
 

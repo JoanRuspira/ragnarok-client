@@ -47,6 +47,7 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -98,6 +99,11 @@ constexpr unsigned char kHoverNameFontBold = 1;
 constexpr int kHoverNameOutlineRadius = 1;
 constexpr int kHoverNameTextPadding = 4;
 constexpr int kHoverNameVerticalOffset = 26;
+constexpr int kActorTextFontHeight = 20;
+constexpr int kActorTextPaddingX = 8;
+constexpr int kActorTextPaddingY = 4;
+constexpr int kActorTextMaxWidth = 320;
+constexpr unsigned int kActorTextBackground = 0xA6000000u;
 constexpr u32 kPickupRetryIntervalMs = 250;
 constexpr int kPlayerVitalsBarWidth = 56;
 constexpr int kPlayerVitalsBarHeight = 4;
@@ -744,7 +750,8 @@ void HashTokenString(std::uint64_t* hash, const std::string& value)
 
 std::string ResolveGroundItemHoverLabel(const CItem* item);
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc);
-void DrawActorSkillNames(CGameMode& mode, HDC hdc);
+void DrawActorTextLabels(CGameMode& mode, HDC hdc);
+void QueueActorTextLabels(CGameMode& mode);
 
 bool IsWorldHoverBlockedByUi(int screenX, int screenY)
 {
@@ -772,28 +779,6 @@ std::uint64_t ComputeGameplayOverlayStateToken(
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_MaxHp)));
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_Sp)));
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_MaxSp)));
-
-        const u32 nameNow = timeGetTime();
-        auto hashSkillName = [&](const CGameActor* actor) {
-            if (!actor || !actor->m_isVisible || !actor->HasActiveSkillName(nameNow)) {
-                return;
-            }
-            int centerX = 0;
-            int bottomY = 0;
-            if (mode.m_world->GetActorSpeechBubbleAnchor(mode.m_view->GetViewMatrix(), actor->m_gid,
-                    &centerX, &bottomY)) {
-                HashTokenValue(&hash, actor->m_gid);
-                HashTokenValue(&hash, static_cast<std::uint32_t>(centerX));
-                HashTokenValue(&hash, static_cast<std::uint32_t>(bottomY));
-                HashTokenString(&hash, actor->GetSkillNameText());
-            }
-        };
-        hashSkillName(player);
-        for (const auto& entry : mode.m_runtimeActors) {
-            if (entry.second != player) {
-                hashSkillName(entry.second);
-            }
-        }
 
         const u32 statusNow = g_session.GetServerTime();
         const std::vector<ACTIVE_STATUS_ICON>& activeStatusIcons = g_session.GetActiveStatusIcons();
@@ -2057,7 +2042,6 @@ void DrawGameplayOverlayToHdc(CGameMode& mode, HDC targetDc)
 
     DrawHoveredGroundItemName(mode, targetDc);
     DrawHoveredActorName(mode, targetDc);
-    DrawActorSkillNames(mode, targetDc);
 }
 
 void DrawGameplayFallbackToWindow(
@@ -2097,6 +2081,7 @@ void DrawGameplayFallbackToWindow(
     if (windowDc) {
         const double overlayDrawStartMs = trackMovePerfFrame ? QpcNowMs() : 0.0;
         DrawGameplayOverlayToHdc(mode, windowDc);
+        DrawActorTextLabels(mode, windowDc);
         DrawPlayerVitalsOverlay(mode, windowDc);
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.fallbackOverlayDrawMs += QpcNowMs() - overlayDrawStartMs;
@@ -3237,35 +3222,187 @@ void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF co
     drawDc.TextOutA(x, y, text, textLen);
 }
 
-void DrawActorSkillNames(CGameMode& mode, HDC hdc)
+struct ActorTextLabelImage {
+    std::string text;
+    int maxTextWidth = 0;
+    int width = 0;
+    int height = 0;
+    u32 lastUsedTick = 0;
+    std::vector<unsigned int> pixels;
+    std::unique_ptr<CTexture> texture;
+};
+
+bool BuildActorTextLabelImage(ActorTextLabelImage& image, const std::string& text, bool wrap, int maxTextWidth)
 {
-    if (!hdc || !mode.m_world || !mode.m_view) {
-        return;
+    int textWidth = 0;
+    int textHeight = 0;
+#if RO_ENABLE_QT6_UI
+    QFont font(QStringLiteral("Arial"));
+    font.setPixelSize(kActorTextFontHeight);
+    font.setBold(true);
+    font.setStyleStrategy(QFont::NoAntialias);
+    const QString label = QString::fromLocal8Bit(text.c_str(), static_cast<int>(text.size()));
+    const int format = Qt::AlignHCenter | Qt::AlignTop | (wrap ? Qt::TextWordWrap : Qt::TextSingleLine);
+    const QFontMetrics metrics(font);
+    const QRect bounds = metrics.boundingRect(QRect(0, 0, maxTextWidth, 16384), format, label);
+    textWidth = (std::max)(1, bounds.width());
+    textHeight = (std::max)(1, bounds.height());
+#else
+    static ArgbDibSurface textSurface;
+    if (!textSurface.EnsureSize(1, 1)) return false;
+    const unsigned int format = DT_CENTER | DT_TOP | DT_NOPREFIX
+        | (wrap ? DT_WORDBREAK | DT_EDITCONTROL : DT_SINGLELINE);
+    {
+        DrawDC drawDc(textSurface.GetDC());
+        drawDc.SetFont(FONT_DEFAULT, kActorTextFontHeight, true, NONANTIALIASED_QUALITY);
+        RECT bounds{ 0, 0, maxTextWidth, 0 };
+        DrawTextA(textSurface.GetDC(), text.c_str(), static_cast<int>(text.size()), &bounds, format | DT_CALCRECT);
+        textWidth = (std::max)(1, static_cast<int>(bounds.right - bounds.left));
+        textHeight = (std::max)(1, static_cast<int>(bounds.bottom - bounds.top));
     }
-    const u32 now = timeGetTime();
-    auto drawName = [&](CGameActor* actor) {
-        if (!actor || !actor->m_isVisible || !actor->HasActiveSkillName(now)) {
-            return;
+#endif
+    image.width = textWidth + kActorTextPaddingX * 2;
+    image.height = textHeight + kActorTextPaddingY * 2;
+    image.pixels.assign(static_cast<size_t>(image.width) * image.height, kActorTextBackground);
+#if RO_ENABLE_QT6_UI
+    QImage bitmap(reinterpret_cast<uchar*>(image.pixels.data()), image.width, image.height,
+        image.width * static_cast<int>(sizeof(unsigned int)), QImage::Format_ARGB32);
+    if (bitmap.isNull()) return false;
+    QPainter painter(&bitmap);
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setRenderHint(QPainter::TextAntialiasing, false);
+    painter.setFont(font);
+    const QRect textRect(kActorTextPaddingX, kActorTextPaddingY, textWidth, textHeight);
+    painter.setPen(Qt::black);
+    painter.drawText(textRect.translated(-1, 0), format, label);
+    painter.drawText(textRect.translated(1, 0), format, label);
+    painter.drawText(textRect.translated(0, -1), format, label);
+    painter.drawText(textRect.translated(0, 1), format, label);
+    painter.setPen(Qt::white);
+    painter.drawText(textRect, format, label);
+    painter.end();
+#else
+    if (!textSurface.EnsureSize(image.width, image.height)) return false;
+    ClearOverlayComposeBits(textSurface.GetBits(), image.width, image.height);
+    {
+        DrawDC drawDc(textSurface.GetDC());
+        drawDc.SetFont(FONT_DEFAULT, kActorTextFontHeight, true, NONANTIALIASED_QUALITY);
+        SetBkMode(textSurface.GetDC(), TRANSPARENT);
+        const RECT textRect{ kActorTextPaddingX, kActorTextPaddingY,
+            kActorTextPaddingX + textWidth, kActorTextPaddingY + textHeight };
+        drawDc.SetTextColor(RGB(0, 0, 0));
+        const POINT outlineOffsets[] = { {-1, 0}, {1, 0}, {0, -1}, {0, 1} };
+        for (const POINT& offset : outlineOffsets) {
+            RECT outlineRect = textRect;
+            OffsetRect(&outlineRect, offset.x, offset.y);
+            DrawTextA(textSurface.GetDC(), text.c_str(), static_cast<int>(text.size()), &outlineRect, format);
         }
+        drawDc.SetTextColor(RGB(255, 255, 255));
+        RECT foregroundRect = textRect;
+        DrawTextA(textSurface.GetDC(), text.c_str(), static_cast<int>(text.size()), &foregroundRect, format);
+    }
+#if RO_PLATFORM_WINDOWS
+    GdiFlush();
+#endif
+    const unsigned int* pixels = textSurface.GetPixels();
+    for (size_t i = 0; i < image.pixels.size(); ++i) {
+        const unsigned int rgb = pixels[i] & 0x00FFFFFFu;
+        // Give the panel real alpha after GDI text rendering; converting the
+        // whole label with the HUD's color-key conversion makes it opaque.
+        image.pixels[i] = rgb == kOverlayTransparentKey ? kActorTextBackground : (0xFF000000u | rgb);
+    }
+#endif
+    image.text = text;
+    image.maxTextWidth = maxTextWidth;
+    image.texture.reset();
+    return true;
+}
+
+template<typename DrawLabel>
+void VisitActorTextLabels(CGameMode& mode, const DrawLabel& drawLabel)
+{
+    if (!mode.m_world || !mode.m_view || IsMapLoadingActive(mode)) return;
+    const u32 now = GetTickCount();
+    // Cache rasterized text, while projecting the label's position every frame.
+    static std::map<std::pair<u32, bool>, ActorTextLabelImage> images;
+    for (auto it = images.begin(); it != images.end();) {
+        if (now - it->second.lastUsedTick > 15000) it = images.erase(it);
+        else ++it;
+    }
+    const int maxTextWidth = (std::max)(1, (std::min)(kActorTextMaxWidth,
+        g_renderer.m_width - kActorTextPaddingX * 2 - 8));
+    auto drawActor = [&](CGameActor* actor) {
+        if (!actor || !actor->m_isVisible) return;
+        const bool hasSkill = actor->HasActiveSkillName(now);
+        const bool hasChat = actor->HasActiveChatBubble(now);
+        if (!hasSkill && !hasChat) return;
         int centerX = 0;
         int bottomY = 0;
         if (!mode.m_world->GetActorSpeechBubbleAnchor(mode.m_view->GetViewMatrix(), actor->m_gid,
-                &centerX, &bottomY)) {
-            return;
-        }
-        const std::string& text = actor->GetSkillNameText();
-        DrawDC drawDc(hdc);
-        drawDc.SetFont(FONT_DEFAULT, 12, false);
-        SIZE size{};
-        drawDc.GetTextExtentPoint32A(text.c_str(), static_cast<int>(text.size()), &size);
-        DrawOutlinedScreenText(hdc, centerX - size.cx / 2, bottomY - size.cy - 2, text.c_str(), RGB(255, 255, 255), 12, false);
+                &centerX, &bottomY)) return;
+        auto drawText = [&](const std::string& text, bool skill) {
+            ActorTextLabelImage& image = images[{actor->m_gid, skill}];
+            image.lastUsedTick = now;
+            if ((image.text != text || image.maxTextWidth != maxTextWidth || image.pixels.empty())
+                && !BuildActorTextLabelImage(image, text, !skill, maxTextWidth)) return;
+            const int left = (std::max)(0, (std::min)(centerX - image.width / 2,
+                g_renderer.m_width - image.width));
+            const int top = bottomY - image.height;
+            drawLabel(image, left, top);
+            bottomY = top - 6;
+        };
+        if (hasSkill) drawText(actor->GetSkillNameText(), true);
+        if (hasChat) drawText(actor->GetChatBubbleText(), false);
     };
-    drawName(mode.m_world->m_player);
+    drawActor(mode.m_world->m_player);
     for (const auto& entry : mode.m_runtimeActors) {
-        if (entry.second != mode.m_world->m_player) {
-            drawName(entry.second);
-        }
+        if (entry.second != mode.m_world->m_player) drawActor(entry.second);
     }
+}
+
+void DrawActorTextLabels(CGameMode& mode, HDC hdc)
+{
+    if (!hdc || IsQtUiRuntimeEnabled()) return;
+    VisitActorTextLabels(mode, [&](ActorTextLabelImage& image, int left, int top) {
+        AlphaBlendArgbToHdc(hdc, left, top, image.width, image.height,
+            image.pixels.data(), image.width, image.height);
+    });
+}
+
+void QueueActorTextLabels(CGameMode& mode)
+{
+    VisitActorTextLabels(mode, [&](ActorTextLabelImage& image, int left, int top) {
+        if (!image.texture) {
+            auto texture = std::make_unique<CTexture>();
+            if (!texture->Create(image.width, image.height, PF_A8R8G8B8, false)) return;
+            SetTextureDebugName(texture.get(), "__overlay_actor_text__");
+            texture->Update(0, 0, image.width, image.height, image.pixels.data(), true,
+                image.width * static_cast<int>(sizeof(unsigned int)));
+            image.texture = std::move(texture);
+        }
+        RPFace* face = g_renderer.BorrowNullRP();
+        if (!face) return;
+        const float maxU = static_cast<float>(image.width) / image.texture->m_w;
+        const float maxV = static_cast<float>(image.height) / image.texture->m_h;
+        const float x = static_cast<float>(left) - 0.5f;
+        const float y = static_cast<float>(top) - 0.5f;
+        face->primType = D3DPT_TRIANGLESTRIP;
+        face->verts = face->m_verts;
+        face->numVerts = 4;
+        face->indices = nullptr;
+        face->numIndices = 0;
+        face->tex = image.texture.get();
+        face->mtPreset = 3;
+        face->cullMode = D3DCULL_NONE;
+        face->srcAlphaMode = D3DBLEND_SRCALPHA;
+        face->destAlphaMode = D3DBLEND_INVSRCALPHA;
+        face->alphaSortKey = 0.98f;
+        face->m_verts[0] = { x, y, 0.0f, 1.0f, 0xFFFFFFFFu, 0xFF000000u, 0.0f, 0.0f };
+        face->m_verts[1] = { x + image.width, y, 0.0f, 1.0f, 0xFFFFFFFFu, 0xFF000000u, maxU, 0.0f };
+        face->m_verts[2] = { x, y + image.height, 0.0f, 1.0f, 0xFFFFFFFFu, 0xFF000000u, 0.0f, maxV };
+        face->m_verts[3] = { x + image.width, y + image.height, 0.0f, 1.0f, 0xFFFFFFFFu, 0xFF000000u, maxU, maxV };
+        g_renderer.AddRP(face, 1 | 8);
+    });
 }
 
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc)
@@ -4351,29 +4488,6 @@ bool LocalPlayerHasPendingMoveAck(const CGameMode& mode, u32 now)
     }
 
     return now - player->m_moveReqTick <= kMoveAckTimeoutMs;
-}
-
-constexpr u32 kLocalChatBubbleBaseLifetimeMs = 3200;
-constexpr u32 kLocalChatBubblePerCharLifetimeMs = 90;
-constexpr u32 kLocalChatBubbleMinLifetimeMs = 4500;
-constexpr u32 kLocalChatBubbleMaxLifetimeMs = 12000;
-
-u32 ComputeLocalChatBubbleUntilTick(const std::string& text, u32 now)
-{
-    const u32 bubbleLengthMs = kLocalChatBubbleBaseLifetimeMs
-        + static_cast<u32>(text.size()) * kLocalChatBubblePerCharLifetimeMs;
-    const u32 clampedLengthMs = (std::min)(kLocalChatBubbleMaxLifetimeMs,
-        (std::max)(kLocalChatBubbleMinLifetimeMs, bubbleLengthMs));
-    return now + clampedLengthMs;
-}
-
-void ApplyLocalPlayerChatBubble(CGameMode& mode, const std::string& text)
-{
-    if (text.empty() || !mode.m_world || !mode.m_world->m_player) {
-        return;
-    }
-
-    mode.m_world->m_player->SetChatBubbleText(text, ComputeLocalChatBubbleUntilTick(text, GetTickCount()));
 }
 
 bool SendGlobalChatMessage(const char* playerName, const std::string& message)
@@ -9267,6 +9381,9 @@ int  CGameMode::OnRun() {
         uiDrawStart = GetTickCount();
         const double modernQueueStartMs = trackMovePerfFrame ? QpcNowMs() : 0.0;
         queuedModernOverlayFrame = QueueModernOverlayQuad(*this, m_cursorActNum, m_mouseAnimStartTick);
+        if (queuedModernOverlayFrame && !IsQtUiRuntimeEnabled()) {
+            QueueActorTextLabels(*this);
+        }
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.queueModernMs += QpcNowMs() - modernQueueStartMs;
         }
@@ -9846,9 +9963,6 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
             return sent ? 1 : 0;
         }
         const bool sent = SendGlobalChatMessage(g_session.GetPlayerName(), text);
-        if (sent) {
-            ApplyLocalPlayerChatBubble(*this, text);
-        }
         return sent ? 1 : 0;
     }
 

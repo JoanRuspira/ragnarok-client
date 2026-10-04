@@ -13,6 +13,7 @@
 #include "session/SkillActionInfo.h"
 #include "session/SkillActionInfo2.h"
 #include "skill/Skill.h"
+#include "skill/SkillPresentation.h"
 #include "item/Item.h"
 #include "Mode.h"
 #include "DebugLog.h"
@@ -73,7 +74,7 @@ constexpr u32 kSystemNoticeColor = 0x0080C0FFu;
 constexpr u32 kActorChatBubbleBaseLifetimeMs = 3200;
 constexpr u32 kActorChatBubblePerCharLifetimeMs = 90;
 constexpr u32 kActorChatBubbleMinLifetimeMs = 4500;
-constexpr u32 kActorChatBubbleMaxLifetimeMs = 12000;
+constexpr u32 kActorChatBubbleMaxLifetimeMs = 8000;
 constexpr u32 kActorNameRequestCooldownMs = 1000;
 
 PendingDisconnectAction g_pendingDisconnectAction = PendingDisconnectAction::None;
@@ -3911,6 +3912,12 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
     const auto launch = [targetActor, delayMs](int effectId) {
         if (CRagEffect* effect = targetActor->LaunchEffect(effectId, vector3d{}, 0.0f)) effect->SetStartDelayMs(delayMs);
     };
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        if (!presentation->passive && !presentation->targetServerNotified) {
+            for (int effectId : presentation->targetEffects) launch(effectId);
+        }
+        return;
+    }
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && !luaInfo.targetEffectIds.empty()) {
         for (int effectId : luaInfo.targetEffectIds) {
@@ -4620,6 +4627,18 @@ struct UseSkillPacketInfo {
 UseSkillPacketInfo ResolveUseSkillPacketInfo(u16 skillId)
 {
     UseSkillPacketInfo info;
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        info.beginEffectId = presentation->beginEffectId;
+        info.motionType = presentation->motionType;
+        info.launchUseSkill = !presentation->passive && !presentation->sourceServerNotified;
+        if (info.launchUseSkill) {
+            info.sourceEffectIds = presentation->sourceEffects;
+        }
+        if (!presentation->passive && !presentation->targetServerNotified) {
+            info.impactEffectIds = presentation->targetEffects;
+        }
+        return info;
+    }
     GetSkillActionInfo(static_cast<int>(skillId), info.beginEffectId, info.motionType);
 
     if (skillId == 24) { // AL_RUWACH
@@ -4865,6 +4884,10 @@ vector3d ResolveSkillCellWorldPosition(const CWorld* world, int cellX, int cellY
 
 int ResolveGroundSkillEffectId(u16 skillId, u16 level)
 {
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        return !presentation->passive && !presentation->groundServerNotified && !presentation->groundEffects.empty()
+            ? presentation->groundEffects.front() : -1;
+    }
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && luaInfo.hasGroundEffectId) {
         return luaInfo.groundEffectId;
@@ -4903,6 +4926,12 @@ int ResolveGroundSkillEffectId(u16 skillId, u16 level)
 
 void EmitGroundSkillEffects(CGameMode& mode, u16 skillId, u16 level, const vector3d& position)
 {
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        if (!presentation->passive && !presentation->groundServerNotified) {
+            for (int effectId : presentation->groundEffects) SpawnWorldSkillEffect(mode, effectId, position);
+        }
+        return;
+    }
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(skillId, &luaInfo) && !luaInfo.groundEffectIds.empty()) {
         for (int effectId : luaInfo.groundEffectIds) {
@@ -5163,15 +5192,20 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
-    GetSkillActionInfo2(static_cast<int>(skillId), beginEffectId, motionType, static_cast<int>(property), sourceActor->m_job);
-    if (beginEffectId == 16) beginEffectId = 12;
-    LuaSkillEffectInfo luaInfo;
-    if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo)) {
-        if (luaInfo.hasBeginEffectId) {
-            beginEffectId = luaInfo.beginEffectId;
-        }
-        if (luaInfo.hasBeginMotionType) {
-            motionType = luaInfo.beginMotionType;
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        beginEffectId = presentation->beginEffectId;
+        motionType = presentation->motionType;
+    } else {
+        GetSkillActionInfo2(static_cast<int>(skillId), beginEffectId, motionType, static_cast<int>(property), sourceActor->m_job);
+        if (beginEffectId == 16) beginEffectId = 12;
+        LuaSkillEffectInfo luaInfo;
+        if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo)) {
+            if (luaInfo.hasBeginEffectId) {
+                beginEffectId = luaInfo.beginEffectId;
+            }
+            if (luaInfo.hasBeginMotionType) {
+                motionType = luaInfo.beginMotionType;
+            }
         }
     }
 
@@ -5461,6 +5495,8 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     } else if (targetActor && result != 0 && skillId == 9) { // SK_SM_SRECOVERY: server SP restoration
         EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);
+    } else if (targetActor && result != 0 && FindSkillPresentation(skillId)) {
+        EmitSkillImpactEffect(targetActor, skillId, 0);
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
         if (!packetInfo.impactEffectIds.empty()) {
             for (int effectId : packetInfo.impactEffectIds) {
@@ -7529,7 +7565,17 @@ void HandleNotifyPlayerChat(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    RecordChat(mode, ExtractPacketString(packet, 4), 0x0000FF00, kChatChannelPlayer);
+    const std::string text = ExtractPacketString(packet, 4);
+    RecordChat(mode, text, 0x0000FF00, kChatChannelPlayer);
+    // This opcode also carries server notices. Only a named local speech echo
+    // belongs above the player; keep every message in the chat log.
+    const char* const playerName = g_session.GetPlayerName();
+    if (playerName && *playerName) {
+        const std::string prefix = std::string(playerName) + " : ";
+        if (text.compare(0, prefix.size(), prefix) == 0) {
+            ApplyActorChatBubble(mode, g_session.m_aid, text);
+        }
+    }
 }
 
 void HandleWhisper(CGameMode& mode, const PacketView& packet)

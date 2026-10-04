@@ -13,6 +13,7 @@
 #include "res/Sprite.h"
 #include "res/Texture.h"
 #include "session/Session.h"
+#include "skill/SkillPresentation.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1709,11 +1710,6 @@ static void PlayEzStrAssociatedStartupSound(const char* strResourcePath, int eff
         return;
     }
 
-    if (effectId == 130) { // EF_TWOHANDQUICKEN, also sent for custom Spear Quicken (816).
-        TryPlaySingleEffectWave(soundPos, "effect\\knight_twohandquicken.wav");
-        return;
-    }
-
     std::vector<std::string> tryPaths;
     if (effectId == 337) {
         tryPaths.push_back("effect\\levelup.wav");
@@ -2360,8 +2356,6 @@ std::string ResolveStrName(int effectId)
         return ResolveWorldStrName("stonecurse.str");
     case 101:
         return ResolveWorldStrName("repairweapon.str");
-    case 130: // EF_TWOHANDQUICKEN: the legacy catalog incorrectly names defense.str.
-        return ResolveWorldStrName("twohand.str");
     case kRagEffectMetallicSound:
         return ResolveWorldStrName("new_metalicsound\\new_metalicsound\\new_metalicsound.str");
     case kRagEffectMetallicSoundHit:
@@ -3936,10 +3930,7 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     }
 
     vector3d anchorPos = ResolveBasePosition();
-    if (m_type == 130) {
-        // Quicken's STR is attached to the head, like head-attached sprite effects.
-        anchorPos.y -= 10.0f;
-    }
+    anchorPos.y += m_presentationOffsetY;
     tlvertex3d anchor{};
     if (!ProjectPoint(anchorPos, *viewMatrix, &anchor)) {
         return;
@@ -4013,6 +4004,13 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_cancelled = false;
     m_startDelayMs = 0;
     m_castEndTick = 0;
+    m_presentationOffsetY = 0.0f;
+    m_pendingPresentationSound.clear();
+    m_proceduralPresentation = nullptr;
+    m_presentationTexture = nullptr;
+    m_presentationStarted = false;
+    m_presentationStartTick = 0;
+    m_burstAngles.clear();
     m_master = master;
     m_ownsMaster = false;
     if (const CGameActor* actorMaster = dynamic_cast<const CGameActor*>(master)) {
@@ -4036,6 +4034,39 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_hasTargetPos = false;
     m_grimToothStep = vector3d{};
     m_grimToothRemaining = vector3d{};
+
+    if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        if (presentation->renderer == SkillEffectPresentation::Renderer::BodyBurst) {
+            const auto& burst = presentation->bodyBurst;
+            m_handler = Handler::BodyBurst;
+            m_proceduralPresentation = presentation;
+            m_duration = static_cast<int>(std::ceil(
+                (std::max)(burst.flashEndMs, burst.burstDelayMs + burst.burstDurationMs) / kEffectTickMs));
+            m_presentationTexture = g_texMgr.GetTexture(burst.texturePath.c_str(), false);
+            if (m_presentationTexture == &CTexMgr::s_dummy_texture) m_presentationTexture = nullptr;
+            m_pendingPresentationSound = burst.wavPath;
+            for (size_t group = 0; group < burst.burstRadii.size(); ++group) {
+                for (int index = 0; index < burst.burstCount; ++index) {
+                    m_burstAngles.push_back(static_cast<float>(rand() % 360));
+                }
+            }
+            if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", burst.texturePath.c_str());
+            return;
+        }
+        const SkillEffectVariant& variant = presentation->variants[static_cast<size_t>(rand()) % presentation->variants.size()];
+        m_presentationOffsetY = presentation->offsetY;
+        LoadEzEffect(variant.strPath.c_str());
+        InitEZ2STRFrame();
+        if (m_aniClips && m_aniClips->cFrame > 0 && m_aniClips->nFPS > 0) {
+            m_handler = Handler::EzStr;
+            m_duration = m_aniClips->cFrame + 1;
+            m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
+            m_pendingPresentationSound = variant.wavPath;
+            SetLooping(presentation->loop);
+        }
+        // Configured effects own their visual and audio, including intentional silence.
+        return;
+    }
 
     switch (effectId) {
     case kRagEffectTrap:
@@ -4536,6 +4567,13 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::BodyBurst:
+        if (m_proceduralPresentation) {
+            const auto& burst = m_proceduralPresentation->bodyBurst;
+            center = AddVec3(center, ScaleVec3(g_renderer.m_eyeUp, -burst.burstHeight));
+            for (float burstRadius : burst.burstRadii) radius = (std::max)(radius, burstRadius);
+        }
+        break;
     case Handler::Portal:
     case Handler::ReadyPortal:
     case Handler::WarpZone:
@@ -6593,6 +6631,22 @@ u8 CRagEffect::OnProcess()
         m_lastProcessTick += m_startDelayMs;
         m_startDelayMs = 0;
     }
+    if (m_handler == Handler::BodyBurst && !m_presentationStarted) {
+        const auto& burst = m_proceduralPresentation->bodyBurst;
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+        if (CRenderObject* master = ResolveCurrentMaster()) {
+            master->m_presentationFlash = { m_presentationStartTick,
+                static_cast<u32>(burst.flashPeakMs), static_cast<u32>(burst.flashEndMs),
+                static_cast<u32>(burst.flashStartColor), static_cast<u32>(burst.flashPeakColor),
+                burst.haloAlpha, burst.haloRadius };
+        }
+    }
+    if (!m_pendingPresentationSound.empty()) {
+        // Play once when the animation starts, after any SetStartDelayMs delay.
+        TryPlaySingleEffectWave(ResolveBasePosition(), m_pendingPresentationSound);
+        m_pendingPresentationSound.clear();
+    }
     for (auto it = m_componentEffects.begin(); it != m_componentEffects.end();) {
         if (!(*it)->OnProcess()) {
             it = m_componentEffects.erase(it);
@@ -6606,6 +6660,12 @@ u8 CRagEffect::OnProcess()
     }
 
     const u32 now = timeGetTime();
+    if (m_handler == Handler::BodyBurst) {
+        const auto& burst = m_proceduralPresentation->bodyBurst;
+        const int durationMs = (std::max)(burst.flashEndMs, burst.burstDelayMs + burst.burstDurationMs);
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < static_cast<u32>(durationMs) ? 1 : 0;
+    }
     const u32 elapsedMs = now - m_lastProcessTick;
     m_lastProcessTick = now;
     m_tickCarryMs += static_cast<float>(elapsedMs);
@@ -6879,6 +6939,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         m_duration = static_cast<int>(par1);
         return;
     case 109:
+        if (m_handler == Handler::BodyBurst) m_cancelled = true;
         ClearPrims();
         m_loop = false;
         m_duration = 0;
@@ -6889,11 +6950,66 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
     }
 }
 
+void CRagEffect::RenderBodyBurst(const matrix& viewMatrix)
+{
+    if (!m_presentationStarted || !m_presentationTexture) return;
+    const auto& burst = m_proceduralPresentation->bodyBurst;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    if (elapsedMs < static_cast<u32>(burst.burstDelayMs)) return;
+    const float progress = static_cast<float>(elapsedMs - burst.burstDelayMs) / burst.burstDurationMs;
+    if (progress >= 1.0f) return;
+
+    vector3d center = ResolveBasePosition();
+    // Match the caster billboard's upward direction at any camera angle.
+    center = AddVec3(center, ScaleVec3(g_renderer.m_eyeUp, -burst.burstHeight));
+    tlvertex3d anchor{};
+    if (!ProjectPoint(center, viewMatrix, &anchor)) return;
+    // Camera-facing wedges, with radii in world units; the texture controls their radial profile.
+    const float scale = anchor.oow * g_renderer.m_hpc;
+    const float fade = (std::min)(1.0f, (std::min)(progress * 4.0f, (1.0f - progress) * 4.0f));
+    const u32 color = (static_cast<u32>(255.0f * burst.burstAlpha * fade) << 24) | 0xFFFFFF;
+    const float uvs[4][2] = { { 0.0f, 1.0f }, { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 1.0f, 0.0f } };
+    for (size_t group = 0; group < burst.burstRadii.size(); ++group) {
+        const float radius = burst.burstRadii[group] * progress * scale;
+        for (int index = 0; index < burst.burstCount; ++index) {
+            const float start = m_burstAngles[group * burst.burstCount + index] * (kPi / 180.0f);
+            const float end = start + burst.burstArcDegrees * (kPi / 180.0f);
+            const float angles[4] = { start, start, end, end };
+            RPFace* face = g_renderer.BorrowNullRP();
+            if (!face) return;
+            face->primType = D3DPT_TRIANGLESTRIP;
+            face->verts = face->m_verts;
+            face->numVerts = 4;
+            face->indices = nullptr;
+            face->numIndices = 0;
+            face->tex = m_presentationTexture;
+            face->mtPreset = 0;
+            face->cullMode = D3DCULL_NONE;
+            face->srcAlphaMode = D3DBLEND_SRCALPHA;
+            face->destAlphaMode = D3DBLEND_INVSRCALPHA;
+            face->alphaSortKey = 0.0f;
+            for (int vertex = 0; vertex < 4; ++vertex) {
+                const float distance = vertex % 2 == 0 ? 0.1f * scale : radius;
+                auto& out = face->m_verts[vertex];
+                out = anchor;
+                out.x += std::cos(angles[vertex]) * distance;
+                out.y += std::sin(angles[vertex]) * distance;
+                out.z = (std::max)(0.0f, out.z - kEffectSpriteDepthBias);
+                out.color = color;
+                out.tu = uvs[vertex][0];
+                out.tv = uvs[vertex][1];
+            }
+            g_renderer.AddRP(face, 1);
+        }
+    }
+}
+
 void CRagEffect::Render(matrix* viewMatrix)
 {
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
         return;
     }
+    if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
 
     if ((m_type == kRagEffectPortal || m_type == kRagEffectReadyPortal || m_type == kRagEffectWarpZone)
         && m_stateCnt <= 3) {

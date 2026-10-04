@@ -2278,6 +2278,13 @@ bool UIWindowMgr::HasFrontMenuUiVisible() const
 
 bool UIWindowMgr::HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool hasFrontMenuUi)
 {
+    // Keep skill bar keys available while chat input has focus.
+    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey < VK_F1 + UIShortCutWnd::kVisibleSlotCount
+        && !HasBlockingUiForGameplayHotkeys()) {
+        g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse, virtualKey - VK_F1, 0, 0);
+        return true;
+    }
+
     if (isCtrlDown && virtualKey == VK_TAB && !hasFrontMenuUi) {
         ToggleWindow(WID_ROMAPWND);
         return true;
@@ -2310,11 +2317,6 @@ bool UIWindowMgr::HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bo
 
 bool UIWindowMgr::HandleHotkeyAfterFocusedUi(int virtualKey, bool hasFrontMenuUi)
 {
-    if (!hasFrontMenuUi && virtualKey >= VK_F1 && virtualKey < VK_F1 + UIShortCutWnd::kVisibleSlotCount) {
-        g_modeMgr.SendMsg(CGameMode::GameMsg_RequestShortcutUse, virtualKey - VK_F1, 0, 0);
-        return true;
-    }
-
     if (virtualKey == VK_ESCAPE && !hasFrontMenuUi) {
         UIWindow* chooseWnd = MakeWindow(WID_CHOOSEWND);
         if (chooseWnd) {

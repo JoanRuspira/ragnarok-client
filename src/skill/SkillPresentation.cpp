@@ -1,0 +1,418 @@
+#include "SkillPresentation.h"
+
+#include "DebugLog.h"
+#include "core/SettingsIni.h"
+
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <initializer_list>
+#include <limits>
+#include <map>
+#include <memory>
+#include <utility>
+
+extern "C" {
+#include "lua.h"
+#include "lauxlib.h"
+}
+
+namespace {
+
+int AbsoluteIndex(lua_State* state, int index)
+{
+    return index > 0 ? index : lua_gettop(state) + index + 1;
+}
+
+bool ReadString(lua_State* state, int table, const char* key, std::string& value, bool required,
+    std::string& error)
+{
+    lua_getfield(state, table, key);
+    bool valid = !required && lua_isnil(state, -1);
+    if (lua_type(state, -1) == LUA_TSTRING) {
+        size_t size = 0;
+        const char* bytes = lua_tolstring(state, -1, &size);
+        value.assign(bytes, size);
+        valid = !required || !value.empty();
+    }
+    lua_pop(state, 1);
+    if (!valid) error = std::string("expected string field '") + key + "'";
+    return valid;
+}
+
+bool ReadInteger(lua_State* state, int table, const char* key, int& value, std::string& error)
+{
+    lua_getfield(state, table, key);
+    bool valid = lua_isnil(state, -1);
+    if (lua_type(state, -1) == LUA_TNUMBER) {
+        const double number = lua_tonumber(state, -1);
+        valid = std::isfinite(number) && number >= -1 && number <= (std::numeric_limits<int>::max)()
+            && number == std::floor(number);
+        if (valid) value = static_cast<int>(number);
+    }
+    lua_pop(state, 1);
+    if (!valid) error = std::string("expected integer field '") + key + "'";
+    return valid;
+}
+
+bool ReadBoolean(lua_State* state, int table, const char* key, bool& value, std::string& error)
+{
+    lua_getfield(state, table, key);
+    const bool valid = lua_isnil(state, -1) || lua_isboolean(state, -1);
+    if (lua_isboolean(state, -1)) value = lua_toboolean(state, -1) != 0;
+    lua_pop(state, 1);
+    if (!valid) error = std::string("expected boolean field '") + key + "'";
+    return valid;
+}
+
+bool ReadIdKey(lua_State* state, int& id, std::string& error, int minimum = 1)
+{
+    if (lua_type(state, -2) == LUA_TNUMBER) {
+        const double number = lua_tonumber(state, -2);
+        if (std::isfinite(number) && number >= minimum && number <= (std::numeric_limits<int>::max)()
+            && number == std::floor(number)) {
+            id = static_cast<int>(number);
+            return true;
+        }
+    }
+    error = "expected a numeric ID >= " + std::to_string(minimum) + " as table key";
+    return false;
+}
+
+bool ValidateResourcePath(std::string& path, const char* prefix, const char* extension,
+    std::string& error)
+{
+    std::replace(path.begin(), path.end(), '/', '\\');
+    if (path.rfind(prefix, 0) != 0 || path.size() >= 260 || path.find('\0') != std::string::npos
+        || path.find("\\..\\") != std::string::npos || path.size() < 4
+        || path.compare(path.size() - 4, 4, extension) != 0) {
+        error = "expected a full GRF resource path: " + path;
+        return false;
+    }
+    return true;
+}
+
+bool ReadVariant(lua_State* state, int table, SkillEffectVariant& variant, std::string& error)
+{
+    table = AbsoluteIndex(state, table);
+    return lua_istable(state, table)
+        && ReadString(state, table, "str", variant.strPath, true, error)
+        && ReadString(state, table, "wav", variant.wavPath, false, error)
+        && ValidateResourcePath(variant.strPath, "data\\texture\\effect\\", ".str", error)
+        && (variant.wavPath.empty() || ValidateResourcePath(variant.wavPath, "data\\wav\\", ".wav", error));
+}
+
+bool ReadNumber(lua_State* state, int table, const char* key, float& value,
+    float minimum, float maximum, std::string& error)
+{
+    lua_getfield(state, table, key);
+    const double number = lua_tonumber(state, -1);
+    const bool valid = lua_type(state, -1) == LUA_TNUMBER && std::isfinite(number)
+        && number >= minimum && number <= maximum;
+    if (valid) value = static_cast<float>(number);
+    lua_pop(state, 1);
+    if (!valid) error = std::string("invalid numeric field '") + key + "'";
+    return valid;
+}
+
+bool ReadBodyBurst(lua_State* state, int table, SkillBodyBurstPresentation& burst, std::string& error)
+{
+    if (!ReadString(state, table, "texture", burst.texturePath, true, error)
+        || !ValidateResourcePath(burst.texturePath, "data\\texture\\effect\\", ".tga", error)
+        || !ReadString(state, table, "wav", burst.wavPath, false, error)
+        || (!burst.wavPath.empty() && !ValidateResourcePath(burst.wavPath, "data\\wav\\", ".wav", error))
+        || !ReadInteger(state, table, "flash_start_color", burst.flashStartColor, error)
+        || !ReadInteger(state, table, "flash_peak_color", burst.flashPeakColor, error)
+        || !ReadInteger(state, table, "flash_peak_ms", burst.flashPeakMs, error)
+        || !ReadInteger(state, table, "flash_end_ms", burst.flashEndMs, error)
+        || !ReadInteger(state, table, "burst_delay_ms", burst.burstDelayMs, error)
+        || !ReadInteger(state, table, "burst_duration_ms", burst.burstDurationMs, error)
+        || !ReadInteger(state, table, "burst_count", burst.burstCount, error)
+        || !ReadNumber(state, table, "halo_alpha", burst.haloAlpha, 0.0f, 1.0f, error)
+        || !ReadNumber(state, table, "halo_radius", burst.haloRadius, 0.0f, 20.0f, error)
+        || !ReadNumber(state, table, "burst_arc_degrees", burst.burstArcDegrees, 0.1f, 180.0f, error)
+        || !ReadNumber(state, table, "burst_height", burst.burstHeight, -1000.0f, 1000.0f, error)
+        || !ReadNumber(state, table, "burst_alpha", burst.burstAlpha, 0.0f, 1.0f, error)) return false;
+    if (burst.flashStartColor < 0 || burst.flashStartColor > 0xFFFFFF
+        || burst.flashPeakColor < 0 || burst.flashPeakColor > 0xFFFFFF
+        || burst.flashPeakMs < 0 || burst.flashPeakMs >= burst.flashEndMs || burst.flashEndMs > 60000
+        || burst.burstDelayMs < 0 || burst.burstDelayMs > 60000
+        || burst.burstDurationMs <= 0 || burst.burstDurationMs > 60000
+        || burst.burstCount <= 0 || burst.burstCount > 64) {
+        error = "invalid body_burst color, timing, or count";
+        return false;
+    }
+    lua_getfield(state, table, "burst_radii");
+    if (!lua_istable(state, -1) || lua_objlen(state, -1) == 0 || lua_objlen(state, -1) > 8) {
+        error = "expected 1 to 8 burst_radii";
+        return false;
+    }
+    const int radii = lua_gettop(state);
+    const size_t count = lua_objlen(state, radii);
+    for (size_t index = 1; index <= count; ++index) {
+        lua_rawgeti(state, radii, static_cast<int>(index));
+        const double radius = lua_tonumber(state, -1);
+        if (lua_type(state, -1) != LUA_TNUMBER || !std::isfinite(radius) || radius <= 0 || radius > 1000) {
+            error = "expected positive finite burst radius <= 1000";
+            return false;
+        }
+        burst.burstRadii.push_back(static_cast<float>(radius));
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    return true;
+}
+
+bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
+{
+    table = AbsoluteIndex(state, table);
+    if (!lua_istable(state, table) || !ReadBoolean(state, table, "loop", effect.loop, error)) return false;
+    std::string renderer;
+    if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    if (renderer == "body_burst") {
+        effect.renderer = SkillEffectPresentation::Renderer::BodyBurst;
+        if (effect.loop) {
+            error = "body_burst cannot loop";
+            return false;
+        }
+        return ReadBodyBurst(state, table, effect.bodyBurst, error);
+    }
+    if (!renderer.empty() && renderer != "str") {
+        error = "unknown effect renderer: " + renderer;
+        return false;
+    }
+    lua_getfield(state, table, "offset_y");
+    if (!lua_isnil(state, -1)) {
+        const double offset = lua_tonumber(state, -1);
+        if (lua_type(state, -1) != LUA_TNUMBER || !std::isfinite(offset) || std::abs(offset) > 10000) {
+            error = "expected a finite numeric offset_y";
+            return false;
+        }
+        effect.offsetY = static_cast<float>(offset);
+    }
+    lua_pop(state, 1);
+    lua_getfield(state, table, "variants");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        SkillEffectVariant variant;
+        if (!ReadVariant(state, table, variant, error)) return false;
+        effect.variants.push_back(std::move(variant));
+        return true;
+    }
+    if (!lua_istable(state, -1) || lua_objlen(state, -1) == 0) {
+        error = "expected a nonempty variants array";
+        return false;
+    }
+    const int variants = lua_gettop(state);
+    const size_t count = lua_objlen(state, variants);
+    for (size_t index = 1; index <= count; ++index) {
+        lua_rawgeti(state, variants, static_cast<int>(index));
+        SkillEffectVariant variant;
+        if (!ReadVariant(state, -1, variant, error)) return false;
+        effect.variants.push_back(std::move(variant));
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    return true;
+}
+
+struct PresentationCatalog {
+    std::map<int, SkillPresentation> skills;
+    std::map<int, SkillEffectPresentation> effects;
+
+    bool ReadSkillEffects(lua_State* state, int table, const char* key, std::vector<int>& ids,
+        std::string& error)
+    {
+        lua_getfield(state, table, key);
+        if (lua_isnil(state, -1)) {
+            lua_pop(state, 1);
+            return true;
+        }
+        if (!lua_istable(state, -1)) {
+            error = std::string("expected effect array '") + key + "'";
+            return false;
+        }
+        const int entries = lua_gettop(state);
+        const size_t count = lua_objlen(state, entries);
+        for (size_t index = 1; index <= count; ++index) {
+            lua_rawgeti(state, entries, static_cast<int>(index));
+            const int entry = lua_gettop(state);
+            int effectId = -1;
+            if (!lua_istable(state, entry) || !ReadInteger(state, entry, "effect_id", effectId, error)
+                || effectId < 0) {
+                error = "expected a nonnegative effect_id in each skill effect";
+                return false;
+            }
+            lua_getfield(state, entry, "str");
+            const bool hasStr = !lua_isnil(state, -1);
+            lua_pop(state, 1);
+            lua_getfield(state, entry, "variants");
+            const bool hasVariants = !lua_isnil(state, -1);
+            lua_pop(state, 1);
+            lua_getfield(state, entry, "renderer");
+            const bool hasRenderer = !lua_isnil(state, -1);
+            lua_pop(state, 1);
+            if (hasStr || hasVariants || hasRenderer) {
+                SkillEffectPresentation effect;
+                if (!ReadEffect(state, entry, effect, error)) return false;
+                if (!effects.emplace(effectId, std::move(effect)).second) {
+                    error = "duplicate effect definition: " + std::to_string(effectId);
+                    return false;
+                }
+            }
+            ids.push_back(effectId);
+            lua_pop(state, 1);
+        }
+        lua_pop(state, 1);
+        return true;
+    }
+
+    bool Read(lua_State* state, std::string& error)
+    {
+        if (!lua_istable(state, 1)) {
+            error = "file must return a table";
+            return false;
+        }
+        int version = -1;
+        if (!ReadInteger(state, 1, "version", version, error) || version != 1) {
+            error = "expected version = 1";
+            return false;
+        }
+        lua_getfield(state, 1, "effects");
+        if (!lua_isnil(state, -1)) {
+            if (!lua_istable(state, -1)) {
+                error = "expected effects table";
+                return false;
+            }
+            const int entries = lua_gettop(state);
+            lua_pushnil(state);
+            while (lua_next(state, entries)) {
+                int id = 0;
+                SkillEffectPresentation effect;
+                if (!ReadIdKey(state, id, error, 0) || !ReadEffect(state, -1, effect, error)) return false;
+                effects.emplace(id, std::move(effect));
+                lua_pop(state, 1);
+            }
+        }
+        lua_pop(state, 1);
+        lua_getfield(state, 1, "skills");
+        if (!lua_istable(state, -1)) {
+            error = "expected skills table";
+            return false;
+        }
+        const int entries = lua_gettop(state);
+        lua_pushnil(state);
+        while (lua_next(state, entries)) {
+            int id = 0;
+            SkillPresentation skill;
+            bool serverNotified = false;
+            const int entry = lua_gettop(state);
+            if (!ReadIdKey(state, id, error) || id > 65535 || !lua_istable(state, entry)
+                || !ReadString(state, entry, "name", skill.name, true, error)
+                || !ReadBoolean(state, entry, "passive", skill.passive, error)
+                || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
+                || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
+                || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
+                || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
+                || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
+                || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)) return false;
+            skill.sourceServerNotified = serverNotified;
+            skill.targetServerNotified = serverNotified;
+            skill.groundServerNotified = serverNotified;
+            if (!ReadBoolean(state, entry, "source_server_notified", skill.sourceServerNotified, error)
+                || !ReadBoolean(state, entry, "target_server_notified", skill.targetServerNotified, error)
+                || !ReadBoolean(state, entry, "ground_server_notified", skill.groundServerNotified, error)) return false;
+            skills.emplace(id, std::move(skill));
+            lua_pop(state, 1);
+        }
+        // Validate references after every inline definition is registered; Lua table order is unspecified.
+        for (const auto& entry : skills) {
+            const SkillPresentation& skill = entry.second;
+            if (skill.passive && skill.beginEffectId >= 0) {
+                error = "passive skill must have no cast-start effect";
+                return false;
+            }
+            for (const auto* ids : { &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
+                for (int effectId : *ids) {
+                    if (!effects.count(effectId)) {
+                        error = "undefined effect reference: " + std::to_string(effectId);
+                        return false;
+                    }
+                }
+                if (skill.passive && !ids->empty()) {
+                    error = "passive skill must have no presentation effects";
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    PresentationCatalog()
+    {
+        std::vector<std::filesystem::path> candidates = {
+            GetOpenMidgardIniPath().parent_path() / "skill_presentation.lua",
+        };
+        std::error_code ec;
+        const auto current = std::filesystem::current_path(ec);
+        if (!ec) candidates.push_back(current / "skill_presentation.lua");
+#ifdef RO_SOURCE_ROOT
+        candidates.emplace_back(std::filesystem::path(RO_SOURCE_ROOT) / "skill_presentation.lua");
+#endif
+        std::filesystem::path source;
+        for (const auto& candidate : candidates) {
+            if (std::filesystem::is_regular_file(candidate, ec) && !ec) {
+                source = candidate;
+                break;
+            }
+        }
+        if (source.empty()) {
+            DbgLog("[SkillPresentation] skill_presentation.lua not found.\n");
+            return;
+        }
+        // Our own state: this table needs neither standard libraries nor legacy GRF skill scripts.
+        std::unique_ptr<lua_State, decltype(&lua_close)> state(luaL_newstate(), lua_close);
+        std::string error = "could not create Lua state";
+        bool loaded = false;
+        if (state) {
+            const std::string path = source.string();
+            if (luaL_loadfile(state.get(), path.c_str()) != 0 || lua_pcall(state.get(), 0, 1, 0) != 0) {
+                const char* message = lua_tostring(state.get(), -1);
+                error = message ? message : "could not read presentation table";
+            } else {
+                error = "invalid presentation definition";
+                loaded = Read(state.get(), error);
+            }
+        }
+        if (!loaded) {
+            skills.clear();
+            effects.clear();
+            DbgLog("[SkillPresentation] rejected '%s': %s\n", source.string().c_str(), error.c_str());
+            return;
+        }
+        DbgLog("[SkillPresentation] loaded '%s': %zu skills, %zu effects\n",
+            source.string().c_str(), skills.size(), effects.size());
+    }
+};
+
+const PresentationCatalog& Catalog()
+{
+    static const PresentationCatalog catalog;
+    return catalog;
+}
+
+} // namespace
+
+const SkillPresentation* FindSkillPresentation(int skillId)
+{
+    const auto& skills = Catalog().skills;
+    const auto found = skills.find(skillId);
+    return found == skills.end() ? nullptr : &found->second;
+}
+
+const SkillEffectPresentation* FindSkillEffectPresentation(int effectId)
+{
+    const auto& effects = Catalog().effects;
+    const auto found = effects.find(effectId);
+    return found == effects.end() ? nullptr : &found->second;
+}

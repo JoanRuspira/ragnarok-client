@@ -206,6 +206,7 @@ Item {
             required property var modelData
             property bool isPartyHpBar: modelData.kind === "partyHpBar"
             property bool isActorName: modelData.kind === "actorName"
+            property bool isActorText: modelData.kind === "actorText"
             property int bubblePaddingX: modelData.showBubble === false ? 0 : (modelData.paddingX || 12)
             property int bubblePaddingY: modelData.showBubble === false ? 0 : (modelData.paddingY || 8)
             property int maxTextWidth: modelData.maxTextWidth || 0
@@ -257,7 +258,7 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                radius: modelData.radius || 6
+                radius: modelData.radius !== undefined ? modelData.radius : 6
                 color: modelData.background
                 visible: !parent.isPartyHpBar && modelData.showBubble !== false
                 border.width: 1
@@ -296,8 +297,8 @@ Item {
                 text: modelData.text
                 visible: !parent.isPartyHpBar
                 color: modelData.foreground
-                textFormat: parent.isActorName ? Text.PlainText : Text.AutoText
-                font.family: parent.isActorName ? "Arial" : Qt.application.font.family
+                textFormat: parent.isActorName || parent.isActorText ? Text.PlainText : Text.AutoText
+                font.family: parent.isActorName || parent.isActorText ? "Arial" : Qt.application.font.family
                 font.pixelSize: modelData.fontPixelSize || 14
                 font.bold: modelData.bold !== false
                 font.hintingPreference: parent.isActorName ? Font.PreferFullHinting : Font.PreferDefaultHinting

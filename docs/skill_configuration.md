@@ -159,25 +159,110 @@ referencing 815 STR animations and 45 sprite effect definitions. Asset inspectio
 parsed 1,735 STR files under `data/texture/effect`, including intentional empty
 animations in the minimal-effect directory.
 
+### Owned skill presentation table
+
+`skill_presentation.lua` is Open Midgard's editable source of truth for skills
+registered there. It is read once per process in its own Lua state, without
+loading any GRF skill scripts. The existing Lua runtime parses this file; no new
+parser dependency is needed. Restart the client after editing it.
+
+The skill entries include Two-Handed Sword Mastery (`3`, `SK_SM_TWOHAND`),
+Traumatic Strike (`398`, `SK_SM_TRAUMATIC_STRIKE`), and Arcane Strike
+(`399`, `SK_SM_LIGHTNING_STRIKE`). Mastery is a passive weapon bonus
+in the running server database, so its entry explicitly has no effects or audio.
+Two Hand Quicken (`817`) is a separate active skill. The shared effect `130`
+definition preserves the earlier Quicken correction for all weapon types.
+
+Each skill can define `source`, `target`, and `ground` arrays. Their entries carry
+an `effect_id` and full GRF resource paths: `str` begins with
+`data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav`
+means silence. A `variants` array pairs visual and audio paths so both use the
+same random variant. `offset_y` sets the vertical attachment offset, and `loop`
+controls repetition; STR playback uses the animation's authored FPS.
+For a procedural caster flash and camera-facing radial burst, use
+`renderer = "body_burst"` with a full `texture` TGA path and optional `wav`.
+Its `flash_start_color` and `flash_peak_color` are RGB integers, with
+`flash_peak_ms` and `flash_end_ms` defining the color ramp and return to white.
+`halo_alpha` and `halo_radius` control the sprite halo (radius in screen pixels).
+`burst_delay_ms`, `burst_duration_ms`, `burst_count`, `burst_arc_degrees`,
+`burst_height`, `burst_alpha`, and `burst_radii` define the wedge groups;
+height and radii use world units; positive height moves up in the caster's
+billboard plane. These effects cannot loop. Flash/halo state expires
+automatically and does not modify shared character textures.
+Shared definitions can live in the top-level `effects` table, with skill entries
+referencing them using just `{ effect_id = ... }`. Define each effect once.
+
+`server_notified = true` means that effect-notification packets already trigger
+the configured effects. Skill-use packets then suppress their own effect replay,
+avoiding duplicates. Direct server packets carry only an effect ID; inline skill
+definitions are also indexed by that ID. `source_server_notified`,
+`target_server_notified`, and `ground_server_notified` can override the default
+independently. This lets a skill play a missing caster presentation locally while
+the server continues to drive its target effects. Effect IDs and skill IDs are
+separate namespaces: skill `398` uses caster effect `399`, without affecting
+skill `399` (Arcane Strike). `passive = true` requires empty effect
+arrays. `begin_effect_id` defaults to `-1` (no cast-start effect), and
+`motion_type` defaults to `7` (the generic skill action).
+
+The loader searches beside `open-midgard.ini` (including its data-directory
+override), then the current working directory, then the source checkout for
+development. The deployment rules copy the file beside the executable and to
+the configured client deployment directory. Invalid definitions are rejected
+with a `[SkillPresentation]` log message; successful loading logs the source path
+and counts. Skills and effects outside the file retain their existing handling
+until they are migrated. The shared resource loader is unchanged.
+
+Traumatic Strike's caster effect `399` (`EF_BASH3D3`, Head Crush) uses a yellow
+body flash for 500 ms, followed by two groups of six expanding wedges for 175 ms.
+The texture is `data\texture\effect\alpha_center.tga`; its dedicated sound is
+`data\wav\effect\헤드 크러쉬.wav`, stored with CP949 byte escapes in the Lua file.
+The texture, sound, and procedural timings follow the
+[roBrowser effect definition](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js).
+Its dimensions are converted to native world units (multiply by five), matching
+the coordinate scaling in its
+[ground loader](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/Loaders/Ground.js).
+The installed GRFs contain both resources. The server sends target effect `677`,
+mapped to `cwound.str`, so the client does not replay that effect from the skill
+damage packet. The server also sends `626` (`EF_MADNESS_RED`); its separate
+renderer remains unimplemented. The caster visual and sound need an in-game
+comparison with the official client.
+
 ### Coverage and play checks
 
 Spear Quicken (`SK_KN_SQUICKEN`, skill `816`) explicitly sends
 `EF_TWOHANDQUICKEN` (`130`) from this server. The gameplay log confirms that
 notification immediately before a successful skill-use response. Effect `130`
-now overrides the legacy catalog's incorrect `defense.str` mapping with
-`twohand.str`, anchors it at the head, and selects
-`effect\knight_twohandquicken.wav` directly. The
+now uses the shared presentation-table definition for `twohand.str`, the head
+offset, and `data\wav\effect\knight_twohandquicken.wav`. The
 [roBrowser effect definition](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js)
 also identifies these assets and the head attachment for effect `130`.
 The installed visual parses as 20 frames at 60 FPS with all six referenced
 textures present; the sound parses as a valid 0.448-second PCM WAV. This targeted
 correction still needs an in-game comparison with the official client.
 
+Arcane Strike (`SK_SM_LIGHTNING_STRIKE`, skill `399`) sends effects `1537`,
+`1538`, `1539`, and `52` on its target. The gameplay log records all four
+notifications, with the first three previously reported as missing presentations.
+Its presentation-table entry maps the first three to the minimal Comet
+sub-explosion, bottom ring, and cast-flash STRs under `mineffect\new_comet`, matching the
+[captured effect assets](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/effects.json).
+These explicit effect IDs use those assets regardless of the `/mineffect` setting.
+Effect `52` (`EF_WINDHIT`) now plays `_hit_fist1.wav` through `_hit_fist3.wav`,
+using the same variant as its `WindHit` animation, as specified by the
+[roBrowser effect definition](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js).
+The three Comet components have no startup sound of their own. Their paths,
+the paired wind-hit variants, and the shared Quicken correction now live in the
+editable file; the corresponding C++ asset/audio/position exceptions were
+removed. Inspection of the installed GRFs verified all seven configured STRs,
+every referenced texture, and the four PCM WAVs. An updated client still needs an
+in-game check.
+
 This repair does **not** establish complete parity with the official client.
 The customized database contains 455 skills. A static scan found 325 distinct
 explicit effect IDs in the server's skill/status source, including conditional
-and potentially unused paths. After this change, 174 of those IDs still have no
-registered presentation. Many need procedural rendering code, which is not
+and potentially unused paths. The original catalog repair left 174 of those IDs
+without a registered presentation; the Arcane Strike correction resolves three
+of them. Many need procedural rendering code, which is not
 supplied by the GRFs. Ground examples still needing that work include Cloud Kill
 (`1080`), Stealth Field (`784`), Wall of Thorns (`912`), Demonic Fire (`916`), and
 Fire Insignia (`918`). Missing IDs are logged once per client run as
@@ -192,7 +277,10 @@ in a running updated client. Compare these cases against the official client:
 
 | Case | Expected behavior |
 | --- | --- |
+| Two-Handed Sword Mastery (3) | Passive bonus; no cast visual or sound |
+| Traumatic Strike (398) | One caster body flash/halo, delayed radial burst, and Head Crush WAV; server-driven `cwound.str` on the target |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
+| Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
 | Low-level hotkey for a higher learned skill | Send the level saved in the hotkey |

@@ -73,7 +73,9 @@ namespace {
 constexpr DWORD kHoverNameRequestCooldownMs = 1000;
 constexpr int kQtActorLabelVerticalOffset = 10;
 constexpr int kQtActorLabelFontPixelSize = 16;
-constexpr int kQtSpeechBubbleMaxTextWidth = 200;
+constexpr int kQtSpeechBubbleMaxTextWidth = 320;
+constexpr int kQtActorTextFontPixelSize = 20;
+constexpr int kQtActorTextPaddingY = 8;
 constexpr int kQtStatusIconSize = 56;
 constexpr int kQtStatusIconSpacing = 6;
 constexpr int kQtStatusIconTopMargin = 6;
@@ -3418,20 +3420,22 @@ QVariantMap MakeSpeechBubbleAnchor(const QString& text,
     int bottomY)
 {
     QVariantMap anchor;
+    anchor.insert(QStringLiteral("kind"), QStringLiteral("actorText"));
     anchor.insert(QStringLiteral("text"), text);
     anchor.insert(QStringLiteral("centerX"), centerX);
     anchor.insert(QStringLiteral("bottomY"), bottomY);
-    anchor.insert(QStringLiteral("background"), QStringLiteral("#de333333"));
+    anchor.insert(QStringLiteral("background"), QStringLiteral("#a6000000"));
     anchor.insert(QStringLiteral("foreground"), QStringLiteral("#ffffff"));
     anchor.insert(QStringLiteral("showBubble"), true);
-    anchor.insert(QStringLiteral("fontPixelSize"), 14);
-    anchor.insert(QStringLiteral("bold"), false);
+    anchor.insert(QStringLiteral("fontPixelSize"), kQtActorTextFontPixelSize);
+    anchor.insert(QStringLiteral("bold"), true);
     anchor.insert(QStringLiteral("wrap"), true);
     anchor.insert(QStringLiteral("maxTextWidth"), kQtSpeechBubbleMaxTextWidth);
     anchor.insert(QStringLiteral("paddingX"), 16);
-    anchor.insert(QStringLiteral("paddingY"), 12);
-    anchor.insert(QStringLiteral("radius"), 8);
-    anchor.insert(QStringLiteral("borderColor"), QStringLiteral("#80686868"));
+    anchor.insert(QStringLiteral("paddingY"), kQtActorTextPaddingY);
+    anchor.insert(QStringLiteral("radius"), 0);
+    anchor.insert(QStringLiteral("borderColor"), QStringLiteral("transparent"));
+    anchor.insert(QStringLiteral("outline"), true);
     anchor.insert(QStringLiteral("z"), 2100);
     return anchor;
 }
@@ -3674,7 +3678,7 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
         };
 
         auto appendChatBubbleAnchor = [&](CGameActor* actor) {
-            if (!actor || !actor->m_isVisible || !actor->HasActiveChatBubble(now) || actor->HasActiveSkillName(now)) {
+            if (!actor || !actor->m_isVisible || !actor->HasActiveChatBubble(now)) {
                 return;
             }
 
@@ -3684,6 +3688,12 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
                 return;
             }
 
+            if (actor->HasActiveSkillName(now)) {
+                QFont font(QStringLiteral("Arial"));
+                font.setPixelSize(kQtActorTextFontPixelSize);
+                font.setBold(true);
+                bubbleBottomY -= QFontMetrics(font).height() + kQtActorTextPaddingY + 6;
+            }
             anchors.push_back(MakeSpeechBubbleAnchor(ToQString(actor->GetChatBubbleText()),
                 bubbleX,
                 bubbleBottomY));
@@ -3699,12 +3709,8 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
                 return;
             }
             QVariantMap anchor = MakeSpeechBubbleAnchor(ToQString(actor->GetSkillNameText()), centerX, bottomY);
-            anchor.insert(QStringLiteral("showBubble"), false);
-            anchor.insert(QStringLiteral("fontPixelSize"), 12);
             anchor.insert(QStringLiteral("wrap"), false);
-            anchor.insert(QStringLiteral("paddingX"), 4);
-            anchor.insert(QStringLiteral("paddingY"), 4);
-            anchor.insert(QStringLiteral("outline"), true);
+            anchor.insert(QStringLiteral("maxTextWidth"), 0);
             anchor.insert(QStringLiteral("z"), 2101);
             anchors.push_back(anchor);
         };

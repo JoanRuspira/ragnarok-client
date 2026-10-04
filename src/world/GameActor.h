@@ -26,6 +26,16 @@ struct ACTOR_COLOR {
     u8 a, r, g, b;
 };
 
+struct ActorPresentationFlash {
+    u32 startTick = 0;
+    u32 peakMs = 0;
+    u32 endMs = 0;
+    u32 startColor = 0xFFFFFF;
+    u32 peakColor = 0xFFFFFF;
+    float haloAlpha = 0.0f;
+    float haloRadius = 0.0f;
+};
+
 struct COLOR {
     union {
         struct { u8 b, g, r, a; } s;
@@ -171,6 +181,8 @@ public:
     u8 m_BodyAni, m_BodyAct, m_BodyAniFrame;
     CSprRes* m_sprRes;
     CActRes* m_actRes;
+    // Transient draw state; never changes shared sprite textures or their cache keys.
+    ActorPresentationFlash m_presentationFlash;
 
     virtual void SetRenderInfo(RENDER_INFO_RECT* rect, float f1, float f2);
     virtual void SetTlvert(float x, float y);

@@ -11,7 +11,9 @@ struct ITEM_INFO;
 class UIShortCutWnd : public UIWindow {
 public:
     static constexpr int kVisibleSlotCount = kShortcutSlotsPerPage;
-    static constexpr int kSlotSize = 48;
+    static constexpr int kIconSize = 64;
+    // Reserve a one-pixel border on each side so 64x64 icons draw at native size.
+    static constexpr int kSlotSize = kIconSize + 2;
     static constexpr int kSlotPadding = 4;
 
     UIShortCutWnd();

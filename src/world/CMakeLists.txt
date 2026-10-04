@@ -20,4 +20,5 @@ target_link_libraries(ro_world PUBLIC
     ro_core
     ro_res
     ro_ui
+    ro_skill
 )

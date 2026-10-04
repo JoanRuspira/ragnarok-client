@@ -1105,6 +1105,9 @@ public:
                 return true;
             }
             if (!HasFrontMenuUiVisible()) {
+                if (!g_windowMgr.HasWindowAtPoint(GetUiLogicalX(lParam), GetUiLogicalY(lParam))) {
+                    return false;
+                }
                 g_windowMgr.OnLBtnDblClk(
                     GetUiLogicalX(lParam),
                     GetUiLogicalY(lParam));

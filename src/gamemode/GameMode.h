@@ -140,6 +140,7 @@ public:
     virtual msgresult_t SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra) override;
     virtual void OnChangeState(int newState) override;
     void MakeFog(int fogOn);
+    void ReleaseHeldAttack();
 
     // Memory layout from HighPriest.exe.h:30992
     int m_areaLeft, m_areaRight, m_areaTop, m_areaBottom;
@@ -263,6 +264,10 @@ public:
     int m_heldMoveTargetCellY;
     int m_hasHeldMoveTarget;
     u32 m_lastMoveRequestTick;
+    bool m_autoAttack;
+    u32 m_heldAttackTargetGid;
+    bool m_hasHeldContinuousAttack;
+    bool m_isAttackChaseCancelled;
     u32 m_lastAttackRequestTick;
     u32 m_lastPickupRequestTick;
     u32 m_lastAttackChaseHintTick;

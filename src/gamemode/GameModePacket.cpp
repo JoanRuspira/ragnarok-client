@@ -3380,6 +3380,7 @@ bool IsSameMapAlreadyLoaded(const CGameMode& mode, const MapChangeInfo& info)
 
 void PrepareSameMapWarpReuse(CGameMode& mode)
 {
+    mode.ReleaseHeldAttack();
     CPlayer* const player = mode.m_world ? mode.m_world->m_player : nullptr;
     if (!player) {
         return;
@@ -3469,6 +3470,7 @@ void PrepareSameMapWarpReuse(CGameMode& mode)
     mode.m_attackChaseRange = 0;
     mode.m_hasAttackChaseHint = 0;
     mode.m_isLeftButtonHeld = 0;
+    mode.m_isAttackChaseCancelled = false;
     mode.m_sentLoadEndAck = 0;
     mode.m_mapLoadingStage = CGameMode::MapLoading_None;
     mode.m_mapLoadingStartTick = 0;

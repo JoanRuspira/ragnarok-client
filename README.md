@@ -189,6 +189,21 @@ After building, run:
 
 Make sure your runtime directory contains the client data/GRF files and configuration files the client expects, or set `OPEN_MIDGARD_DATA_DIR` to point at them.
 
+Enemy click behaviour is controlled by this setting in `open-midgard.ini` beside
+the executable (or in `OPEN_MIDGARD_DATA_DIR` when set):
+
+```ini
+[Gameplay]
+AutoAttack=1
+```
+
+`AutoAttack=1` is the default: one click targets an enemy and attacks continuously.
+Set `AutoAttack=0` for one attack per click. If the enemy is out of range, the
+client moves closer before attacking once. Holding the left mouse button on an
+enemy for 200 ms enables continuous attacks regardless of `AutoAttack`; with `AutoAttack=0`,
+releasing it stops continuous attacks. Short clicks remain single attacks.
+Restart the client after changing the setting.
+
 ## Project Goals
 
 - Recreate the Ragnarok Online client as open source code

@@ -11,6 +11,7 @@
 #include "GameModePacket.h"
 #include "pathfinder/PathFinder.h"
 #include "core/File.h"
+#include "core/SettingsIni.h"
 #include "DebugLog.h"
 #include "render/DC.h"
 #include "res/ActRes.h"
@@ -1989,7 +1990,7 @@ void ApplyEnemyCursorMagnet(CGameMode& mode, POINT* cursorPos)
     if (!cursorPos || !mode.m_world || !mode.m_view || !g_hMainWnd) {
         return;
     }
-    if (mode.m_isLeftButtonHeld || mode.m_canRotateView) {
+    if (mode.m_isLeftButtonHeld || mode.m_heldAttackTargetGid != 0 || mode.m_canRotateView) {
         return;
     }
     if (IsWorldHoverBlockedByUi(cursorPos->x, cursorPos->y)) {
@@ -3883,6 +3884,7 @@ constexpr u32 kHeldMoveDirectionalRetargetNearEndMs = 80;
 constexpr u32 kMoveAckTimeoutMs = 1000;
 constexpr u32 kAttackChaseRequestIntervalMs = 1200;
 constexpr u32 kAttackRetryIntervalMs = 1200;
+constexpr u32 kHeldAttackDelayMs = 200;
 constexpr u32 kTimeSyncIntervalMs = 12000;
 constexpr u32 kTimeSyncReplyRetryMs = 3000;
 
@@ -4893,6 +4895,17 @@ bool SendActionRequestPacket(u32 targetGid, u8 action)
 bool SendAttackRequestPacket(u32 targetGid, u8 action)
 {
     return SendActionRequestPacket(targetGid, action);
+}
+
+bool SendStopAttackRequestPacket()
+{
+    PACKET_CZ_CANCEL_LOCKON packet{};
+    packet.PacketType = PACKETID_CZ_CANCEL_LOCKON;
+    const bool sent = CRagConnection::instance()->SendPacket(
+        reinterpret_cast<const char*>(&packet),
+        static_cast<int>(sizeof(packet)));
+    DbgLog("[GameMode] stop attack request sent=%d\n", sent ? 1 : 0);
+    return sent;
 }
 
 bool SendSitStandRequest(CGameMode& mode, bool sitDown)
@@ -6182,12 +6195,17 @@ bool TryRequestAttackFromScreenPoint(CGameMode& mode, int screenX, int screenY)
         return false;
     }
 
-    if (!SendAttackRequestPacket(hoveredActor->m_gid, kActionRequestContinuousAttack)) {
+    const u8 action = mode.m_autoAttack ? kActionRequestContinuousAttack : kActionRequestSingleAttack;
+    if (!SendAttackRequestPacket(hoveredActor->m_gid, action)) {
         return false;
     }
 
     mode.m_lastMonGid = hoveredActor->m_gid;
     mode.m_lastLockOnMonGid = hoveredActor->m_gid;
+    mode.m_heldAttackTargetGid = hoveredActor->m_gid;
+    mode.m_hasHeldContinuousAttack = false;
+    mode.m_isAttackChaseCancelled = false;
+    mode.m_leftBtnClickTick = GetTickCount();
     mode.m_isAutoMoveClickOn = 0;
     ClearPickupIntent(mode);
     mode.m_lastMoveRequestCellX = -1;
@@ -6398,6 +6416,10 @@ void PumpSkillChaseRequest(CGameMode& mode)
 
 void PumpAttackChaseRequest(CGameMode& mode)
 {
+    if (mode.m_heldAttackTargetGid != 0 && mode.m_heldAttackTargetGid != mode.m_lastLockOnMonGid) {
+        mode.ReleaseHeldAttack();
+    }
+
     if (!mode.m_world || !mode.m_world->m_player || mode.m_lastLockOnMonGid == 0) {
         return;
     }
@@ -6424,14 +6446,35 @@ void PumpAttackChaseRequest(CGameMode& mode)
     }
 
     const u32 now = GetTickCount();
+    // Let a short click stay a single attack before enabling server repetition.
+    const bool heldAttack = mode.m_heldAttackTargetGid == target->m_gid
+        && now - mode.m_leftBtnClickTick >= kHeldAttackDelayMs;
+    const bool continuousAttack = mode.m_autoAttack || heldAttack;
+    const bool startingHeldAttack = heldAttack && !mode.m_autoAttack && !mode.m_hasHeldContinuousAttack;
+    const bool attackRequestReady = startingHeldAttack || mode.m_lastAttackRequestTick == 0
+        || now - mode.m_lastAttackRequestTick >= kAttackRetryIntervalMs;
+
+    // Without repetition, only retry an attack rejected by the server for distance.
+    if (!continuousAttack
+        && (mode.m_isAttackChaseCancelled || !mode.m_hasAttackChaseHint || mode.m_attackChaseTargetGid != target->m_gid)) {
+        return;
+    }
+
     const int attackRange = (std::max)(1, mode.m_attackChaseRange);
     if (IsAttackTargetWithinRange(mode, *target, attackRange)) {
-        if (mode.m_lastAttackRequestTick != 0 && now - mode.m_lastAttackRequestTick < kAttackRetryIntervalMs) {
+        if (!attackRequestReady) {
             return;
         }
 
-        if (SendAttackRequestPacket(target->m_gid, kActionRequestContinuousAttack)) {
+        const u8 action = continuousAttack ? kActionRequestContinuousAttack : kActionRequestSingleAttack;
+        if (SendAttackRequestPacket(target->m_gid, action)) {
             mode.m_lastAttackRequestTick = now;
+            if (startingHeldAttack) {
+                mode.m_hasHeldContinuousAttack = true;
+            }
+            if (!continuousAttack) {
+                ClearAttackChaseHint(mode);
+            }
         }
         return;
     }
@@ -6442,9 +6485,12 @@ void PumpAttackChaseRequest(CGameMode& mode)
         return;
     }
 
-    if (mode.m_lastAttackRequestTick == 0 || now - mode.m_lastAttackRequestTick >= kAttackRetryIntervalMs) {
+    if (continuousAttack && attackRequestReady) {
         if (SendAttackRequestPacket(target->m_gid, kActionRequestContinuousAttack)) {
             mode.m_lastAttackRequestTick = now;
+            if (startingHeldAttack) {
+                mode.m_hasHeldContinuousAttack = true;
+            }
         }
     }
 
@@ -8926,7 +8972,9 @@ CGameMode::CGameMode()
       m_lastCardItemIndex(0), m_SkillBallonSkillId(0), m_nameBalloonType(0),
     m_showTimeStartTick(0), m_recordChatNum(0), m_strikeNum(0), m_isCtrlLock(0),
     m_sentLoadEndAck(0), m_isLeftButtonHeld(0), m_lastMoveRequestCellX(-1), m_lastMoveRequestCellY(-1),
-        m_heldMoveTargetCellX(-1), m_heldMoveTargetCellY(-1), m_hasHeldMoveTarget(0), m_lastMoveRequestTick(0), m_lastAttackRequestTick(0), m_lastPickupRequestTick(0),
+        m_heldMoveTargetCellX(-1), m_heldMoveTargetCellY(-1), m_hasHeldMoveTarget(0), m_lastMoveRequestTick(0),
+        m_autoAttack(true), m_heldAttackTargetGid(0), m_hasHeldContinuousAttack(false), m_isAttackChaseCancelled(false),
+        m_lastAttackRequestTick(0), m_lastPickupRequestTick(0),
         m_lastAttackChaseHintTick(0), m_attackChaseTargetGid(0), m_attackChaseTargetCellX(-1), m_attackChaseTargetCellY(-1),
         m_attackChaseSourceCellX(-1), m_attackChaseSourceCellY(-1), m_attackChaseRange(1), m_hasAttackChaseHint(0),
         m_skillChaseTargetGid(0), m_lastSkillChaseRequestTick(0), m_skillChaseSkillId(0), m_skillChaseSkillLevel(0), m_skillChaseRange(1), m_hasSkillChase(0),
@@ -8948,7 +8996,29 @@ CGameMode::CGameMode()
 CGameMode::~CGameMode() {
 }
 
+void CGameMode::ReleaseHeldAttack()
+{
+    const bool wasHeld = m_heldAttackTargetGid != 0;
+    const bool stopAttack = m_hasHeldContinuousAttack && !m_autoAttack;
+    m_heldAttackTargetGid = 0;
+    m_hasHeldContinuousAttack = false;
+    if (stopAttack) {
+        // Ignore distance hints still in flight after cancelling this hold.
+        m_isAttackChaseCancelled = true;
+        SendStopAttackRequestPacket();
+        ClearAttackChaseHint(*this);
+        m_lastAttackRequestTick = 0;
+    }
+    if (wasHeld && !m_canRotateView && GetCapture() == g_hMainWnd) {
+        ReleaseCapture();
+    }
+}
+
 void CGameMode::OnInit(const char* worldName) {
+    m_autoAttack = LoadSettingsIniInt("Gameplay", "AutoAttack", 1) != 0;
+    m_heldAttackTargetGid = 0;
+    m_hasHeldContinuousAttack = false;
+    m_isAttackChaseCancelled = false;
     RegisterDefaultGameModePacketHandlers(g_gameModePacketRouter);
     ClearRuntimeActors(*this);
     m_groundItemList.clear();
@@ -9042,6 +9112,9 @@ void CGameMode::MakeFog(int fogOn)
 }
 
 void CGameMode::OnExit() {
+    // The map connection may already have changed during a mode transition.
+    m_heldAttackTargetGid = 0;
+    m_hasHeldContinuousAttack = false;
     g_renderer.FogSwitch(0);
     g_gameModePacketRouter.Clear();
     ClearRuntimeActors(*this);
@@ -9507,6 +9580,7 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
 
     switch (msg) {
     case GameMsg_LButtonDown: {
+        ReleaseHeldAttack();
         const int mouseX = static_cast<int>(wparam);
         const int mouseY = static_cast<int>(lparam);
         if (g_windowMgr.HasActiveNpcDialog()) {
@@ -9561,6 +9635,9 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
         if (TryRequestAttackFromScreenPoint(*this, mouseX, mouseY)) {
             ClearPendingSkillUse(*this);
             m_isLeftButtonHeld = 0;
+            if (g_hMainWnd && GetCapture() != g_hMainWnd) {
+                SetCapture(g_hMainWnd);
+            }
             return 1;
         }
         if (TryRequestNpcTalkFromScreenPoint(*this, mouseX, mouseY)) {
@@ -9596,6 +9673,7 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
     }
 
     case GameMsg_LButtonUp:
+        ReleaseHeldAttack();
         m_isLeftButtonHeld = 0;
         m_lastMoveRequestCellX = -1;
         m_lastMoveRequestCellY = -1;
@@ -9604,7 +9682,11 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
         m_hasHeldMoveTarget = 0;
         m_lastMoveRequestTick = 0;
         m_lastAttackRequestTick = 0;
-        ClearAttackChaseHint(*this);
+        // Releasing an attack click must not cancel a pending single attack's
+        // movement into range if its distance hint has already arrived.
+        if (m_autoAttack || m_lastLockOnMonGid == 0) {
+            ClearAttackChaseHint(*this);
+        }
         ClearSkillChase(*this);
         return 1;
 
@@ -9653,7 +9735,7 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
                 m_view->ResetToDefaultOrientation();
                 m_view->ClearHoverCell();
             }
-            if (GetCapture() == g_hMainWnd) {
+            if (m_heldAttackTargetGid == 0 && GetCapture() == g_hMainWnd) {
                 ReleaseCapture();
             }
             m_oldMouseX = mouseX;
@@ -9880,7 +9962,7 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
 
     case GameMsg_RButtonUp:
         m_canRotateView = 0;
-        if (GetCapture() == g_hMainWnd) {
+        if (m_heldAttackTargetGid == 0 && GetCapture() == g_hMainWnd) {
             ReleaseCapture();
         }
         if (!m_rButtonDragged) {

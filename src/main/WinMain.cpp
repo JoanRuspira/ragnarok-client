@@ -536,6 +536,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     }
 
+    // Attack releases must reach gameplay even when the cursor is over UI.
+    if (msg == WM_LBUTTONUP || msg == WM_CAPTURECHANGED
+        || (msg == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE)) {
+        if (CGameMode* gameMode = g_modeMgr.GetCurrentGameMode()) {
+            gameMode->ReleaseHeldAttack();
+        }
+    }
+
     if (HandleQtUiRuntimeWindowMessage(msg, wParam, lParam)) {
         return 0;
     }
@@ -598,9 +606,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
         const int x = GET_X_LPARAM(lParam);
         const int y = GET_Y_LPARAM(lParam);
-        g_windowMgr.OnLBtnDblClk(
-            IsQtUiRuntimeEnabled() ? UiScaleRawToLogicalCoordinate(x) : x,
-            IsQtUiRuntimeEnabled() ? UiScaleRawToLogicalCoordinate(y) : y);
+        const int uiX = IsQtUiRuntimeEnabled() ? UiScaleRawToLogicalCoordinate(x) : x;
+        const int uiY = IsQtUiRuntimeEnabled() ? UiScaleRawToLogicalCoordinate(y) : y;
+        const bool uiHit = g_windowMgr.HasWindowAtPoint(uiX, uiY);
+        g_windowMgr.OnLBtnDblClk(uiX, uiY);
+        if (!uiHit) {
+            g_modeMgr.SendMsg(CGameMode::GameMsg_LButtonDown, x, y);
+        }
         return 0;
     }
 

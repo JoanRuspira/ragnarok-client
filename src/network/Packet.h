@@ -32,6 +32,7 @@ enum PacketId {
     PACKETID_HC_NOTIFY_ZONESVR= 0x0071,
     // Sent to zone server
     PACKETID_CZ_ENTER         = 0x0072,
+    PACKETID_CZ_CANCEL_LOCKON = 0x0118,
     // Received from zone server
     PACKETID_ZC_ACCEPT_ENTER  = 0x0073,
     // Misc
@@ -410,6 +411,10 @@ struct PACKET_CZ_ACTION_REQUEST2 {
     u8  Action;
 };
 
+struct PACKET_CZ_CANCEL_LOCKON {
+    u16 PacketType;    // 0x0118 for all supported profiles
+};
+
 struct PACKET_CZ_USESKILLTOID_PACKETVER22 {
     u16 PacketType;    // 0x0072 for packet_ver 22
     u8  padding0[3];
@@ -728,6 +733,7 @@ static_assert(sizeof(PACKET_CZ_REQNAME2) == 11, "PACKET_CZ_REQNAME2 size mismatc
 static_assert(sizeof(PACKET_CZ_REQNAME_LEGACY) == 6, "PACKET_CZ_REQNAME_LEGACY size mismatch");
 static_assert(sizeof(PACKET_CZ_ACTION_REQUEST_PACKETVER22) == 19, "PACKET_CZ_ACTION_REQUEST_PACKETVER22 size mismatch");
 static_assert(sizeof(PACKET_CZ_ACTION_REQUEST2) == 7, "PACKET_CZ_ACTION_REQUEST2 size mismatch");
+static_assert(sizeof(PACKET_CZ_CANCEL_LOCKON) == 2, "PACKET_CZ_CANCEL_LOCKON size mismatch");
 static_assert(sizeof(PACKET_CZ_USESKILLTOID_PACKETVER22) == 25, "PACKET_CZ_USESKILLTOID_PACKETVER22 size mismatch");
 static_assert(sizeof(PACKET_CZ_USESKILLTOID2) == 10, "PACKET_CZ_USESKILLTOID2 size mismatch");
 static_assert(sizeof(PACKET_CZ_USESKILLTOPOS) == 22, "PACKET_CZ_USESKILLTOPOS size mismatch");

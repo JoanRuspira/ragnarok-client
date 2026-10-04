@@ -30,6 +30,7 @@ struct DefaultIniValue {
 };
 
 constexpr DefaultIniValue kDefaultIniValues[] = {
+    { "Gameplay", "AutoAttack", "1" },
     { "Graphics", "Width", "640" },
     { "Graphics", "Height", "480" },
     { "Graphics", "WindowMode", "0" },

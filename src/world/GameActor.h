@@ -261,6 +261,7 @@ public:
     std::string m_chatBubbleText;
     std::string m_skillNameText;
     int m_lastPresentedSkillId = 0;
+    u16 m_castingSkillId = 0;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 

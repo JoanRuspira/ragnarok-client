@@ -71,7 +71,7 @@ struct KANICLIP {
 class CEZeffectRes : public CRes {
 public:
     CEZeffectRes() = default;
-    ~CEZeffectRes() override = default;
+    ~CEZeffectRes() override { Reset(); }
 
     bool LoadFromBuffer(const char* fName, const unsigned char* buffer, int size) override;
     CRes* Clone() override;

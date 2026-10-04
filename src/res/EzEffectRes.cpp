@@ -10,6 +10,7 @@
 namespace {
 
 constexpr u32 kAniClipVersion = 148u;
+constexpr u32 kAniClipSignature = 0x4D525453u; // STRM
 
 bool ReadBytes(const unsigned char* buffer, int size, size_t* offset, void* out, size_t count)
 {
@@ -133,7 +134,7 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
 {
     Reset();
 
-    if (!buffer || size < 28) {
+    if (!buffer || size < 36) {
         DbgLog("[EZeffect] invalid buffer file='%s' size=%d\n", fName ? fName : "(null)", size);
         return false;
     }
@@ -143,15 +144,15 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
     u32 version = 0;
     if (!ReadBytes(buffer, size, &offset, &signature, sizeof(signature))
         || !ReadBytes(buffer, size, &offset, &version, sizeof(version))
-        || !ReadBytes(buffer, size, &offset, &m_aniClips.cFrame, sizeof(m_aniClips.cFrame))
         || !ReadBytes(buffer, size, &offset, &m_aniClips.nFPS, sizeof(m_aniClips.nFPS))
+        || !ReadBytes(buffer, size, &offset, &m_aniClips.cFrame, sizeof(m_aniClips.cFrame))
         || !ReadBytes(buffer, size, &offset, &m_aniClips.cLayer, sizeof(m_aniClips.cLayer))) {
         DbgLog("[EZeffect] truncated header file='%s'\n", fName ? fName : "(null)");
         Reset();
         return false;
     }
 
-    if (version != kAniClipVersion) {
+    if (signature != kAniClipSignature || version != kAniClipVersion) {
         DbgLog("[EZeffect] unsupported version file='%s' version=%u\n",
             fName ? fName : "(null)",
             static_cast<unsigned>(version));
@@ -159,7 +160,8 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
         return false;
     }
 
-    if (m_aniClips.cLayer < 0 || m_aniClips.cLayer > static_cast<int>(m_aniClips.aLayer.size())) {
+    if (m_aniClips.nFPS <= 0 || m_aniClips.cFrame < 0
+        || m_aniClips.cLayer < 0 || m_aniClips.cLayer > static_cast<int>(m_aniClips.aLayer.size())) {
         DbgLog("[EZeffect] invalid layer count file='%s' layers=%d\n",
             fName ? fName : "(null)",
             m_aniClips.cLayer);
@@ -191,6 +193,10 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
 
         layer.m_ownedTexNames.reserve(static_cast<size_t>(layer.cTex));
         for (int texIndex = 0; texIndex < layer.cTex; ++texIndex) {
+            if (offset + 128 > static_cast<size_t>(size)) {
+                Reset();
+                return false;
+            }
             const std::string rawName = ReadFixedString(buffer, size, &offset, 128);
             std::string texturePath;
             ResolveEffectTextureName(rawName, &texturePath, fName);
@@ -205,7 +211,8 @@ bool CEZeffectRes::LoadFromBuffer(const char* fName, const unsigned char* buffer
             return false;
         }
 
-        if (layer.cAniKey < 0) {
+        if (layer.cAniKey < 0
+            || static_cast<size_t>(layer.cAniKey) > (static_cast<size_t>(size) - offset) / sizeof(KAC_KEYFRAME)) {
             Reset();
             return false;
         }

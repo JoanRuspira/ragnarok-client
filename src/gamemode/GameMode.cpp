@@ -2720,6 +2720,7 @@ constexpr u16 kSkillMerchantChangeCart = 154;
 constexpr int kEffectStatePushCartMask = 0x0008 | 0x0080 | 0x0100 | 0x0200 | 0x0400;
 
 enum class ShortcutSkillUseMode {
+    Passive,
     ActorTarget,
     GroundTarget,
     ImmediateSelf,
@@ -2738,6 +2739,9 @@ ShortcutSkillUseMode ResolveShortcutSkillUseMode(u16 skillId)
     }
 
     const int skillInf = skillInfo->type;
+    if (skillInf == 0) {
+        return ShortcutSkillUseMode::Passive;
+    }
     if ((skillInf & kSkillInfGroundSkill) != 0) {
         return ShortcutSkillUseMode::GroundTarget;
     }
@@ -2955,6 +2959,9 @@ void UpdateGameplayCursor(CGameMode& mode)
         const ShortcutSkillUseMode skillUseMode = ResolveShortcutSkillUseMode(
             static_cast<u16>(mode.m_skillUseInfo.id & 0xFFFF));
         switch (skillUseMode) {
+        case ShortcutSkillUseMode::Passive:
+            SetModeCursorAction(mode, CursorAction::Forbidden);
+            return;
         case ShortcutSkillUseMode::GroundTarget:
             SetModeCursorAction(mode, hasHoverAttrCell ? CursorAction::SkillTarget : CursorAction::Forbidden);
             return;
@@ -4099,6 +4106,8 @@ void ClearAttackChaseHint(CGameMode& mode)
 void ClearSkillChase(CGameMode& mode)
 {
     mode.m_skillChaseTargetGid = 0;
+    mode.m_skillChaseTargetCellX = -1;
+    mode.m_skillChaseTargetCellY = -1;
     mode.m_lastSkillChaseRequestTick = 0;
     mode.m_skillChaseSkillId = 0;
     mode.m_skillChaseSkillLevel = 0;
@@ -5199,17 +5208,16 @@ bool SendUseSkillToPosPacket(u16 skillId, u16 skillLevel, int cellX, int cellY)
         return false;
     }
 
-    const ro::net::MapGameplaySendProfile& profile = ro::net::GetActiveMapGameplaySendProfile();
-    PACKET_CZ_USESKILLTOPOS packet{};
-    packet.PacketType = profile.useSkillToPos;
-    packet.SkillId = skillId;
-    packet.SkillLevel = skillLevel;
-    packet.X = static_cast<u16>(cellX);
-    packet.Y = static_cast<u16>(cellY);
+    std::array<u8, sizeof(PACKET_CZ_USESKILLTOPOS)> packetBuffer{};
+    int packetLength = 0;
+    if (!ro::net::BuildActiveUseSkillToPosPacket(skillId, skillLevel,
+            static_cast<u16>(cellX), static_cast<u16>(cellY), packetBuffer.data(),
+            static_cast<int>(packetBuffer.size()), &packetLength)) {
+        return false;
+    }
 
     const bool sent = CRagConnection::instance()->SendPacket(
-        reinterpret_cast<const char*>(&packet),
-        static_cast<int>(sizeof(packet)));
+        reinterpret_cast<const char*>(packetBuffer.data()), packetLength);
     DbgLog("[GameMode] useskilltopos skillId=%u level=%u cell=(%d,%d) sent=%d\n",
         static_cast<unsigned int>(skillId),
         static_cast<unsigned int>(skillLevel),
@@ -5260,6 +5268,7 @@ bool HasPendingSkillUse(const CGameMode& mode)
 
 void BeginSkillChase(CGameMode& mode, u32 targetGid, u16 skillId, u16 skillLevel, int skillRange)
 {
+    ClearSkillChase(mode);
     mode.m_lastMonGid = 0;
     mode.m_lastLockOnMonGid = 0;
     mode.m_skillChaseTargetGid = targetGid;
@@ -5280,6 +5289,11 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
     const u16 skillLevel = static_cast<u16>(mode.m_skillUseInfo.level & 0xFFFF);
     const ShortcutSkillUseMode skillUseMode = ResolveShortcutSkillUseMode(skillId);
 
+    if (skillUseMode == ShortcutSkillUseMode::Passive) {
+        ClearPendingSkillUse(mode);
+        return true;
+    }
+
     if (skillUseMode == ShortcutSkillUseMode::CartSelect) {
         const bool handled = HandleChangeCartSkillUiRequest(mode);
         ClearPendingSkillUse(mode);
@@ -5292,7 +5306,7 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
             ClearPendingSkillUse(mode);
             return true;
         }
-        return false;
+        return true;
     }
 
     if (skillUseMode == ShortcutSkillUseMode::ActorTarget) {
@@ -5322,7 +5336,7 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
                     ClearPendingSkillUse(mode);
                     return true;
                 }
-                return false;
+                return true;
             }
 
             BeginSkillChase(mode, targetGid, skillId, skillLevel, skillRange);
@@ -5335,19 +5349,29 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
                 skillRange);
             return true;
         }
-        return false;
+        // Keep targeting on a miss; this click must not become a normal attack.
+        return true;
     }
 
     int attrX = -1;
     int attrY = -1;
-    if (mode.m_view->ScreenToHoveredAttrCell(screenX, screenY, &attrX, &attrY)
-        && SendUseSkillToPosPacket(skillId, skillLevel, attrX, attrY)) {
-        ClearSkillChase(mode);
-        ClearPendingSkillUse(mode);
-        return true;
+    if (mode.m_view->ScreenToHoveredAttrCell(screenX, screenY, &attrX, &attrY)) {
+        int sourceX = -1;
+        int sourceY = -1;
+        const int range = ResolveSkillUseRange(skillId);
+        if (ResolveAttackChaseSourceTile(mode, &sourceX, &sourceY)
+            && !IsTargetWithinAttackRange(sourceX, sourceY, attrX, attrY, range)) {
+            BeginSkillChase(mode, 0, skillId, skillLevel, range);
+            mode.m_skillChaseTargetCellX = attrX;
+            mode.m_skillChaseTargetCellY = attrY;
+            ClearPendingSkillUse(mode);
+        } else if (SendUseSkillToPosPacket(skillId, skillLevel, attrX, attrY)) {
+            ClearSkillChase(mode);
+            ClearPendingSkillUse(mode);
+        }
     }
 
-    return false;
+    return true;
 }
 
 bool RequestShortcutSlotUpdate(int absoluteSlotIndex)
@@ -5568,9 +5592,11 @@ bool RequestShortcutSlotUse(int visibleSlot)
     }
 
     const PLAYER_SKILL_INFO* skill = g_session.GetSkillItemBySkillId(static_cast<int>(slot->id));
-    const u16 skillLevel = static_cast<u16>(skill && skill->level > 0
-        ? skill->level
-        : (slot->count > 0 ? slot->count : 1));
+    if (!skill || skill->level <= 0 || skill->type == 0) {
+        return false;
+    }
+    const u16 skillLevel = static_cast<u16>((std::min)(skill->level,
+        static_cast<int>(slot->count > 0 ? slot->count : skill->level)));
     if (slot->id == 0 || skillLevel == 0) {
         return false;
     }
@@ -5591,9 +5617,12 @@ bool RequestShortcutSlotUse(int visibleSlot)
 
     const u16 skillId = static_cast<u16>(slot->id & 0xFFFFu);
     switch (ResolveShortcutSkillUseMode(skillId)) {
+    case ShortcutSkillUseMode::Passive:
+        return false;
     case ShortcutSkillUseMode::CartSelect:
         return HandleChangeCartSkillUiRequest(*gameMode);
     case ShortcutSkillUseMode::ImmediateSelf: {
+        ClearPendingSkillUse(*gameMode);
         ClearSkillChase(*gameMode);
         gameMode->m_lastMonGid = 0;
         gameMode->m_lastLockOnMonGid = 0;
@@ -6329,7 +6358,7 @@ void PumpHeldMoveRequest(CGameMode& mode)
 
 void PumpSkillChaseRequest(CGameMode& mode)
 {
-    if (!mode.m_world || !mode.m_world->m_player || !mode.m_hasSkillChase || mode.m_skillChaseTargetGid == 0) {
+    if (!mode.m_world || !mode.m_world->m_player || !mode.m_hasSkillChase) {
         return;
     }
 
@@ -6337,14 +6366,23 @@ void PumpSkillChaseRequest(CGameMode& mode)
         return;
     }
 
-    const auto targetIt = mode.m_runtimeActors.find(mode.m_skillChaseTargetGid);
-    if (targetIt == mode.m_runtimeActors.end() || !targetIt->second) {
-        ClearSkillChase(mode);
-        return;
+    int targetTileX = mode.m_skillChaseTargetCellX;
+    int targetTileY = mode.m_skillChaseTargetCellY;
+    if (mode.m_skillChaseTargetGid != 0) {
+        CGameActor* target = mode.m_skillChaseTargetGid == ResolveSelfSkillTargetId()
+            ? mode.m_world->m_player : nullptr;
+        const auto targetIt = mode.m_runtimeActors.find(mode.m_skillChaseTargetGid);
+        if (!target && targetIt != mode.m_runtimeActors.end()) {
+            target = targetIt->second;
+        }
+        if (!target || !target->m_isVisible
+            || !WorldToAttrCell(mode.m_world, target->m_pos.x, target->m_pos.z, &targetTileX, &targetTileY)) {
+            ClearSkillChase(mode);
+            return;
+        }
     }
-
-    CGameActor* target = targetIt->second;
-    if (!target->m_isVisible) {
+    if (targetTileX < 0 || targetTileY < 0) {
+        ClearSkillChase(mode);
         return;
     }
 
@@ -6357,32 +6395,30 @@ void PumpSkillChaseRequest(CGameMode& mode)
     }
 
     const u32 now = GetTickCount();
-    if (IsAttackTargetWithinRange(mode, *target, skillRange)) {
+    int sourceTileX = -1;
+    int sourceTileY = -1;
+    if (!ResolveAttackChaseSourceTile(mode, &sourceTileX, &sourceTileY)) {
+        return;
+    }
+    if (IsTargetWithinAttackRange(sourceTileX, sourceTileY, targetTileX, targetTileY, skillRange)) {
         if (mode.m_lastSkillChaseRequestTick != 0
             && now - mode.m_lastSkillChaseRequestTick < kAttackRetryIntervalMs) {
             return;
         }
 
-        if (SendUseSkillToIdPacket(skillId, skillLevel, target->m_gid)) {
+        const bool sent = mode.m_skillChaseTargetGid != 0
+            ? SendUseSkillToIdPacket(skillId, skillLevel, mode.m_skillChaseTargetGid)
+            : SendUseSkillToPosPacket(skillId, skillLevel, targetTileX, targetTileY);
+        if (sent) {
             mode.m_lastSkillChaseRequestTick = now;
             ClearSkillChase(mode);
         }
         return;
     }
 
-    if (IsCurrentMoveDestinationWithinRange(mode, *target, skillRange)) {
-        return;
-    }
-
-    int sourceTileX = -1;
-    int sourceTileY = -1;
-    if (!ResolveAttackChaseSourceTile(mode, &sourceTileX, &sourceTileY)) {
-        return;
-    }
-
-    int targetTileX = -1;
-    int targetTileY = -1;
-    if (!WorldToAttrCell(mode.m_world, target->m_pos.x, target->m_pos.z, &targetTileX, &targetTileY)) {
+    const CPlayer* player = mode.m_world->m_player;
+    if (player->m_isMoving && IsTargetWithinAttackRange(player->m_moveDestX, player->m_moveDestY,
+            targetTileX, targetTileY, skillRange)) {
         return;
     }
 
@@ -6394,7 +6430,7 @@ void PumpSkillChaseRequest(CGameMode& mode)
         targetTileX,
         targetTileY,
         skillRange,
-        target->m_gid,
+        mode.m_skillChaseTargetGid,
         &chaseTileX,
         &chaseTileY)) {
         return;
@@ -8891,7 +8927,7 @@ bool ArmPendingSkillUseFromSkillList(int skillId)
     }
 
     const PLAYER_SKILL_INFO* skill = g_session.GetSkillItemBySkillId(skillId);
-    if (!skill || skill->level <= 0) {
+    if (!skill || skill->level <= 0 || skill->type == 0) {
         return false;
     }
 
@@ -8923,6 +8959,7 @@ bool ArmPendingSkillUseFromSkillList(int skillId)
     }
 
     if ((skillInf & kSkillInfSelfSkill) != 0) {
+        ClearPendingSkillUse(*gameMode);
         ClearSkillChase(*gameMode);
         gameMode->m_lastMonGid = 0;
         gameMode->m_lastLockOnMonGid = 0;
@@ -8977,7 +9014,8 @@ CGameMode::CGameMode()
         m_lastAttackRequestTick(0), m_lastPickupRequestTick(0),
         m_lastAttackChaseHintTick(0), m_attackChaseTargetGid(0), m_attackChaseTargetCellX(-1), m_attackChaseTargetCellY(-1),
         m_attackChaseSourceCellX(-1), m_attackChaseSourceCellY(-1), m_attackChaseRange(1), m_hasAttackChaseHint(0),
-        m_skillChaseTargetGid(0), m_lastSkillChaseRequestTick(0), m_skillChaseSkillId(0), m_skillChaseSkillLevel(0), m_skillChaseRange(1), m_hasSkillChase(0),
+        m_skillChaseTargetGid(0), m_skillChaseTargetCellX(-1), m_skillChaseTargetCellY(-1),
+        m_lastSkillChaseRequestTick(0), m_skillChaseSkillId(0), m_skillChaseSkillLevel(0), m_skillChaseRange(1), m_hasSkillChase(0),
         m_mapLoadingStage(MapLoading_None), m_mapLoadingStartTick(0), m_mapLoadingAckTick(0), m_lastActorBootstrapPacketTick(0),
         m_worldProcessTick(GetTickCount()), m_worldProcessCarryMs(kWorldProcessTickMs), m_lastHoverRefreshTick(0),
         m_hasPendingPartyCreateOptions(0), m_pendingPartyCreateExpShare(0), m_pendingPartyCreateItemShare(0), m_pendingPartyCreateItemSharingType(0),
@@ -9596,7 +9634,7 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
             return 1;
         }
         if (m_world && m_world->m_player) {
-            if (ShouldUseTurnOnlyGroundClick(*this)) {
+            if (!HasPendingSkillUse(*this) && ShouldUseTurnOnlyGroundClick(*this)) {
                 ClearPickupIntent(*this);
                 m_lastMonGid = 0;
                 m_lastLockOnMonGid = 0;
@@ -9687,7 +9725,6 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
         if (m_autoAttack || m_lastLockOnMonGid == 0) {
             ClearAttackChaseHint(*this);
         }
-        ClearSkillChase(*this);
         return 1;
 
     case GameMsg_MouseMove: {

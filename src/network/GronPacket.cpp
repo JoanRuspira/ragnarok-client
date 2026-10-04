@@ -188,6 +188,8 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x0117, 18);
     SetPacketSize(0x0119, 13);
     SetPacketSize(0x011A, 15);
+    SetPacketSize(0x011C, 68);             // Teleport / Warp Portal destinations
+    SetPacketSize(0x011E, 3);              // Memo result
     SetPacketSize(0x011F, 16);
     SetPacketSize(0x0120, 6);
     SetPacketSize(0x0121, 14);             // ZC_UPDATE_CARTINFO
@@ -226,6 +228,10 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x0177, kVariablePacketSize);
     SetPacketSize(0x0178, 4);
     SetPacketSize(0x0179, 5);
+    SetPacketSize(0x018C, 29);             // Sense result
+    SetPacketSize(0x018D, kVariablePacketSize); // Production choices
+    SetPacketSize(0x0189, 4);              // Teleport failure
+    SetPacketSize(0x018F, 6);              // Production result
     SetPacketSize(0x0193, 2);
     SetPacketSize(0x0194, 30);
     SetPacketSize(0x0195, 102);
@@ -262,6 +268,7 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x01C4, 22);
     SetPacketSize(0x01C8, 13);
     SetPacketSize(0x01C9, 97);
+    SetPacketSize(0x01CD, 30);             // Legacy Auto Spell choices
     SetPacketSize(0x01CF, 28);
     SetPacketSize(0x01D0, 8);
     SetPacketSize(0x01D6, 4);
@@ -274,6 +281,8 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x01F0, kVariablePacketSize);
     SetPacketSize(0x01F3, 10);
     SetPacketSize(0x01F8, 2);
+    SetPacketSize(0x01FC, kVariablePacketSize); // Repair Weapon choices
+    SetPacketSize(0x01FE, 5);              // Repair Weapon result
     SetPacketSize(0x01FF, 10);              // ZC_HIGHJUMP (clif_slide)
     SetPacketSize(0x0201, kVariablePacketSize);
     SetPacketSize(0x0206, 11);
@@ -288,6 +297,8 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x022C, 65);
     SetPacketSize(0x0235, kVariablePacketSize);
     SetPacketSize(0x0239, 11);
+    SetPacketSize(0x025A, kVariablePacketSize); // Cooking / Pharmacy choices
+    SetPacketSize(0x0442, kVariablePacketSize); // Auto Spell / skill selection
     SetPacketSize(0x0283, 6);
     SetPacketSize(0x02EA, kVariablePacketSize);
     SetPacketSize(0x02EB, 13);

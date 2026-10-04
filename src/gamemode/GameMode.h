@@ -279,6 +279,8 @@ public:
     int m_attackChaseRange;
     int m_hasAttackChaseHint;
     u32 m_skillChaseTargetGid;
+    int m_skillChaseTargetCellX;
+    int m_skillChaseTargetCellY;
     u32 m_lastSkillChaseRequestTick;
     int m_skillChaseSkillId;
     int m_skillChaseSkillLevel;

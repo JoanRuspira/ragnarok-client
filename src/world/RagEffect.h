@@ -6,6 +6,7 @@
 
 #include <array>
 #include <list>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,7 @@ enum EFFECTPRIMID {
     PP_WIND,
     PP_WATERFALL,
     PP_CLOUD,
+    PP_GROUNDTEXTURE,
 };
 
 struct EffectBandState {
@@ -74,6 +76,13 @@ constexpr int kRagEffectMetallicSoundHit = 50005;
 constexpr int kRagEffectMetallicSoundGround = 50006;
 constexpr int kRagEffectMetallicFury = 50007;
 constexpr int kRagEffectPerformanceNotes = 50008;
+constexpr int kRagEffectSevereRainstorm = 50009;
+constexpr int kRagEffectPsychicWave = 50010;
+constexpr int kRagEffectTrap = 50011;
+constexpr int kRagEffectMagentaTrap = 50012;
+constexpr int kRagEffectCobaltTrap = 50013;
+constexpr int kRagEffectMaizeTrap = 50014;
+constexpr int kRagEffectVerdureTrap = 50015;
 
 class CRagEffect;
 
@@ -166,6 +175,12 @@ public:
     int GetEffectType() const { return m_type; }
     int GetStateCount() const { return m_stateCnt; }
     int GetDuration() const { return m_duration; }
+    void SetSkillUnitId(u32 id) { m_skillUnitId = id; }
+    u32 GetSkillUnitId() const { return m_skillUnitId; }
+    void SetLooping(bool looping);
+    void SetCastDurationMs(int milliseconds);
+    void SetStartDelayMs(u32 milliseconds);
+    void Cancel() { m_cancelled = true; }
 
     u8 OnProcess() override;
     void OnActorDeleted(const CGameActor* actor) override;
@@ -177,9 +192,16 @@ public:
     bool ResolveCullSphere(vector3d* outCenter, float* outRadius) const;
 
 private:
+    u32 m_skillUnitId = 0;
+    bool m_cancelled = false;
+    u32 m_startDelayMs = 0;
+    u32 m_castEndTick = 0;
+    std::vector<std::unique_ptr<CRagEffect>> m_componentEffects;
     enum class Handler {
         None,
         EzStr,
+        GroundSurface,
+        Sprite,
         Entry2,
         JobLevelUp50,
         Portal,
@@ -226,6 +248,8 @@ private:
     void LoadEzEffect(const char* fName);
     void InitEZ2STRFrame();
     bool ProcessEZ2STR();
+    void SpawnGroundSurface();
+    void SpawnSprite();
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;

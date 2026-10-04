@@ -47,7 +47,10 @@
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
+#include <iterator>
 #include <map>
+#include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -3899,17 +3902,20 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, int dam
     EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType);
 }
 
-void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
+void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
 {
     if (!targetActor) {
         return;
     }
 
+    const auto launch = [targetActor, delayMs](int effectId) {
+        if (CRagEffect* effect = targetActor->LaunchEffect(effectId, vector3d{}, 0.0f)) effect->SetStartDelayMs(delayMs);
+    };
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && !luaInfo.targetEffectIds.empty()) {
         for (int effectId : luaInfo.targetEffectIds) {
             if (effectId > 0) {
-                targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
+                launch(effectId);
             }
         }
         return;
@@ -3918,14 +3924,25 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
     switch (skillId) {
     case 17: // MG_FIREBALL
     case 19: // MG_FIREBOLT
-        targetActor->LaunchEffect(49, vector3d{}, 0.0f);
+        launch(49);
         break;
     case 14: // MG_COLDBOLT
-        targetActor->LaunchEffect(135, vector3d{}, 0.0f);
+        launch(135);
         break;
     case 20: // MG_LIGHTNINGBOLT
-        targetActor->LaunchEffect(29, vector3d{}, 0.0f);
+        launch(29);
+        launch(52);
         break;
+    case 42: launch(10); break;
+    case 46: launch(64); break;
+    case 56: launch(148); break;
+    case 57: launch(144); break;
+    case 58: launch(150); break;
+    case 62: launch(149); break;
+    case 79: launch(152); break;
+    case 136: launch(143); break;
+    case 141: launch(129); break;
+    case 253: launch(245); break;
     case 2413: // WM_METALICSOUND / custom BA_METALLICSOUND
         targetActor->LaunchEffect(kRagEffectMetallicSoundHit, vector3d{}, 0.0f);
         targetActor->LaunchEffect(kRagEffectMetallicSoundGround, vector3d{}, 0.0f);
@@ -3944,9 +3961,9 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId)
 void EmitSkillImpactEffects(CGameActor* targetActor, u16 skillId, u16 hitCountRaw)
 {
     const bool isBolt = skillId == 14 || skillId == 19 || skillId == 20;
-    const int hitCount = isBolt ? (std::max)(1, static_cast<int>(hitCountRaw)) : 1;
+    const int hitCount = isBolt ? (std::max)(1, (std::min)(64, static_cast<int>(hitCountRaw))) : 1;
     for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex) {
-        EmitSkillImpactEffect(targetActor, skillId);
+        EmitSkillImpactEffect(targetActor, skillId, static_cast<u32>(hitIndex) * 80);
     }
 }
 
@@ -4293,7 +4310,7 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
     }
 
     const u16 skillId = ReadLE16(packet.data + 2);
-    const u32 btype = ReadLE32(packet.data + 4);
+    const u32 btype = ReadLE16(packet.data + 4);
     const u8 result = packet.data[8];
     const u8 cause = packet.data[9];
     const char* message = ResolveSkillFailMessage(skillId, btype, cause);
@@ -4647,18 +4664,43 @@ int ResolveSkillVisibleEffectId(u16 skillId, const UseSkillPacketInfo& packetInf
     }
 
     switch (skillId) {
+    case 6: return 67;
+    case 8: return 11;
+    case 15: return 28;
+    case 16: return 23;
+    case 26: return 34;
+    case 30: return 38;
+    case 32: return 40;
+    case 45: return 153;
+    case 54: return 77;
+    case 66: return 84;
+    case 67: return 88;
+    case 68: return 86;
+    case 73: return 112;
+    case 74: return 76;
+    case 76: return 87;
+    case 112: return 103;
+    case 113: return 128;
+    case 114: return 104;
+    case 139: return 126;
+    case 155: return 311;
+    case 157: return 169;
+    case 215: return 269;
+    case 216: return 270;
+    case 217: return 271;
+    case 218: return 272;
+    case 361: return 440;
     case 29: // AL_INCAGI
         return 37;
     case 33: // AL_ANGELUS
         return 41;
     case 34: // AL_BLESSING
         return 42;
-    case 35: // AL_CURE
-        return 66;
     case 138: // AS_ENCHANTPOISON
         return 20;
     default: {
-        return packetInfo.beginEffectId >= 0 ? packetInfo.beginEffectId : ResolveGroundSkillEffectId(skillId, levelOrAmount);
+        // A cast-start visual is not the effect of a successful skill use.
+        return ResolveGroundSkillEffectId(skillId, levelOrAmount);
     }
     }
 }
@@ -4677,11 +4719,11 @@ void ClearAttachedSkillEffects(CGameActor* actor, int preserveBeginEffectId)
     }
 
     if (actor->m_beginSpellEffect && actor->m_beginSpellEffect->GetEffectType() != preserveBeginEffectId) {
-        actor->m_beginSpellEffect->DetachFromMaster(actor);
+        actor->m_beginSpellEffect->Cancel();
         actor->m_beginSpellEffect = nullptr;
     }
     if (actor->m_magicTargetEffect) {
-        actor->m_magicTargetEffect->DetachFromMaster(actor);
+        actor->m_magicTargetEffect->Cancel();
         actor->m_magicTargetEffect = nullptr;
     }
 }
@@ -5122,6 +5164,7 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
     GetSkillActionInfo2(static_cast<int>(skillId), beginEffectId, motionType, static_cast<int>(property), sourceActor->m_job);
+    if (beginEffectId == 16) beginEffectId = 12;
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo)) {
         if (luaInfo.hasBeginEffectId) {
@@ -5171,7 +5214,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
             sourceActor->SetState(motionToApply);
         }
         if (beginEffectId >= 0) {
-            sourceActor->SendMsg(sourceActor, 85, beginEffectId, castTimeMs > 0 ? (castTimeMs >> 4) : 0, 0);
+            sourceActor->SendMsg(sourceActor, 85, beginEffectId, 0, 0);
+            if (sourceActor->m_beginSpellEffect) sourceActor->m_beginSpellEffect->SetCastDurationMs(castTimeMs);
         }
         if (castTimeMs > 0) {
             sourceActor->SendMsg(sourceActor, 82, castTimeMs, 0, 0);
@@ -5183,6 +5227,7 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         targetActor->SendMsg(targetActor, 86, 60, castTimeMs >> 4, 0);
     }
 
+    sourceActor->m_castingSkillId = skillId;
     DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
         srcGid,
         dstGid,
@@ -5215,9 +5260,9 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
     const u16 displayHitCount = ResolveDisplayedSkillHitCount(skillId, level, div);
     const u8 actionType = packet.data[isLongDamage ? 32 : 30];
 
-    CGameActor* sourceActor = ResolveCombatActor(mode, srcGid, true);
+    CGameActor* sourceActor = srcGid != 0 ? ResolveCombatActor(mode, srcGid, true) : nullptr;
     CGameActor* targetActor = ResolveCombatActor(mode, dstGid, true);
-    if (!sourceActor || !targetActor) {
+    if (!targetActor) {
         DbgLog("[GameMode] skill damage unresolved src=%u dst=%u skill=%u opcode=0x%04X\n",
             srcGid,
             dstGid,
@@ -5396,7 +5441,12 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     CGameActor* sourceActor = srcGid != 0 ? ResolveCombatActor(mode, srcGid, true) : nullptr;
     CGameActor* targetActor = ResolveCombatActor(mode, dstGid, true);
     const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
-    if (sourceActor && result != 0) {
+    const u32 now = timeGetTime();
+    const bool receivingBuffDuringCast = sourceActor && sourceActor == targetActor
+        && sourceActor->m_castingSkillId != 0 && sourceActor->m_castingSkillId != skillId
+        && (static_cast<s32>(sourceActor->m_skillRechargeEndTick - now) > 0
+            || (sourceActor->m_isMotionFreezed && static_cast<s32>(sourceActor->m_freezeEndTick - now) > 0));
+    if (sourceActor && result != 0 && !receivingBuffDuringCast) {
         ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
@@ -5408,6 +5458,9 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         if (effectId >= 0) {
             targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
         }
+    } else if (targetActor && result != 0 && skillId == 9) { // SK_SM_SRECOVERY: server SP restoration
+        EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
+        targetActor->LaunchEffect(332, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
         if (!packetInfo.impactEffectIds.empty()) {
             for (int effectId : packetInfo.impactEffectIds) {
@@ -5417,15 +5470,11 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
             }
         } else {
             const int effectId = ResolveSkillVisibleEffectId(skillId, packetInfo, levelOrAmount);
-            const bool selfCast = sourceActor && sourceActor == targetActor;
-            if (selfCast && effectId >= 0) {
-                targetActor->SendMsg(targetActor, 85, effectId, 0, 0);
+            if (effectId >= 0) {
+                targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
                 if (skillId == 138) {
                     targetActor->LaunchEffect(493, vector3d{}, 0.0f);
                 }
-            } else if (effectId >= 0) {
-                ClearAttachedSkillEffects(targetActor);
-                targetActor->SendMsg(targetActor, 86, effectId, 0, 0);
             }
         }
     }
@@ -5446,6 +5495,261 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         static_cast<unsigned int>(result));
 }
 
+// Skill menus use the same keyboard/mouse-accessible choice window as NPC menus.
+// Keep long production lists within the viewport and retain the original indices.
+struct SkillChoiceMenu {
+    std::vector<std::string> labels;
+    std::function<void(int)> submit;
+};
+
+void ShowSkillChoicePage(const std::shared_ptr<SkillChoiceMenu>& menu, size_t first = 0)
+{
+    constexpr size_t pageSize = 12;
+    if (menu->labels.empty()) {
+        menu->submit(-1);
+        return;
+    }
+    const size_t end = (std::min)(first + pageSize, menu->labels.size());
+    std::vector<std::string> labels(menu->labels.begin() + first, menu->labels.begin() + end);
+    const int previous = first > 0 ? static_cast<int>(labels.size()) : -1;
+    if (previous >= 0) labels.push_back("Previous page");
+    const int next = end < menu->labels.size() ? static_cast<int>(labels.size()) : -1;
+    if (next >= 0) labels.push_back("Next page");
+    auto* window = static_cast<UINpcMenuWnd*>(g_windowMgr.MakeWindow(UIWindowMgr::WID_NPCMENUWND));
+    if (!window) {
+        menu->submit(-1);
+        return;
+    }
+    window->SetChoiceMenu(labels, [menu, first, end, previous, next, pageSize](int choice) {
+        if (choice >= 0 && choice == previous) ShowSkillChoicePage(menu, first - pageSize);
+        else if (choice >= 0 && choice == next) ShowSkillChoicePage(menu, end);
+        else menu->submit(choice < 0 ? -1 : static_cast<int>(first) + choice);
+    });
+}
+
+void ShowSkillChoices(std::vector<std::string> labels, std::function<void(int)> submit)
+{
+    auto menu = std::make_shared<SkillChoiceMenu>();
+    menu->labels = std::move(labels);
+    menu->submit = std::move(submit);
+    ShowSkillChoicePage(menu);
+}
+
+void SendSkillMenuReply(const std::vector<u16>& words)
+{
+    std::vector<u8> bytes;
+    bytes.reserve(words.size() * 2);
+    for (u16 word : words) {
+        bytes.push_back(static_cast<u8>(word));
+        bytes.push_back(static_cast<u8>(word >> 8));
+    }
+    if (!CRagConnection::instance()->SendPacket(reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()))) {
+        g_windowMgr.PushChatEvent("Could not send the skill selection.", 0x00FF4040u, 6);
+    }
+}
+
+void HandleSkillMenuResult(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data) return;
+    if (packet.packetId == 0x011E && packet.packetLength >= 3) {
+        static const char* messages[] = {"Warp memo point saved.", "Warp skill level is too low.", "You have not learned Warp."};
+        if (packet.data[2] < std::size(messages)) g_windowMgr.PushChatEvent(messages[packet.data[2]], kSystemNoticeColor, 6);
+    } else if (packet.packetId == 0x0189 && packet.packetLength >= 4) {
+        const u16 result = ReadLE16(packet.data + 2);
+        if (result <= 1) g_windowMgr.PushChatEvent(result == 0 ? "Teleport is unavailable in this area." : "This location cannot be saved as a warp memo.", kSystemNoticeColor, 6);
+    } else if (packet.packetId == 0x018F && packet.packetLength >= 6) {
+        const u16 result = ReadLE16(packet.data + 2);
+        const std::string item = g_ttemmgr.GetDisplayName(ReadLE16(packet.data + 4), true);
+        const std::string message = (result == 0 || result == 2 ? "Created " : "Could not create ") + item + ".";
+        g_windowMgr.PushChatEvent(message.c_str(), kSystemNoticeColor, 6);
+    }
+}
+
+void HandleSkillWarpChoices(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 68) return;
+    const u16 skillId = ReadLE16(packet.data + 2);
+    std::vector<std::string> maps, labels;
+    for (int i = 0; i < 4; ++i) {
+        const char* name = reinterpret_cast<const char*>(packet.data + 4 + i * 16);
+        const size_t length = std::find(name, name + 16, '\0') - name;
+        if (length == 0) continue;
+        maps.emplace_back(name, length);
+        std::string label = maps.back();
+        if (label == "Random") label = "Random destination";
+        else if (label.size() >= 4 && label.substr(label.size() - 4) == ".gat") label.resize(label.size() - 4);
+        labels.push_back(std::move(label));
+    }
+    ShowSkillChoices(std::move(labels), [skillId, maps](int choice) {
+        std::array<u8, sizeof(PACKET_CZ_USESKILLMAP)> bytes{};
+        int length = 0;
+        const char* map = choice < 0 ? "cancel" : maps[choice].c_str();
+        if (ro::net::BuildActiveUseSkillMapPacket(skillId, map, bytes.data(), static_cast<int>(bytes.size()), &length)) {
+            CRagConnection::instance()->SendPacket(reinterpret_cast<const char*>(bytes.data()), length);
+        }
+    });
+}
+
+void HandleSkillSelectChoices(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data) return;
+    const bool modern = packet.packetId == 0x0442;
+    if (packet.packetLength < (modern ? 8 : 30)) return;
+    const size_t count = modern ? ReadLE32(packet.data + 4) : 7;
+    const size_t stride = modern ? 2 : 4;
+    const size_t offset = modern ? 8 : 2;
+    if (count > (static_cast<size_t>(packet.packetLength) - offset) / stride) return;
+    std::vector<u16> skills;
+    std::vector<std::string> labels;
+    g_skillMgr.EnsureLoaded();
+    for (size_t i = 0; i < count; ++i) {
+        const u32 skill = modern ? ReadLE16(packet.data + offset + i * stride) : ReadLE32(packet.data + offset + i * stride);
+        if (skill == 0 || skill > 65535) continue;
+        skills.push_back(static_cast<u16>(skill));
+        const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(static_cast<int>(skill));
+        labels.push_back(metadata && !metadata->displayName.empty() ? metadata->displayName : "Skill " + std::to_string(skill));
+    }
+    ShowSkillChoices(std::move(labels), [skills, modern](int choice) {
+        const u16 skill = choice < 0 ? 0 : skills[choice];
+        if (modern) SendSkillMenuReply({0x0443, 0, 0, skill});
+        else SendSkillMenuReply({0x01CE, skill, 0});
+    });
+}
+
+void HandleSkillProductionChoices(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 4) return;
+    const bool typed = packet.packetId == 0x025A;
+    const bool forge = packet.packetId == 0x018D;
+    const size_t offset = typed ? 6 : 4;
+    const size_t stride = forge ? 8 : 2;
+    if (static_cast<size_t>(packet.packetLength) < offset || (packet.packetLength - offset) % stride != 0) return;
+    const u16 type = typed ? ReadLE16(packet.data + 4) : 0;
+    std::vector<u16> items;
+    std::vector<std::string> labels;
+    for (size_t i = offset; i + stride <= static_cast<size_t>(packet.packetLength); i += stride) {
+        const u16 item = ReadLE16(packet.data + i);
+        if (item == 0) continue;
+        items.push_back(item);
+        labels.push_back(g_ttemmgr.GetDisplayName(item, true));
+    }
+    ShowSkillChoices(std::move(labels), [items, typed, forge, type](int choice) {
+        const u16 item = choice < 0 ? 0 : items[choice];
+        if (typed) SendSkillMenuReply({0x025B, type, item});
+        else if (forge) SendSkillMenuReply({0x018E, item, 0, 0, 0});
+        else SendSkillMenuReply({0x01AE, item});
+    });
+}
+
+void HandleSkillRepairChoices(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 4 || (packet.packetLength - 4) % 13 != 0) return;
+    std::vector<std::array<u8, 13>> items;
+    std::vector<std::string> labels;
+    for (int offset = 4; offset + 13 <= packet.packetLength; offset += 13) {
+        std::array<u8, 13> item{};
+        std::copy_n(packet.data + offset, item.size(), item.data());
+        items.push_back(item);
+        labels.push_back("+" + std::to_string(item[4]) + " " + g_ttemmgr.GetDisplayName(ReadLE16(item.data() + 2), true));
+    }
+    ShowSkillChoices(std::move(labels), [items](int choice) {
+        std::array<u8, 15> reply{};
+        reply[0] = 0xFD; reply[1] = 0x01;
+        if (choice < 0) { reply[2] = 0xFF; reply[3] = 0xFF; }
+        else std::copy(items[choice].begin(), items[choice].end(), reply.begin() + 2);
+        CRagConnection::instance()->SendPacket(reinterpret_cast<const char*>(reply.data()), static_cast<int>(reply.size()));
+    });
+}
+
+void HandleSkillRepairResult(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 5) return;
+    g_windowMgr.PushChatEvent(packet.data[4] == 0 ? "Equipment repaired." : "Equipment repair failed.", kSystemNoticeColor, 6);
+}
+
+void HandleSkillSenseResult(CGameMode&, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 29) return;
+    char text[256];
+    std::snprintf(text, sizeof(text), "Sense: monster %u, level %u, HP %u, DEF %u, MDEF %u, size %u, race %u, element %u.",
+        ReadLE16(packet.data + 2), ReadLE16(packet.data + 4), ReadLE32(packet.data + 8),
+        ReadLE16(packet.data + 12), ReadLE16(packet.data + 16), ReadLE16(packet.data + 6),
+        ReadLE16(packet.data + 14), ReadLE16(packet.data + 18));
+    g_windowMgr.PushChatEvent(text, kSystemNoticeColor, 6);
+    static const char* elements[] = {"Water", "Earth", "Fire", "Wind", "Poison", "Holy", "Shadow", "Ghost", "Undead"};
+    std::string ratios = "Element damage: ";
+    for (int i = 0; i < 9; ++i) {
+        if (i) ratios += ", ";
+        ratios += std::string(elements[i]) + " " + std::to_string(packet.data[20 + i]) + "%";
+    }
+    g_windowMgr.PushChatEvent(ratios.c_str(), kSystemNoticeColor, 6);
+}
+
+int ResolveSkillUnitEffectId(u16 unitId)
+{
+    // rAthena e_skill_unit_id is a separate namespace from e_special_effects.
+    switch (unitId) {
+    case 126: return 13;  // Safety Wall
+    case 127: return 25;  // Firewall
+    case 128: return kRagEffectReadyPortal;
+    case 129: return kRagEffectPortal;
+    case 130: return 91;
+    case 131: return 319; // Sanctuary floor
+    case 132: return 318; // Magnus floor
+    case 133: return 141;
+    case 135: return 96;
+    case 136: return 97;
+    case 142: return 95;
+    case 143: case 144: case 145:
+    case 147: case 148: case 149: case 150: case 151: case 152: case 153:
+    case 214: case 215: case 216: case 217:
+        return kRagEffectTrap;
+    case 146: return 124;
+    case 154: return 239;
+    case 155: return 240;
+    case 156: return 241;
+    case 157: return 242;
+    case 177: return 302;
+    case 179: return 370;
+    case 180: return 374;
+    case 182: return 405;
+    case 183: return 404;
+    case 187: return 620;
+    case 202: return 1654;
+    case 210: return kRagEffectMagentaTrap;
+    case 211: return kRagEffectCobaltTrap;
+    case 212: return kRagEffectMaizeTrap;
+    case 213: return kRagEffectVerdureTrap;
+    case 219: return kRagEffectSevereRainstorm;
+    case 223: return kRagEffectPsychicWave;
+    case 224: return 1080;
+    case 226: return 783;
+    case 227: return 784;
+    case 230: return 912;
+    case 231: return 916;
+    case 241: return 918;
+    case 242: return 939;
+    case 243: return 241;
+    case 244: return 242;
+    default: return -1; // Dummy and hidden units have no presentation.
+    }
+}
+
+void CancelSkillUnitEffect(CWorld* world, u32 unitAid)
+{
+    if (!world || unitAid == 0) return;
+    for (CGameObject* object : world->m_gameObjectList) {
+        if (auto* effect = dynamic_cast<CRagEffect*>(object)) {
+            if (effect->GetSkillUnitId() == unitAid) effect->Cancel();
+        }
+    }
+}
+
+void HandleSkillUnitDisappear(CGameMode& mode, const PacketView& packet)
+{
+    if (packet.data && packet.packetLength >= 6) CancelSkillUnitEffect(mode.m_world, ReadLE32(packet.data + 2));
+}
+
 void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 16 || !mode.m_world) {
@@ -5460,10 +5764,27 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
     const u32 srcGid = ReadLE32(packet.data + 6);
     const int cellX = static_cast<int>(ReadLE16(packet.data + 10));
     const int cellY = static_cast<int>(ReadLE16(packet.data + 12));
-    const u8 unitId = packet.data[14];
+    const u16 unitId = packet.data[14] < 126 ? static_cast<u16>(packet.data[14]) + 256 : packet.data[14];
+
+    CancelSkillUnitEffect(mode.m_world, unitAid);
+    const int effectId = ResolveSkillUnitEffectId(unitId);
+    if (packet.data[15] == 0) return;
+    if (effectId < 0) {
+        if (unitId != 134) { // Server dummy units intentionally have no image.
+            static std::map<u16, bool> loggedMissingUnits;
+            if (!loggedMissingUnits[unitId]) {
+                DbgLog("[SkillUnit] no presentation for unit=%u\n", static_cast<unsigned int>(unitId));
+                loggedMissingUnits[unitId] = true;
+            }
+        }
+        return;
+    }
 
     const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
-    SpawnWorldSkillEffect(mode, static_cast<int>(unitId), worldPos);
+    if (CRagEffect* effect = SpawnWorldSkillEffect(mode, effectId, worldPos)) {
+        effect->SetSkillUnitId(unitAid);
+        effect->SetLooping(true);
+    }
 
     DbgLog("[GameMode] skill unit opcode=0x%04X unitAid=%u src=%u unitId=%u cell=(%d,%d)\n",
         packet.packetId,
@@ -8570,6 +8891,18 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x010E, HandlePlayerSkillUpdate);
     router.Register(0x010F, HandlePlayerSkillList);
     router.Register(0x0110, HandleSkillFailAck);
+    router.Register(0x011C, HandleSkillWarpChoices);
+    router.Register(0x011E, HandleSkillMenuResult);
+    router.Register(0x0189, HandleSkillMenuResult);
+    router.Register(0x018F, HandleSkillMenuResult);
+    router.Register(0x018C, HandleSkillSenseResult);
+    router.Register(0x018D, HandleSkillProductionChoices);
+    router.Register(0x01AD, HandleSkillProductionChoices);
+    router.Register(0x025A, HandleSkillProductionChoices);
+    router.Register(0x01CD, HandleSkillSelectChoices);
+    router.Register(0x0442, HandleSkillSelectChoices);
+    router.Register(0x01FC, HandleSkillRepairChoices);
+    router.Register(0x01FE, HandleSkillRepairResult);
     router.Register(0x0111, HandlePlayerSkillAdd);
     router.Register(0x0235, HandleHomunSkillList);
     router.Register(0x0239, HandleHomunSkillUpdate);
@@ -8673,7 +9006,7 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x0105, HandlePartyMemberRemoved);
     RegisterHandlerIfValid(router, receiveProfile.partyMemberAddedExtended, HandlePartyMemberAdded);
     RegisterHandlerIfValid(router, receiveProfile.skillUnitSetBasic, HandleSkillUnitSet);
-    router.Register(0x0120, HandleIgnorePacket);
+    router.Register(0x0120, HandleSkillUnitDisappear);
     router.Register(0x0131, HandleIgnorePacket);
     router.Register(0x0132, HandleIgnorePacket);
     router.Register(0x0141, HandleSelfStatInfo);

@@ -4982,6 +4982,7 @@ void CGameActor::SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t 
         return;
     }
     case 83:
+        m_castingSkillId = 0;
         DestroySkillRechargeGage();
         return;
     case 34: {

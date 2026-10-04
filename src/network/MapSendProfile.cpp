@@ -882,6 +882,30 @@ bool BuildActiveUseSkillToIdPacket(u16 skillId,
     return true;
 }
 
+bool BuildActiveUseSkillToPosPacket(u16 skillId, u16 skillLevel, u16 cellX, u16 cellY,
+    void* outBuffer, int outBufferSize, int* outPacketLength)
+{
+    const MapGameplaySendProfile& profile = GetActiveMapGameplaySendProfile();
+    const bool legacy = profile.id == MapGameplaySendProfileId::Legacy;
+    const int length = legacy ? 10 : static_cast<int>(sizeof(PACKET_CZ_USESKILLTOPOS));
+    if (!outBuffer || !outPacketLength || outBufferSize < length) {
+        return false;
+    }
+    auto* bytes = static_cast<u8*>(outBuffer);
+    std::memset(bytes, 0, static_cast<size_t>(length));
+    const auto writeWord = [bytes](int offset, u16 value) {
+        bytes[offset] = static_cast<u8>(value & 0xFFu);
+        bytes[offset + 1] = static_cast<u8>(value >> 8);
+    };
+    writeWord(0, profile.useSkillToPos);
+    writeWord(legacy ? 2 : 5, skillLevel);
+    writeWord(legacy ? 4 : 9, skillId);
+    writeWord(legacy ? 6 : 12, cellX);
+    writeWord(legacy ? 8 : 20, cellY);
+    *outPacketLength = length;
+    return true;
+}
+
 bool BuildActiveCartOffPacket(void* outBuffer,
     int outBufferSize,
     int* outPacketLength)

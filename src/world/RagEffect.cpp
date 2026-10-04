@@ -53,6 +53,36 @@ struct RagEffectCatalogEntry {
 
 #include "RagEffectCatalog.generated.inc"
 
+struct RagEffectAssetEntry {
+    int effectId;
+    const char* strPaths;
+};
+#include "RagEffectAssets.generated.inc"
+
+struct RagEffectSpriteEntry {
+    int effectId;
+    const char* stem;
+    bool head;
+    bool direction;
+};
+#include "RagEffectSprites.generated.inc"
+
+const RagEffectSpriteEntry* FindRagEffectSprite(int effectId)
+{
+    const auto end = std::end(kRagEffectSprites);
+    const auto it = std::lower_bound(std::begin(kRagEffectSprites), end, effectId,
+        [](const RagEffectSpriteEntry& entry, int id) { return entry.effectId < id; });
+    return it != end && it->effectId == effectId ? it : nullptr;
+}
+
+const RagEffectAssetEntry* FindRagEffectAssets(int effectId)
+{
+    const auto end = std::end(kRagEffectAssets);
+    const auto it = std::lower_bound(std::begin(kRagEffectAssets), end, effectId,
+        [](const RagEffectAssetEntry& entry, int id) { return entry.effectId < id; });
+    return it != end && it->effectId == effectId ? it : nullptr;
+}
+
 vector3d AddVec3(const vector3d& a, const vector3d& b)
 {
     return vector3d{ a.x + b.x, a.y + b.y, a.z + b.z };
@@ -1679,6 +1709,11 @@ static void PlayEzStrAssociatedStartupSound(const char* strResourcePath, int eff
         return;
     }
 
+    if (effectId == 130) { // EF_TWOHANDQUICKEN, also sent for custom Spear Quicken (816).
+        TryPlaySingleEffectWave(soundPos, "effect\\knight_twohandquicken.wav");
+        return;
+    }
+
     std::vector<std::string> tryPaths;
     if (effectId == 337) {
         tryPaths.push_back("effect\\levelup.wav");
@@ -1948,6 +1983,24 @@ void BakeEffectAlphaBlendPixel(unsigned int& dst, unsigned int src)
     dst = (outA << 24) | (outR << 16) | (outG << 8) | outB;
 }
 
+bool GetEffectClipBounds(const CSprClip& clip, const SprImg& image, RECT* bounds)
+{
+    const float zoomX = clip.zoomX == 0.0f ? 1.0f : clip.zoomX;
+    const float zoomY = clip.zoomY == 0.0f ? 1.0f : clip.zoomY;
+    const float angle = clip.angle * (kPi / 180.0f);
+    const float width = image.width * (image.isHalfW + 1) * std::fabs(zoomX) * 0.5f;
+    const float height = image.height * (image.isHalfH + 1) * std::fabs(zoomY) * 0.5f;
+    const float extentX = width * std::fabs(std::cos(angle)) + height * std::fabs(std::sin(angle));
+    const float extentY = width * std::fabs(std::sin(angle)) + height * std::fabs(std::cos(angle));
+    if (!bounds || !std::isfinite(extentX) || !std::isfinite(extentY)
+        || extentX > 4096.0f || extentY > 4096.0f || std::abs(clip.x) > 8192 || std::abs(clip.y) > 8192) return false;
+    bounds->left = static_cast<LONG>(std::floor(clip.x - extentX));
+    bounds->right = static_cast<LONG>(std::ceil(clip.x + extentX));
+    bounds->top = static_cast<LONG>(std::floor(clip.y - extentY));
+    bounds->bottom = static_cast<LONG>(std::ceil(clip.y + extentY));
+    return true;
+}
+
 void BlitScaledEffectMotionToArgb(unsigned int* dest,
     int destW,
     int destH,
@@ -1971,8 +2024,8 @@ void BlitScaledEffectMotionToArgb(unsigned int* dest,
             continue;
         }
 
-        const float clipZoomX = clip.zoomX > 0.0f ? clip.zoomX : 1.0f;
-        const float clipZoomY = clip.zoomY > 0.0f ? clip.zoomY : 1.0f;
+        const float clipZoomX = clip.zoomX != 0.0f ? clip.zoomX : 1.0f;
+        const float clipZoomY = clip.zoomY != 0.0f ? clip.zoomY : 1.0f;
         const bool flipX = (clip.flags & 1) != 0;
         const int logicalWidth = image->width * (image->isHalfW + 1);
         const int logicalHeight = image->height * (image->isHalfH + 1);
@@ -1980,12 +2033,15 @@ void BlitScaledEffectMotionToArgb(unsigned int* dest,
             continue;
         }
 
-        const float left = static_cast<float>(clip.x) - static_cast<float>(logicalWidth) * clipZoomX * 0.5f;
-        const float top = static_cast<float>(clip.y) - static_cast<float>(logicalHeight) * clipZoomY * 0.5f;
-        const int drawLeft = static_cast<int>(std::floor(left));
-        const int drawTop = static_cast<int>(std::floor(top));
-        const int drawRight = static_cast<int>(std::ceil(left + static_cast<float>(logicalWidth) * clipZoomX));
-        const int drawBottom = static_cast<int>(std::ceil(top + static_cast<float>(logicalHeight) * clipZoomY));
+        RECT bounds{};
+        if (!GetEffectClipBounds(clip, *image, &bounds)) continue;
+        const float angle = clip.angle * (kPi / 180.0f);
+        const float cosine = std::cos(angle);
+        const float sine = std::sin(angle);
+        const int drawLeft = (std::max)(static_cast<int>(bounds.left), -baseX);
+        const int drawTop = (std::max)(static_cast<int>(bounds.top), -baseY);
+        const int drawRight = (std::min)(static_cast<int>(bounds.right), destW - baseX);
+        const int drawBottom = (std::min)(static_cast<int>(bounds.bottom), destH - baseY);
 
         for (int dy = drawTop; dy < drawBottom; ++dy) {
             const int destY = baseY + dy;
@@ -1993,26 +2049,24 @@ void BlitScaledEffectMotionToArgb(unsigned int* dest,
                 continue;
             }
 
-            const int logicalY = static_cast<int>(std::floor((static_cast<float>(dy) + 0.5f - top) / clipZoomY));
-            if (logicalY < 0 || logicalY >= logicalHeight) {
-                continue;
-            }
-            const int sourceY = logicalY / (image->isHalfH + 1);
-
             for (int dx = drawLeft; dx < drawRight; ++dx) {
                 const int destX = baseX + dx;
                 if (destX < 0 || destX >= destW) {
                     continue;
                 }
 
-                int logicalX = static_cast<int>(std::floor((static_cast<float>(dx) + 0.5f - left) / clipZoomX));
-                if (logicalX < 0 || logicalX >= logicalWidth) {
+                const float offsetX = dx + 0.5f - clip.x;
+                const float offsetY = dy + 0.5f - clip.y;
+                int logicalX = static_cast<int>(std::floor((offsetX * cosine + offsetY * sine) / clipZoomX + logicalWidth * 0.5f));
+                const int logicalY = static_cast<int>(std::floor((-offsetX * sine + offsetY * cosine) / clipZoomY + logicalHeight * 0.5f));
+                if (logicalX < 0 || logicalX >= logicalWidth || logicalY < 0 || logicalY >= logicalHeight) {
                     continue;
                 }
                 if (flipX) {
                     logicalX = logicalWidth - 1 - logicalX;
                 }
                 const int sourceX = logicalX / (image->isHalfW + 1);
+                const int sourceY = logicalY / (image->isHalfH + 1);
 
                 unsigned int srcColor = 0u;
                 if (clip.clipType == 0) {
@@ -2054,21 +2108,38 @@ const BakedEffectSpriteFrame* GetBakedEffectSpriteFrame(const std::string& actPa
     if (actRes && sprRes) {
         if (actRes->GetMotionCount(actionIndex) > 0) {
             if (const CMotion* motion = actRes->GetMotion(actionIndex, motionIndex)) {
-                constexpr int kCanvasSize = 384;
-                constexpr int kCanvasCenter = kCanvasSize / 2;
-                std::vector<unsigned int> canvasPixels(static_cast<size_t>(kCanvasSize) * static_cast<size_t>(kCanvasSize), 0u);
-                BlitScaledEffectMotionToArgb(canvasPixels.data(), kCanvasSize, kCanvasSize, kCanvasCenter, kCanvasCenter, sprRes, motion, sprRes->m_pal);
+                RECT canvasBounds{};
+                bool hasBounds = false;
+                for (const CSprClip& clip : motion->sprClips) {
+                    const SprImg* image = clip.sprIndex >= 0 ? sprRes->GetSprite(clip.clipType, clip.sprIndex) : nullptr;
+                    RECT clipBounds{};
+                    if (!image || !GetEffectClipBounds(clip, *image, &clipBounds)) continue;
+                    if (!hasBounds) { canvasBounds = clipBounds; hasBounds = true; }
+                    else {
+                        canvasBounds.left = (std::min)(canvasBounds.left, clipBounds.left);
+                        canvasBounds.top = (std::min)(canvasBounds.top, clipBounds.top);
+                        canvasBounds.right = (std::max)(canvasBounds.right, clipBounds.right);
+                        canvasBounds.bottom = (std::max)(canvasBounds.bottom, clipBounds.bottom);
+                    }
+                }
+                const int canvasWidth = canvasBounds.right - canvasBounds.left;
+                const int canvasHeight = canvasBounds.bottom - canvasBounds.top;
+                if (!hasBounds || canvasWidth <= 0 || canvasHeight <= 0 || canvasWidth > 8192 || canvasHeight > 8192) return nullptr;
+                const int originX = -canvasBounds.left;
+                const int originY = -canvasBounds.top;
+                std::vector<unsigned int> canvasPixels(static_cast<size_t>(canvasWidth) * canvasHeight, 0u);
+                BlitScaledEffectMotionToArgb(canvasPixels.data(), canvasWidth, canvasHeight, originX, originY, sprRes, motion, sprRes->m_pal);
 
                 RECT bounds{};
-                if (FindOpaqueBounds(canvasPixels.data(), kCanvasSize, kCanvasSize, &bounds)) {
+                if (FindOpaqueBounds(canvasPixels.data(), canvasWidth, canvasHeight, &bounds)) {
                     baked.width = (std::max)(1, static_cast<int>(bounds.right - bounds.left));
                     baked.height = (std::max)(1, static_cast<int>(bounds.bottom - bounds.top));
-                    baked.pivotX = static_cast<float>(kCanvasCenter - bounds.left);
-                    baked.pivotY = static_cast<float>(kCanvasCenter - bounds.top);
+                    baked.pivotX = static_cast<float>(originX - bounds.left);
+                    baked.pivotY = static_cast<float>(originY - bounds.top);
 
                     std::vector<unsigned int> pixels(static_cast<size_t>(baked.width) * static_cast<size_t>(baked.height), 0u);
                     for (int y = 0; y < baked.height; ++y) {
-                        const unsigned int* src = canvasPixels.data() + static_cast<size_t>(bounds.top + y) * kCanvasSize + bounds.left;
+                        const unsigned int* src = canvasPixels.data() + static_cast<size_t>(bounds.top + y) * canvasWidth + bounds.left;
                         unsigned int* dst = pixels.data() + static_cast<size_t>(y) * baked.width;
                         std::memcpy(dst, src, static_cast<size_t>(baked.width) * sizeof(unsigned int));
                     }
@@ -2251,39 +2322,46 @@ bool SubmitAnimatedSpriteParticle(const CEffectPrim& prim,
     return true;
 }
 
-void AddXformDelta(KAC_XFORMDATA* target, const KAC_XFORMDATA& delta)
+void AddXformDelta(KAC_XFORMDATA* target, const KAC_XFORMDATA& delta, float frames)
 {
     if (!target) {
         return;
     }
 
-    target->x += delta.x;
-    target->y += delta.y;
-    target->u += delta.u;
-    target->v += delta.v;
-    target->us += delta.us;
-    target->vs += delta.vs;
-    target->u2 += delta.u2;
-    target->v2 += delta.v2;
-    target->us2 += delta.us2;
-    target->vs2 += delta.vs2;
+    target->x += delta.x * frames;
+    target->y += delta.y * frames;
+    target->u += delta.u * frames;
+    target->v += delta.v * frames;
+    target->us += delta.us * frames;
+    target->vs += delta.vs * frames;
+    target->u2 += delta.u2 * frames;
+    target->v2 += delta.v2 * frames;
+    target->us2 += delta.us2 * frames;
+    target->vs2 += delta.vs2 * frames;
     for (int index = 0; index < 4; ++index) {
-        target->ax[index] += delta.ax[index];
-        target->ay[index] += delta.ay[index];
+        target->ax[index] += delta.ax[index] * frames;
+        target->ay[index] += delta.ay[index] * frames;
     }
-    target->rz += delta.rz;
-    target->crR += delta.crR;
-    target->crG += delta.crG;
-    target->crB += delta.crB;
-    target->crA += delta.crA;
-    target->srcalpha = delta.srcalpha;
-    target->destalpha = delta.destalpha;
-    target->mtpreset = delta.mtpreset;
+    target->rz += delta.rz * frames;
+    target->crR += delta.crR * frames;
+    target->crG += delta.crG * frames;
+    target->crB += delta.crB * frames;
+    target->crA += delta.crA * frames;
+    // Delta keys contain zeroes in these fields. Blending/material belong to
+    // the preceding absolute key and must survive its animation segment.
 }
 
 std::string ResolveStrName(int effectId)
 {
     switch (effectId) {
+    case 13:
+        return ResolveWorldStrName("safetywall.str");
+    case 23:
+        return ResolveWorldStrName("stonecurse.str");
+    case 101:
+        return ResolveWorldStrName("repairweapon.str");
+    case 130: // EF_TWOHANDQUICKEN: the legacy catalog incorrectly names defense.str.
+        return ResolveWorldStrName("twohand.str");
     case kRagEffectMetallicSound:
         return ResolveWorldStrName("new_metalicsound\\new_metalicsound\\new_metalicsound.str");
     case kRagEffectMetallicSoundHit:
@@ -2294,6 +2372,10 @@ std::string ResolveStrName(int effectId)
         return ResolveWorldStrName("metalicfury\\metalicfury\\metalicfury.str");
     case kRagEffectPerformanceNotes:
         return ResolveWorldStrName("note_1.str");
+    case kRagEffectSevereRainstorm:
+        return ResolveWorldStrName("new_severerainstorm\\new_severerainstorm\\new_severerainstorm.str");
+    case kRagEffectPsychicWave:
+        return ResolveWorldStrName("new_psychicwave\\new_psychicwave\\new_psychicwave.str");
     default:
         break;
     }
@@ -2304,6 +2386,14 @@ std::string ResolveStrName(int effectId)
     }
 
     const RagEffectCatalogEntry* entry = FindRagEffectCatalogEntry(effectId);
+    if (g_session.m_isMinEffect && entry && entry->minStrName) {
+        return ResolveWorldStrName(entry->minStrName);
+    }
+    if (const RagEffectAssetEntry* assets = FindRagEffectAssets(effectId)) {
+        std::string name(assets->strPaths);
+        name.resize(name.find('|') == std::string::npos ? name.size() : name.find('|'));
+        return ResolveWorldStrName(name);
+    }
     if (!entry) {
         return std::string();
     }
@@ -2942,6 +3032,21 @@ void CEffectPrim::Render(matrix* viewMatrix)
     const float timeSeconds = static_cast<float>(m_stateCnt) * (kEffectTickMs / 1000.0f);
 
     switch (m_type) {
+    case PP_GROUNDTEXTURE: {
+        CTexture* texture = m_texture.empty() ? nullptr : m_texture[0];
+        if (!texture) break;
+        const float radius = m_radius;
+        vector3d quad[4] = {
+            {base.x - radius, base.y, base.z - radius},
+            {base.x + radius, base.y, base.z - radius},
+            {base.x - radius, base.y, base.z + radius},
+            {base.x + radius, base.y, base.z + radius},
+        };
+        for (vector3d& point : quad) point.y = ResolveGroundHeight(point) - 0.05f;
+        SubmitGroundQuad(quad, *viewMatrix, texture, color, color,
+            ResolveEffectDestBlend(m_renderFlag), 0.0f, ResolveEffectRenderFlags(m_renderFlag, 1 | 2));
+        break;
+    }
     case PP_3DCIRCLE:
     case PP_MAPMAGICZONE: {
         CTexture* texture = !m_texture.empty() ? m_texture[0] : nullptr;
@@ -3686,6 +3791,11 @@ CRagEffect::CRagEffect()
 
 CRagEffect::~CRagEffect()
 {
+    // Components may share our world anchor. Destroy them before the anchor.
+    m_componentEffects.clear();
+    if (m_ezEffectRes) {
+        --m_ezEffectRes->m_lockCnt;
+    }
     m_ezEffectRes = nullptr;
     ClearPrims();
 
@@ -3715,6 +3825,11 @@ void CRagEffect::ClearPrims()
 
 void CRagEffect::LoadEzEffect(const char* fName)
 {
+    if (m_ezEffectRes) {
+        --m_ezEffectRes->m_lockCnt;
+    }
+    m_ezEffectRes = nullptr;
+    m_aniClips = nullptr;
     if (!fName || !*fName) {
         return;
     }
@@ -3726,6 +3841,7 @@ void CRagEffect::LoadEzEffect(const char* fName)
     }
 
     m_aniClips = &m_ezEffectRes->m_aniClips;
+    ++m_ezEffectRes->m_lockCnt;
     m_cEndLayer = m_aniClips->cLayer;
     if (m_aniClips->cLayer > 0 && m_aniClips->aLayer[0].cAniKey == 0) {
         m_cEndLayer = m_aniClips->cLayer - 1;
@@ -3750,104 +3866,56 @@ void CRagEffect::InitEZ2STRFrame()
 
 bool CRagEffect::ProcessEZ2STR()
 {
-    if (!m_aniClips) {
-        return false;
-    }
-
     m_isLayerDrawn.fill(0);
-    m_activeAniKeyFrame.fill(-1);
-    m_activeAniKeyAppliedState.fill(-1);
-    m_activeAniKeyZeroBlend.fill(0);
-    for (int layerIndex = 0; layerIndex < m_aniClips->cLayer && layerIndex < static_cast<int>(m_actXformData.size()); ++layerIndex) {
+    if (!m_aniClips || m_stateCnt >= m_aniClips->cFrame) return false;
+
+    for (int layerIndex = 0; layerIndex < m_aniClips->cLayer; ++layerIndex) {
         const KAC_LAYER& layer = m_aniClips->aLayer[static_cast<size_t>(layerIndex)];
-        if (layer.cAniKey <= 0 || !layer.aAniKey) {
-            continue;
-        }
+        if (!layer.aAniKey || layer.cTex <= 0) continue;
 
-        int& curKeyIndex = m_aiCurAniKey[static_cast<size_t>(layerIndex)];
-        if (curKeyIndex < 0) {
-            continue;
+        // Each animated segment has an absolute key and a same-frame delta key.
+        // Sample from that absolute key so delayed frames and loops cannot drift.
+        int source = -1;
+        for (int i = 0; i < layer.cAniKey; ++i) {
+            const KAC_KEYFRAME& key = layer.aAniKey[i];
+            if (key.dwType == 0 && key.iFrame <= m_stateCnt
+                && (source < 0 || key.iFrame >= layer.aAniKey[source].iFrame)) source = i;
         }
-        if (curKeyIndex >= layer.cAniKey) {
-            curKeyIndex = layer.cAniKey - 1;
-        }
-
-        const KAC_KEYFRAME* key = &layer.aAniKey[static_cast<size_t>(curKeyIndex)];
-        int frameOffset = m_stateCnt - key->iFrame;
-        if (frameOffset >= 0 && curKeyIndex < layer.cAniKey - 1) {
-            const KAC_KEYFRAME& nextKey = layer.aAniKey[static_cast<size_t>(curKeyIndex + 1)];
-            if (frameOffset > 0 && nextKey.iFrame == m_stateCnt) {
-                ++curKeyIndex;
-                key = &layer.aAniKey[static_cast<size_t>(curKeyIndex)];
-                frameOffset = m_stateCnt - key->iFrame;
-                if (curKeyIndex >= layer.cAniKey - 1) {
-                    curKeyIndex = -1;
-                    ++m_iCurLayer;
-                }
-            }
-        }
-
-        if (frameOffset < 0) {
-            continue;
-        }
+        if (source < 0) continue;
+        const KAC_KEYFRAME& absolute = layer.aAniKey[source];
+        const KAC_KEYFRAME* delta = nullptr;
+        if (source + 1 < layer.cAniKey && layer.aAniKey[source + 1].dwType == 1
+            && layer.aAniKey[source + 1].iFrame == absolute.iFrame) delta = &layer.aAniKey[source + 1];
+        // A final unpaired key terminates an animated layer.
+        if (!delta && layer.cAniKey > 1 && source == layer.cAniKey - 1) continue;
 
         KAC_XFORMDATA& xform = m_actXformData[static_cast<size_t>(layerIndex)];
-        if (key->dwType != 0) {
-            AddXformDelta(&xform, key->XformData);
-            switch (key->XformData.anitype) {
-            case 1:
-                xform.aniframe += key->XformData.aniframe;
-                break;
-            case 2:
-                xform.aniframe += key->XformData.anidelta;
-                if (xform.aniframe >= static_cast<float>(layer.cTex)) {
-                    xform.aniframe = static_cast<float>((std::max)(layer.cTex - 1, 0));
-                }
-                break;
-            case 3: {
-                xform.aniframe += key->XformData.anidelta;
-                const float texCount = static_cast<float>((std::max)(layer.cTex, 1));
-                if (xform.aniframe >= texCount) {
-                    xform.aniframe = std::fmod(xform.aniframe, texCount);
-                }
-                break;
-            }
-            case 4: {
-                xform.aniframe -= key->XformData.anidelta;
-                const float texCount = static_cast<float>((std::max)(layer.cTex, 1));
-                while (xform.aniframe < 0.0f) {
-                    xform.aniframe += texCount;
-                }
-                break;
-            }
+        xform = absolute.XformData;
+        if (delta) {
+            const float frames = static_cast<float>(m_stateCnt - absolute.iFrame);
+            const KAC_XFORMDATA& velocity = delta->XformData;
+            AddXformDelta(&xform, velocity, frames);
+            const float textures = static_cast<float>(layer.cTex);
+            const float advance = velocity.anidelta * frames;
+            switch (velocity.anitype) {
+            case 1: xform.aniframe += velocity.aniframe * frames; break;
+            case 2: xform.aniframe = (std::min)(textures - 1.0f, xform.aniframe + advance); break;
+            case 3: xform.aniframe = std::fmod(xform.aniframe + advance, textures); break;
+            case 4: xform.aniframe = std::fmod(xform.aniframe - advance, textures); break;
             case 5: {
-                const int span = (std::max)(layer.cTex - 1, 1);
-                const int motion = static_cast<int>(static_cast<float>(frameOffset) * key->XformData.anidelta + xform.aniframe);
-                xform.aniframe = ((motion / span) & 1) != 0
-                    ? static_cast<float>(span * ((motion / span) + 1) - motion)
-                    : static_cast<float>(motion % span);
+                const float span = textures - 1.0f;
+                if (span <= 0.0f) { xform.aniframe = 0.0f; break; }
+                float position = std::fmod(xform.aniframe + advance, 2.0f * span);
+                if (position < 0.0f) position += 2.0f * span;
+                xform.aniframe = position <= span ? position : 2.0f * span - position;
                 break;
             }
-            default:
-                break;
+            default: break;
             }
-        } else {
-            xform = key->XformData;
-            if (curKeyIndex != -1 && curKeyIndex < layer.cAniKey - 1) {
-                const KAC_KEYFRAME& nextKey = layer.aAniKey[static_cast<size_t>(curKeyIndex + 1)];
-                if (nextKey.iFrame == key->iFrame) {
-                    ++curKeyIndex;
-                }
-            }
+            if (xform.aniframe < 0.0f) xform.aniframe += textures;
         }
-
         m_isLayerDrawn[static_cast<size_t>(layerIndex)] = 1;
-        m_activeAniKeyFrame[static_cast<size_t>(layerIndex)] = key->iFrame;
-        m_activeAniKeyAppliedState[static_cast<size_t>(layerIndex)] = m_stateCnt;
-        m_activeAniKeyZeroBlend[static_cast<size_t>(layerIndex)] =
-            (key->XformData.srcalpha == 0u && key->XformData.destalpha == 0u) ? 1u : 0u;
     }
-
     return true;
 }
 
@@ -3861,26 +3929,19 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
         return;
     }
 
-    if (layerIndex >= 0 && layerIndex < static_cast<int>(m_activeAniKeyZeroBlend.size())
-        && m_activeAniKeyZeroBlend[static_cast<size_t>(layerIndex)] != 0) {
-        const int keyFrame = m_activeAniKeyFrame[static_cast<size_t>(layerIndex)];
-        const int appliedState = m_activeAniKeyAppliedState[static_cast<size_t>(layerIndex)];
-        if (keyFrame >= 0 && appliedState >= 0) {
-            const int keyAgeTicks = appliedState - keyFrame;
-            if (keyAgeTicks <= 1) {
-                return;
-            }
-        }
-    }
-
     const int aniFrame = (std::max)(0, (std::min)(layer.cTex - 1, static_cast<int>(xform.aniframe)));
     CTexture* texture = const_cast<KAC_LAYER&>(layer).GetTexture(aniFrame);
     if (!texture || texture == &CTexMgr::s_dummy_texture) {
         return;
     }
 
+    vector3d anchorPos = ResolveBasePosition();
+    if (m_type == 130) {
+        // Quicken's STR is attached to the head, like head-attached sprite effects.
+        anchorPos.y -= 10.0f;
+    }
     tlvertex3d anchor{};
-    if (!ProjectPoint(ResolveBasePosition(), *viewMatrix, &anchor)) {
+    if (!ProjectPoint(anchorPos, *viewMatrix, &anchor)) {
         return;
     }
     const float pixelRatio = ResolveEffectPixelRatio(anchor);
@@ -3889,7 +3950,7 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     }
 
     m_tlvertX = anchor.x;
-    m_tlvertY = anchor.y - 80.0f;
+    m_tlvertY = anchor.y;
     m_tlvertZ = anchor.z;
 
     RPFace* face = g_renderer.BorrowNullRP();
@@ -3930,7 +3991,7 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
 
     for (int index = 0; index < 4; ++index) {
         const float rotatedX = (xs[index] * c - ys[index] * s + xform.x - 320.0f) * pixelRatio;
-        const float rotatedY = (ys[index] * c + xs[index] * s + xform.y - 240.0f) * pixelRatio;
+        const float rotatedY = (ys[index] * c + xs[index] * s + xform.y - 320.0f) * pixelRatio;
         tlvertex3d& vert = face->m_verts[index];
         vert = anchor;
         vert.x = rotatedX + m_tlvertX;
@@ -3947,6 +4008,11 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
 
 void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& deltaPos)
 {
+    m_componentEffects.clear();
+    m_skillUnitId = 0;
+    m_cancelled = false;
+    m_startDelayMs = 0;
+    m_castEndTick = 0;
     m_master = master;
     m_ownsMaster = false;
     if (const CGameActor* actorMaster = dynamic_cast<const CGameActor*>(master)) {
@@ -3972,6 +4038,29 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     switch (effectId) {
+    case kRagEffectTrap:
+    case kRagEffectMagentaTrap:
+    case kRagEffectCobaltTrap:
+    case kRagEffectMaizeTrap:
+    case kRagEffectVerdureTrap: {
+        // These are ground-unit sprites, distinct from the skill-window icons.
+        static const char* stems[] = {
+            "data\\sprite\\\300\314\306\321\306\256\\\261\342\272\273\306\256\267\246",
+            "data\\sprite\\\300\314\306\321\306\256\\\300\332\310\253\273\366\306\256\267\246",
+            "data\\sprite\\\300\314\306\321\306\256\\\276\317\303\273\273\366\306\256\267\246",
+            "data\\sprite\\\300\314\306\321\306\256\\\264\343\310\262\273\366\306\256\267\246",
+            "data\\sprite\\\300\314\306\321\306\256\\\303\273\267\317\273\366\306\256\267\246",
+        };
+        m_handler = Handler::Sprite;
+        m_effectName = stems[effectId - kRagEffectTrap];
+        m_tickCarryMs = kActDelayUnitMs;
+        break;
+    }
+    case 239: case 240: case 241: case 242:
+    case 318: case 319: case 370: case 374: case 783: case 939:
+        m_handler = Handler::GroundSurface;
+        m_duration = 80;
+        break;
     case 158:
         m_handler = Handler::Entry2;
         m_duration = 72;
@@ -4018,6 +4107,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_handler = Handler::BeginCasting;
         m_duration = 56;
         break;
+    case 7: // Small Heal (amount below 200)
     case 312:
         m_handler = Handler::HealLight;
         m_duration = 26;
@@ -4193,7 +4283,44 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
                 PlayEzStrAssociatedStartupSound(strName.c_str(), effectId, ResolveBasePosition());
             }
             if (m_aniClips && m_aniClips->cFrame > 0) {
-                m_duration = (std::max)(m_duration, m_aniClips->cFrame + 8);
+                m_duration = m_aniClips->cFrame + 1;
+                m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
+            }
+            const RagEffectCatalogEntry* catalog = FindRagEffectCatalogEntry(effectId);
+            const bool hasMinimalVariant = g_session.m_isMinEffect && catalog && catalog->minStrName;
+            const RagEffectAssetEntry* assets = hasMinimalVariant ? nullptr : FindRagEffectAssets(effectId);
+            if (assets || effectId == kRagEffectPsychicWave) {
+                const std::string paths = assets ? assets->strPaths
+                    : "new_psychicwave\\new_psychicwave\\new_psychicwave.str|new_psychicwave\\new_psychicwave_bottom\\new_psychicwave_bottom.str";
+                size_t separator = paths.find('|');
+                while (separator != std::string::npos) {
+                    const size_t start = separator + 1;
+                    separator = paths.find('|', start);
+                    const std::string path = paths.substr(start, separator - start);
+                    auto component = std::make_unique<CRagEffect>();
+                    component->Init(master, -1, deltaPos);
+                    component->m_type = effectId;
+                    component->m_handler = Handler::EzStr;
+                    component->LoadEzEffect(path.c_str());
+                    if (!component->m_aniClips) {
+                        continue;
+                    }
+                    component->InitEZ2STRFrame();
+                    component->m_duration = component->m_aniClips->cFrame + 1;
+                    component->m_tickCarryMs = 1000.0f / static_cast<float>(component->m_aniClips->nFPS);
+                    m_componentEffects.push_back(std::move(component));
+                }
+            }
+        } else if (const RagEffectSpriteEntry* sprite = FindRagEffectSprite(effectId)) {
+            m_handler = Handler::Sprite;
+            m_effectName = sprite->stem;
+            m_flag = (sprite->head ? 1 : 0) | (sprite->direction ? 2 : 0);
+            m_tickCarryMs = kActDelayUnitMs;
+        } else if (effectId >= 0) {
+            static std::map<int, bool> loggedMissingEffects;
+            if (!loggedMissingEffects[effectId]) {
+                DbgLog("[RagEffect] no presentation for effect=%d\n", effectId);
+                loggedMissingEffects[effectId] = true;
             }
         }
         break;
@@ -4206,6 +4333,31 @@ void CRagEffect::InitAtWorldPosition(int effectId, const vector3d& position)
     Init(new CWorldAnchor(position), effectId, vector3d{});
     m_ownsMaster = true;
     m_cachedPos = position;
+}
+
+void CRagEffect::SetLooping(bool looping)
+{
+    m_loop = looping;
+    if (looping) m_duration = 1000000;
+    for (const auto& component : m_componentEffects) {
+        component->SetLooping(looping);
+    }
+}
+
+void CRagEffect::SetStartDelayMs(u32 milliseconds)
+{
+    m_startDelayMs = milliseconds;
+    for (const auto& component : m_componentEffects) component->SetStartDelayMs(milliseconds);
+}
+
+void CRagEffect::SetCastDurationMs(int milliseconds)
+{
+    m_castEndTick = timeGetTime() + static_cast<u32>((std::max)(1, milliseconds)) + 160;
+    if (m_handler == Handler::EzStr) {
+        SetLooping(true); // The server's completion/cancellation removes it.
+    } else {
+        m_duration = (std::max)(1, static_cast<int>(std::ceil(milliseconds / kEffectTickMs)));
+    }
 }
 
 void CRagEffect::InitWorld(const C3dWorldRes::effectSrcInfo& source)
@@ -4272,6 +4424,9 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
+    for (auto& component : m_componentEffects) {
+        component->DetachFromMaster(knownMaster);
+    }
     CRenderObject* ownerMaster = knownMaster;
     if (!ownerMaster && !m_masterIsActor) {
         ownerMaster = ResolveCurrentMaster();
@@ -4307,6 +4462,9 @@ void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 
 void CRagEffect::OnActorDeleted(const CGameActor* actor)
 {
+    for (const auto& component : m_componentEffects) {
+        component->OnActorDeleted(actor);
+    }
     if (!actor) {
         return;
     }
@@ -4823,6 +4981,63 @@ void CRagEffect::SpawnEntry2()
             prim->m_size = 4.0f;
             ConfigureWarpZoneCastingBands(prim, 0, static_cast<float>(rand() % 360));
         }
+    }
+}
+
+void CRagEffect::SpawnSprite()
+{
+    if (m_stateCnt != 0) return;
+    const std::string act = m_effectName + ".act";
+    CActRes* actions = g_resMgr.GetAs<CActRes>(act.c_str());
+    if (!actions) return;
+    int action = 0;
+    if ((m_flag & 2) != 0 && actions->actions.size() >= 8) {
+        if (CRenderObject* master = ResolveCurrentMaster()) action = master->Get8Dir(master->m_roty);
+    }
+    const int frames = actions->GetMotionCount(action);
+    if (frames <= 0) return;
+    const float delay = (std::max)(1.0f, actions->GetDelay(action));
+    const int duration = static_cast<int>(std::ceil(frames * delay)) + 1;
+    if (!m_loop) m_duration = duration;
+    if (CEffectPrim* prim = LaunchEffectPrim(PP_EFFECTSPRITE, vector3d{})) {
+        prim->m_spriteActName = act;
+        prim->m_spriteSprName = m_effectName + ".spr";
+        prim->m_spriteAction = action;
+        prim->m_spriteFrameDelay = delay;
+        prim->m_spriteScale = 1.0f;
+        prim->m_spriteRepeat = m_loop;
+        prim->m_duration = m_loop ? m_duration : duration;
+        prim->m_alpha = 255.0f;
+        prim->m_maxAlpha = 255.0f;
+        prim->m_renderFlag = 5u;
+        if ((m_flag & 1) != 0) prim->m_param[2] = -10.0f;
+    }
+}
+
+void CRagEffect::SpawnGroundSurface()
+{
+    if (!m_primList.empty()) return;
+    const char* texture = nullptr;
+    switch (m_type) {
+    case 239: case 318: texture = "effect\\ring_red.tga"; break;
+    case 240: case 939: texture = "effect\\ring_blue.tga"; break;
+    case 241: texture = "effect\\magic_green.tga"; break;
+    case 242: texture = "effect\\aaa copy.bmp"; break;
+    case 319: texture = "effect\\alpha_down.tga"; break;
+    case 370: case 374: texture = "effect\\cross_old.bmp"; break;
+    case 783: texture = "effect\\slash01.tga"; break;
+    default: return;
+    }
+    CTexture* image = TryResolveEffectTextureCandidates({texture});
+    if (!image) return;
+    if (CEffectPrim* prim = LaunchEffectPrim(PP_GROUNDTEXTURE, vector3d{})) {
+        prim->m_texture.push_back(image);
+        prim->m_radius = 2.5f;
+        prim->m_alpha = 210.0f;
+        prim->m_maxAlpha = prim->m_alpha;
+        prim->m_duration = m_duration;
+        prim->m_fadeOutCnt = m_loop ? 0 : m_duration - 16;
+        prim->m_renderFlag = 5u;
     }
 }
 
@@ -6369,6 +6584,22 @@ void CRagEffect::SpawnFireBoltRain()
 
 u8 CRagEffect::OnProcess()
 {
+    if (m_cancelled || (m_handler == Handler::None && m_componentEffects.empty() && m_primList.empty())) {
+        return 0;
+    }
+    if (m_castEndTick != 0 && static_cast<s32>(timeGetTime() - m_castEndTick) >= 0) return 0;
+    if (m_startDelayMs > 0) {
+        if (timeGetTime() - m_lastProcessTick < m_startDelayMs) return 1;
+        m_lastProcessTick += m_startDelayMs;
+        m_startDelayMs = 0;
+    }
+    for (auto it = m_componentEffects.begin(); it != m_componentEffects.end();) {
+        if (!(*it)->OnProcess()) {
+            it = m_componentEffects.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (CRenderObject* master = ResolveCurrentMaster()) {
         m_cachedPos = master->m_pos;
         m_longitude = master->m_roty;
@@ -6383,14 +6614,10 @@ u8 CRagEffect::OnProcess()
         m_handler == Handler::EzStr
         || m_handler == Handler::JobLevelUp50;
 
-    int steps = 0;
-    if (frameDrivenStrHandler) {
-        // Ref-style STR playback advances once per world process pass.
-        steps = 1;
-        m_tickCarryMs = 0.0f;
-    } else {
-        steps = static_cast<int>(m_tickCarryMs / kEffectTickMs);
-    }
+    const float frameMs = frameDrivenStrHandler && m_aniClips && m_aniClips->nFPS > 0
+        ? 1000.0f / static_cast<float>(m_aniClips->nFPS)
+        : (m_handler == Handler::Sprite ? kActDelayUnitMs : kEffectTickMs);
+    int steps = static_cast<int>(m_tickCarryMs / frameMs);
     const bool burstSensitiveHandler =
         m_handler == Handler::Portal
         || m_handler == Handler::ReadyPortal
@@ -6407,8 +6634,8 @@ u8 CRagEffect::OnProcess()
     if (steps > 1 && burstSensitiveHandler) {
         steps = 1;
     }
-    if (!frameDrivenStrHandler && steps > 0) {
-        m_tickCarryMs -= static_cast<float>(steps) * kEffectTickMs;
+    if (steps > 0) {
+        m_tickCarryMs -= static_cast<float>(steps) * frameMs;
     }
 
     bool alive = true;
@@ -6419,15 +6646,24 @@ u8 CRagEffect::OnProcess()
         const bool ezActive = frameDrivenStrHandler
             && m_aniClips
             && m_stateCnt <= (m_aniClips->cFrame + 8);
-        return (ezActive || !m_primList.empty() || m_stateCnt <= m_duration) ? 1 : 0;
+        return (ezActive || !m_primList.empty() || !m_componentEffects.empty() || m_stateCnt <= m_duration) ? 1 : 0;
     }
 
     for (int step = 0; step < steps && alive; ++step) {
+        if (m_loop && m_handler == Handler::EzStr && m_aniClips && m_stateCnt >= m_aniClips->cFrame) {
+            InitEZ2STRFrame();
+        }
         const bool dispatchHandler = m_loop || frameDrivenStrHandler || m_stateCnt < m_duration;
         if (dispatchHandler) {
             switch (m_handler) {
             case Handler::EzStr:
                 ProcessEZ2STR();
+                break;
+            case Handler::GroundSurface:
+                SpawnGroundSurface();
+                break;
+            case Handler::Sprite:
+                SpawnSprite();
                 break;
             case Handler::Entry2:
                 SpawnEntry2();
@@ -6552,11 +6788,6 @@ u8 CRagEffect::OnProcess()
 
         ++m_stateCnt;
 
-        if (m_loop && m_handler == Handler::EzStr && m_aniClips && m_stateCnt > (m_aniClips->cFrame + 1)) {
-            InitEZ2STRFrame();
-            continue;
-        }
-
         if (m_loop) {
             alive = true;
             continue;
@@ -6569,7 +6800,7 @@ u8 CRagEffect::OnProcess()
         alive = ezActive || primActive || m_stateCnt <= m_duration;
     }
 
-    return alive ? 1 : 0;
+    return alive || !m_componentEffects.empty() ? 1 : 0;
 }
 
 void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msgparam_t)
@@ -6660,7 +6891,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
 
 void CRagEffect::Render(matrix* viewMatrix)
 {
-    if (!viewMatrix) {
+    if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
         return;
     }
 
@@ -6677,7 +6908,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     }
 
     if ((m_handler == Handler::EzStr || m_handler == Handler::JobLevelUp50) && m_aniClips) {
-        for (int layerIndex = 1; layerIndex < m_aniClips->cLayer && layerIndex < static_cast<int>(m_isLayerDrawn.size()); ++layerIndex) {
+        for (int layerIndex = 0; layerIndex < m_aniClips->cLayer && layerIndex < static_cast<int>(m_isLayerDrawn.size()); ++layerIndex) {
             if (!m_isLayerDrawn[static_cast<size_t>(layerIndex)]) {
                 continue;
             }
@@ -6692,6 +6923,9 @@ void CRagEffect::Render(matrix* viewMatrix)
         if (prim) {
             prim->Render(viewMatrix);
         }
+    }
+    for (const auto& component : m_componentEffects) {
+        component->Render(viewMatrix);
     }
 }
 

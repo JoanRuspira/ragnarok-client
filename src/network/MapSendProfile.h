@@ -235,6 +235,13 @@ bool BuildActiveUseSkillToIdPacket(u16 skillId,
     void* outBuffer,
     int outBufferSize,
     int* outPacketLength);
+bool BuildActiveUseSkillToPosPacket(u16 skillId,
+    u16 skillLevel,
+    u16 cellX,
+    u16 cellY,
+    void* outBuffer,
+    int outBufferSize,
+    int* outPacketLength);
 bool BuildActiveCartOffPacket(void* outBuffer,
     int outBufferSize,
     int* outPacketLength);

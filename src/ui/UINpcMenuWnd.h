@@ -3,6 +3,7 @@
 #include "UIFrameWnd.h"
 
 #include <string>
+#include <functional>
 #include <vector>
 
 class UINpcMenuWnd : public UIFrameWnd {
@@ -22,6 +23,7 @@ public:
         const std::vector<std::string>& options,
         const std::vector<u8>& optionChoices);
     void HideMenu();
+    void SetChoiceMenu(const std::vector<std::string>& options, std::function<void(int)> onChoice);
     bool HandleKeyDown(int virtualKey);
     u32 GetNpcId() const;
     const std::vector<std::string>& GetOptions() const;
@@ -56,4 +58,5 @@ private:
     int m_selectedIndex;
     int m_hoverIndex;
     ClickTarget m_pressedTarget;
+    std::function<void(int)> m_onChoice;
 };

@@ -10,6 +10,7 @@
 #include "qtui/QtUiRuntime.h"
 
 #include <windows.h>
+#include <utility>
 
 #if RO_ENABLE_QT6_UI
 #include <QFont>
@@ -329,6 +330,7 @@ void UINpcMenuWnd::SetMenu(u32 npcId,
     const std::vector<std::string>& options,
     const std::vector<u8>& optionChoices)
 {
+    m_onChoice = {};
     m_npcId = npcId;
     m_options = options;
     m_optionChoices = optionChoices;
@@ -343,6 +345,7 @@ void UINpcMenuWnd::SetMenu(u32 npcId,
 
 void UINpcMenuWnd::HideMenu()
 {
+    m_onChoice = {};
     m_npcId = 0;
     m_options.clear();
     m_optionChoices.clear();
@@ -365,8 +368,22 @@ u8 UINpcMenuWnd::GetSelectedChoice() const
     return static_cast<u8>(m_selectedIndex + 1);
 }
 
+void UINpcMenuWnd::SetChoiceMenu(const std::vector<std::string>& options, std::function<void(int)> onChoice)
+{
+    SetMenu(0, options, {});
+    m_onChoice = std::move(onChoice);
+}
+
 void UINpcMenuWnd::SubmitSelection(u8 choice)
 {
+    if (m_onChoice) {
+        const int selection = choice == 0xFF ? -1 : m_selectedIndex;
+        auto onChoice = std::move(m_onChoice);
+        HideMenu();
+        PlayUiButtonSound();
+        onChoice(selection);
+        return;
+    }
     if (m_npcId == 0 || choice == 0) {
         return;
     }

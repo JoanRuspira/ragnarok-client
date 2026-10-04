@@ -24,6 +24,9 @@ build-wsl-smoke/
 compile_commands.json
 
 tools/
+!tools/
+tools/*
 build_output*.txt
 *.ps1
 *.py
+!tools/generate_rageffect_assets.py

@@ -286,7 +286,6 @@ public:
     u32 m_worldProcessTick;
     float m_worldProcessCarryMs;
     u32 m_lastHoverRefreshTick;
-    std::string m_loadingWallpaperName;
     int m_hasPendingPartyCreateOptions;
     int m_pendingPartyCreateExpShare;
     int m_pendingPartyCreateItemShare;

@@ -124,7 +124,7 @@ public:
     void DrawWallpaperToDC(HDC targetDC, int width, int height);
     void SetWallpaper(CBitmapRes* bitmap);
     bool SetWallpaperFromGameData(const std::string& wallpaperName);
-    void ShowLoadingScreen(const std::string& wallpaperName, const std::string& message, float progress);
+    void ShowLoadingScreen(const std::string& message, float progress);
     void UpdateLoadingScreen(const std::string& message, float progress);
     void HideLoadingScreen();
     void SendMsg(int msg, msgparam_t wparam, msgparam_t lparam);
@@ -242,6 +242,8 @@ public:
     int m_chatScrollLineOffset;
 
 private:
+    // The loading sequence outlives windows removed during a mode switch.
+    bool m_loadingScreenActive = false;
     UIWindow* HitTestWindow(int x, int y) const;
     bool HasFrontMenuUiVisible() const;
     bool HandleHotkeyBeforeFocusedUi(int virtualKey, bool isAltDown, bool isCtrlDown, bool hasFrontMenuUi);

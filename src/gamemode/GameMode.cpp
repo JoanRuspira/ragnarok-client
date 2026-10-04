@@ -10,7 +10,6 @@
 #include "audio/Audio.h"
 #include "GameModePacket.h"
 #include "pathfinder/PathFinder.h"
-#include "core/ClientInfoLocale.h"
 #include "core/File.h"
 #include "DebugLog.h"
 #include "render/DC.h"
@@ -95,6 +94,7 @@ constexpr u32 kMovingCameraHoverRefreshMs = 100;
 constexpr int kMaxWorldProcessStepsPerUpdate = 8;
 constexpr int kHoverNameFontHeight = 20;
 constexpr unsigned char kHoverNameFontBold = 1;
+constexpr int kHoverNameOutlineRadius = 1;
 constexpr int kHoverNameTextPadding = 4;
 constexpr int kHoverNameVerticalOffset = 26;
 constexpr u32 kPickupRetryIntervalMs = 250;
@@ -104,20 +104,14 @@ constexpr int kPlayerVitalsBorderThickness = 1;
 constexpr int kPlayerVitalsNameTopPadding = 3;
 constexpr int kPlayerVitalsVerticalOffset = 10;
 constexpr float kPlayerVitalsOverlaySortKey = 0.95f;
-constexpr char kLockedTargetArrowBitmapName[] = "scroll0down.bmp";
-constexpr int kLockedTargetArrowBaseLift = 56;
-constexpr float kLockedTargetArrowScale = 1.25f;
 constexpr char kLockedTargetTexturePath[] = "data\\texture\\effect\\lockon128.tga";
 constexpr float kLockedTargetMarkerBaseSize = 30.0f;
 constexpr float kLockedTargetMarkerGroundYOffset = -2.0f;
 constexpr float kLockedTargetMarkerDepthBias = 0.0003f;
 constexpr float kLockedTargetMarkerNearPlane = 80.0f;
 constexpr float kLockedTargetMarkerRotationPerMs = 0.27f;
-constexpr int kLockedTargetArrowYOffset = 6;
 constexpr unsigned int kOverlayTransparentKey = 0x00FF00FFu;
 constexpr int kRoMapCornerEllipseSize = 10;
-constexpr float kLockedTargetArrowBouncePerMs = 0.0045f;
-constexpr float kLockedTargetArrowBouncePixels = 4.0f;
 constexpr u32 kHoverNameRequestCooldownMs = 1000;
 constexpr u32 kMovingOverlayRefreshMs = 200;
 constexpr int kEnemyCursorMagnetRadius = 36;
@@ -364,13 +358,13 @@ void EnsureMapWeatherEffects(CGameMode& mode)
 void UpdateMapAudio(CGameMode& mode)
 {
     CAudio* audio = CAudio::GetInstance();
-    if (!audio) {
+    if (!audio || audio->IsBgmSuppressed()) {
         return;
     }
 
     if (mode.m_rswName[0] != '\0') {
         const std::string bgmPath = audio->ResolveMapBgmPath(mode.m_rswName);
-        if (!bgmPath.empty() && bgmPath != mode.m_streamFileName) {
+        if (!bgmPath.empty() && (bgmPath != mode.m_streamFileName || audio->GetCurrentBgmPath().empty())) {
             mode.m_streamFileName = bgmPath;
             audio->PlayBGM(mode.m_streamFileName.c_str());
         }
@@ -524,7 +518,6 @@ void ResetGamePacketTrace(u32 startTick)
 
 void DrawHoveredActorName(CGameMode& mode, HDC hdc);
 void DrawLockedTargetName(CGameMode& mode, HDC hdc);
-void DrawLockedTargetArrow(CGameMode& mode, HDC hdc);
 bool QueueLockedTargetOverlayQuad(CGameMode& mode);
 bool QueueHoverLabelsOverlayQuad(CGameMode& mode);
 bool QueueMsgEffectsOverlayQuad();
@@ -638,7 +631,8 @@ void DrawOutlinedTextQtToOverlay(
     int drawX,
     int drawY,
     const std::string& text,
-    COLORREF color)
+    COLORREF color,
+    int outlineRadius = 1)
 {
     if (!pixels || width <= 0 || height <= 0 || pitch < width * static_cast<int>(sizeof(unsigned int)) || text.empty()) {
         return;
@@ -662,10 +656,14 @@ void DrawOutlinedTextQtToOverlay(
     const QFontMetrics metrics(painter.font());
     const int baselineY = drawY + metrics.ascent();
     painter.setPen(Qt::black);
-    painter.drawText(drawX - 1, baselineY, label);
-    painter.drawText(drawX + 1, baselineY, label);
-    painter.drawText(drawX, baselineY - 1, label);
-    painter.drawText(drawX, baselineY + 1, label);
+    for (int offsetY = -outlineRadius; offsetY <= outlineRadius; ++offsetY) {
+        for (int offsetX = -outlineRadius; offsetX <= outlineRadius; ++offsetX) {
+            if ((offsetX != 0 || offsetY != 0)
+                && offsetX * offsetX + offsetY * offsetY <= outlineRadius * outlineRadius) {
+                painter.drawText(drawX + offsetX, baselineY + offsetY, label);
+            }
+        }
+    }
     painter.setPen(ToQColor(color));
     painter.drawText(drawX, baselineY, label);
 }
@@ -699,86 +697,6 @@ void DrawBootstrapSceneTextQt(unsigned int* pixels,
     int activeWidth,
     int activeHeight);
 #endif
-
-inline unsigned int PackOverlayRgb(COLORREF color)
-{
-    return (static_cast<unsigned int>(GetRValue(color)) << 16)
-        | (static_cast<unsigned int>(GetGValue(color)) << 8)
-        | static_cast<unsigned int>(GetBValue(color));
-}
-
-void PutOverlayPixel(unsigned int* pixels, int width, int height, int x, int y, COLORREF color)
-{
-    if (!pixels || x < 0 || y < 0 || x >= width || y >= height) {
-        return;
-    }
-
-    pixels[static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)] = PackOverlayRgb(color);
-}
-
-bool PointInTriangle(const POINT& p, const POINT& a, const POINT& b, const POINT& c)
-{
-    const auto sign = [](const POINT& p0, const POINT& p1, const POINT& p2) -> long {
-        return static_cast<long>(p0.x - p2.x) * static_cast<long>(p1.y - p2.y)
-            - static_cast<long>(p1.x - p2.x) * static_cast<long>(p0.y - p2.y);
-    };
-
-    const long d1 = sign(p, a, b);
-    const long d2 = sign(p, b, c);
-    const long d3 = sign(p, c, a);
-    const bool hasNegative = d1 < 0 || d2 < 0 || d3 < 0;
-    const bool hasPositive = d1 > 0 || d2 > 0 || d3 > 0;
-    return !(hasNegative && hasPositive);
-}
-
-void FillOverlayTriangle(unsigned int* pixels, int width, int height, const POINT& a, const POINT& b, const POINT& c, COLORREF color)
-{
-    if (!pixels || width <= 0 || height <= 0) {
-        return;
-    }
-
-    const int minX = (std::max)(0, static_cast<int>((std::min)({ a.x, b.x, c.x })));
-    const int maxX = (std::min)(width - 1, static_cast<int>((std::max)({ a.x, b.x, c.x })));
-    const int minY = (std::max)(0, static_cast<int>((std::min)({ a.y, b.y, c.y })));
-    const int maxY = (std::min)(height - 1, static_cast<int>((std::max)({ a.y, b.y, c.y })));
-    for (int y = minY; y <= maxY; ++y) {
-        for (int x = minX; x <= maxX; ++x) {
-            const POINT p{ x, y };
-            if (PointInTriangle(p, a, b, c)) {
-                PutOverlayPixel(pixels, width, height, x, y, color);
-            }
-        }
-    }
-}
-
-void DrawFallbackLockedTargetArrowToPixels(unsigned int* pixels, int width, int height, int centerX, int tipY)
-{
-    if (!pixels || width <= 0 || height <= 0) {
-        return;
-    }
-
-    const POINT outerA{ centerX, tipY };
-    const POINT outerB{ centerX - 7, tipY - 11 };
-    const POINT outerC{ centerX + 7, tipY - 11 };
-    const POINT innerA{ centerX, tipY - 1 };
-    const POINT innerB{ centerX - 4, tipY - 9 };
-    const POINT innerC{ centerX + 4, tipY - 9 };
-
-    FillOverlayTriangle(pixels, width, height, outerA, outerB, outerC, RGB(255, 226, 120));
-    FillOverlayTriangle(pixels, width, height, innerA, innerB, innerC, RGB(255, 92, 92));
-
-    const COLORREF outline = RGB(32, 16, 16);
-    const POINT outlinePoints[] = {
-        outerA, outerB, outerC
-    };
-    for (const POINT& point : outlinePoints) {
-        for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-            for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-                PutOverlayPixel(pixels, width, height, point.x + offsetX, point.y + offsetY, outline);
-            }
-        }
-    }
-}
 
 void ApplyRoundedOverlayMask(void* composeBits, int width, int height, int ellipseWidth, int ellipseHeight)
 {
@@ -1479,103 +1397,35 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
     SetRectEmpty(&textRect);
 
     const std::string label = ResolveHoveredActorName(mode, actorIt->second);
-    const bool drawLockedTargetText = !label.empty();
+    if (label.empty()) {
+        return false;
+    }
     const COLORREF lockedTargetTextColor = ResolveHoverNameColor(actorIt->second);
     SIZE textSize{};
     int textX = 0;
     int textY = 0;
-    if (drawLockedTargetText) {
 #if RO_ENABLE_QT6_UI
-        if (!MeasureOverlayTextQt(label, &textSize)) {
-            return false;
-        }
+    if (!MeasureOverlayTextQt(label, &textSize)) {
+        return false;
+    }
 #else
-        static ArgbDibSurface s_measureSurface;
-        if (!s_measureSurface.EnsureSize(1, 1)) {
-            return false;
-        }
-        DrawDC drawDc(s_measureSurface.GetDC());
-        drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
-        drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
+    static ArgbDibSurface s_measureSurface;
+    if (!s_measureSurface.EnsureSize(1, 1)) {
+        return false;
+    }
+    DrawDC drawDc(s_measureSurface.GetDC());
+    drawDc.SetFont(FONT_DEFAULT, kHoverNameFontHeight, kHoverNameFontBold, NONANTIALIASED_QUALITY);
+    drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
 #endif
-        textX = centerX - (textSize.cx / 2);
-        textY = labelY + kHoverNameTextPadding + kHoverNameVerticalOffset;
-        textRect = { textX - 2, textY - 2, textX + textSize.cx + 2, textY + textSize.cy + 2 };
-        UnionRect(&overlayRect, &overlayRect, &textRect);
-    }
+    textX = centerX - (textSize.cx / 2);
+    textY = labelY + kHoverNameTextPadding + kHoverNameVerticalOffset;
+    textRect = { textX - kHoverNameOutlineRadius, textY - kHoverNameOutlineRadius,
+        textX + textSize.cx + kHoverNameOutlineRadius, textY + textSize.cy + kHoverNameOutlineRadius };
+    UnionRect(&overlayRect, &overlayRect, &textRect);
 
-    static bool s_arrowPixelsLoaded = false;
-    static std::vector<unsigned int> s_arrowPixels;
-    static int s_arrowWidth = 0;
-    static int s_arrowHeight = 0;
-    static CTexture* s_targetArrowTexture = nullptr;
-    if (!s_arrowPixelsLoaded) {
-        s_arrowPixelsLoaded = true;
-        std::string bitmapPath = ResolveDataPath(kLockedTargetArrowBitmapName, "bmp", {
-            "",
-            std::string(UiKorPrefix()),
-            "texture\\",
-            std::string(UiKorPrefix()) + "basic_interface\\",
-            "data\\",
-            "data\\texture\\",
-            std::string("data\\") + UiKorPrefix(),
-            std::string("data\\") + UiKorPrefix() + "basic_interface\\"
-        });
-        if (!bitmapPath.empty()) {
-            u32* pixels = nullptr;
-            if (LoadBgraPixelsFromGameData(bitmapPath.c_str(), &pixels, &s_arrowWidth, &s_arrowHeight)
-                && pixels
-                && s_arrowWidth > 0
-                && s_arrowHeight > 0) {
-                s_arrowPixels.assign(
-                    pixels,
-                    pixels + static_cast<size_t>(s_arrowWidth) * static_cast<size_t>(s_arrowHeight));
-            }
-            delete[] pixels;
-        }
-    }
-
-    const u32 now = GetTickCount();
-    const int bounce = static_cast<int>(std::lround((0.5f + 0.5f * std::sin(static_cast<float>(now) * kLockedTargetArrowBouncePerMs))
-        * kLockedTargetArrowBouncePixels));
-    RECT arrowRect{};
-    const bool hasArrowBitmap = !s_arrowPixels.empty() && s_arrowWidth > 0 && s_arrowHeight > 0;
-    int arrowDrawX = 0;
-    int arrowDrawY = 0;
-    int arrowScaledWidth = 0;
-    int arrowScaledHeight = 0;
-    if (hasArrowBitmap) {
-        arrowScaledWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(s_arrowWidth) * kLockedTargetArrowScale)));
-        arrowScaledHeight = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(s_arrowHeight) * kLockedTargetArrowScale)));
-        arrowDrawX = centerX - (arrowScaledWidth / 2);
-        arrowDrawY = labelY - kLockedTargetArrowBaseLift - arrowScaledHeight - kLockedTargetArrowYOffset - bounce;
-        const int drawX = arrowDrawX;
-        const int drawY = arrowDrawY;
-        arrowRect = { drawX - 2, drawY - 2, drawX + arrowScaledWidth + 2, drawY + arrowScaledHeight + 2 };
-    } else {
-        const int tipY = labelY - kLockedTargetArrowBaseLift - bounce;
-        arrowRect = { centerX - 9, tipY - 13, centerX + 9, tipY + 2 };
-    }
-
-    if (hasArrowBitmap && !s_targetArrowTexture) {
-        s_targetArrowTexture = new CTexture();
-        if (!s_targetArrowTexture || !s_targetArrowTexture->Create(s_arrowWidth, s_arrowHeight, PF_A8R8G8B8, false)) {
-            delete s_targetArrowTexture;
-            s_targetArrowTexture = nullptr;
-        } else {
-            SetTextureDebugName(s_targetArrowTexture, "__overlay_target_arrow__");
-            s_targetArrowTexture->Update(
-                0,
-                0,
-                s_arrowWidth,
-                s_arrowHeight,
-                s_arrowPixels.data(),
-                false,
-                s_arrowWidth * static_cast<int>(sizeof(unsigned int)));
-        }
-    }
-
-    auto queueOverlayTextureQuad = [&](CTexture* texture, float left, float top, float right, float bottom) -> bool {
+#if RO_ENABLE_QT6_UI
+    auto queueOverlayTextureQuad = [&](CTexture* texture, float left, float top, float right, float bottom,
+        int textureMode = 0) -> bool {
         if (!texture) {
             return false;
         }
@@ -1596,7 +1446,7 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
         face->indices = nullptr;
         face->numIndices = 0;
         face->tex = texture;
-        face->mtPreset = 0;
+        face->mtPreset = textureMode;
         face->cullMode = D3DCULL_NONE;
         face->srcAlphaMode = D3DBLEND_SRCALPHA;
         face->destAlphaMode = D3DBLEND_INVSRCALPHA;
@@ -1610,95 +1460,79 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
         return true;
     };
 
-#if RO_ENABLE_QT6_UI
-    if (hasArrowBitmap && s_targetArrowTexture) {
-        bool queuedAny = false;
+    static CTexture* s_targetLabelTexture = nullptr;
+    static int s_targetLabelTextureWidth = 0;
+    static int s_targetLabelTextureHeight = 0;
+    static std::vector<unsigned int> s_targetLabelPixels;
+    static bool s_targetLabelTextureValid = false;
+    static std::uint64_t s_targetLabelStateToken = 0ull;
+    const int labelWidth = (std::max)(1, static_cast<int>(textRect.right - textRect.left));
+    const int labelHeight = (std::max)(1, static_cast<int>(textRect.bottom - textRect.top));
 
-        if (drawLockedTargetText) {
-            static CTexture* s_targetLabelTexture = nullptr;
-            static int s_targetLabelTextureWidth = 0;
-            static int s_targetLabelTextureHeight = 0;
-            static std::vector<unsigned int> s_targetLabelPixels;
-            static bool s_targetLabelTextureValid = false;
-            static std::uint64_t s_targetLabelStateToken = 0ull;
-            const int labelWidth = (std::max)(1, static_cast<int>(textRect.right - textRect.left));
-            const int labelHeight = (std::max)(1, static_cast<int>(textRect.bottom - textRect.top));
+    if (!s_targetLabelTexture || s_targetLabelTextureWidth != labelWidth || s_targetLabelTextureHeight != labelHeight) {
+        delete s_targetLabelTexture;
+        s_targetLabelTexture = new CTexture();
+        if (!s_targetLabelTexture || !s_targetLabelTexture->Create(labelWidth, labelHeight, PF_A8R8G8B8, false)) {
+            delete s_targetLabelTexture;
+            s_targetLabelTexture = nullptr;
+            s_targetLabelTextureWidth = 0;
+            s_targetLabelTextureHeight = 0;
+        } else {
+            SetTextureDebugName(s_targetLabelTexture, "__overlay_target_label__");
+            s_targetLabelTextureWidth = labelWidth;
+            s_targetLabelTextureHeight = labelHeight;
+            s_targetLabelPixels.assign(static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight), kOverlayTransparentKey);
+            s_targetLabelTextureValid = false;
+            s_targetLabelStateToken = 0ull;
+        }
+    } else if (s_targetLabelPixels.size() != static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight)) {
+        s_targetLabelPixels.assign(static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight), kOverlayTransparentKey);
+        s_targetLabelTextureValid = false;
+    }
 
-            if (!s_targetLabelTexture || s_targetLabelTextureWidth != labelWidth || s_targetLabelTextureHeight != labelHeight) {
-                delete s_targetLabelTexture;
-                s_targetLabelTexture = new CTexture();
-                if (!s_targetLabelTexture || !s_targetLabelTexture->Create(labelWidth, labelHeight, PF_A8R8G8B8, false)) {
-                    delete s_targetLabelTexture;
-                    s_targetLabelTexture = nullptr;
-                    s_targetLabelTextureWidth = 0;
-                    s_targetLabelTextureHeight = 0;
-                } else {
-                    SetTextureDebugName(s_targetLabelTexture, "__overlay_target_label__");
-                    s_targetLabelTextureWidth = labelWidth;
-                    s_targetLabelTextureHeight = labelHeight;
-                    s_targetLabelPixels.assign(static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight), kOverlayTransparentKey);
-                    s_targetLabelTextureValid = false;
-                    s_targetLabelStateToken = 0ull;
-                }
-            } else if (s_targetLabelPixels.size() != static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight)) {
-                s_targetLabelPixels.assign(static_cast<size_t>(labelWidth) * static_cast<size_t>(labelHeight), kOverlayTransparentKey);
-                s_targetLabelTextureValid = false;
-            }
+    if (s_targetLabelTexture) {
+        std::uint64_t labelStateToken = 1469598103934665603ull;
+        HashTokenString(&labelStateToken, label);
+        HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(lockedTargetTextColor)));
+        HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(labelWidth)));
+        HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(labelHeight)));
 
-            if (s_targetLabelTexture) {
-                std::uint64_t labelStateToken = 1469598103934665603ull;
-                HashTokenString(&labelStateToken, label);
-                HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(lockedTargetTextColor)));
-                HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(labelWidth)));
-                HashTokenValue(&labelStateToken, static_cast<std::uint64_t>(static_cast<std::uint32_t>(labelHeight)));
-
-                if (!s_targetLabelTextureValid || labelStateToken != s_targetLabelStateToken) {
-                    std::fill(s_targetLabelPixels.begin(), s_targetLabelPixels.end(), kOverlayTransparentKey);
-                    DrawOutlinedTextQtToOverlay(
-                        s_targetLabelPixels.data(),
-                        labelWidth,
-                        labelHeight,
-                        labelWidth * static_cast<int>(sizeof(unsigned int)),
-                        2,
-                        2,
-                        label,
-                        lockedTargetTextColor);
-                    ConvertOverlayComposeBitsToAlpha(s_targetLabelPixels.data(), labelWidth, labelHeight);
-                    s_targetLabelTexture->Update(
-                        0,
-                        0,
-                        labelWidth,
-                        labelHeight,
-                        s_targetLabelPixels.data(),
-                        true,
-                        labelWidth * static_cast<int>(sizeof(unsigned int)));
-                    s_targetLabelTextureValid = true;
-                    s_targetLabelStateToken = labelStateToken;
-                }
-
-                queuedAny = queueOverlayTextureQuad(
-                    s_targetLabelTexture,
-                    static_cast<float>(textRect.left) - 0.5f,
-                    static_cast<float>(textRect.top) - 0.5f,
-                    static_cast<float>(textRect.right) - 0.5f,
-                    static_cast<float>(textRect.bottom) - 0.5f) || queuedAny;
-            }
+        if (!s_targetLabelTextureValid || labelStateToken != s_targetLabelStateToken) {
+            std::fill(s_targetLabelPixels.begin(), s_targetLabelPixels.end(), kOverlayTransparentKey);
+            DrawOutlinedTextQtToOverlay(
+                s_targetLabelPixels.data(),
+                labelWidth,
+                labelHeight,
+                labelWidth * static_cast<int>(sizeof(unsigned int)),
+                kHoverNameOutlineRadius,
+                kHoverNameOutlineRadius,
+                label,
+                lockedTargetTextColor,
+                kHoverNameOutlineRadius);
+            ConvertOverlayComposeBitsToAlpha(s_targetLabelPixels.data(), labelWidth, labelHeight);
+            s_targetLabelTexture->Update(
+                0,
+                0,
+                labelWidth,
+                labelHeight,
+                s_targetLabelPixels.data(),
+                true,
+                labelWidth * static_cast<int>(sizeof(unsigned int)));
+            s_targetLabelTextureValid = true;
+            s_targetLabelStateToken = labelStateToken;
         }
 
-        queuedAny = queueOverlayTextureQuad(
-            s_targetArrowTexture,
-            static_cast<float>(arrowDrawX) - 0.5f,
-            static_cast<float>(arrowDrawY) - 0.5f,
-            static_cast<float>(arrowDrawX + arrowScaledWidth) - 0.5f,
-            static_cast<float>(arrowDrawY + arrowScaledHeight) - 0.5f) || queuedAny;
-
-        if (queuedAny) {
+        if (queueOverlayTextureQuad(
+            s_targetLabelTexture,
+            static_cast<float>(textRect.left) - 0.5f,
+            static_cast<float>(textRect.top) - 0.5f,
+            static_cast<float>(textRect.right) - 0.5f,
+            static_cast<float>(textRect.bottom) - 0.5f,
+            3)) {
             return true;
         }
     }
 #endif
-
-    UnionRect(&overlayRect, &overlayRect, &arrowRect);
 
     InflateRect(&overlayRect, 4, 4);
     RECT clippedRect{};
@@ -1739,93 +1573,27 @@ bool QueueLockedTargetOverlayQuad(CGameMode& mode)
 #if RO_ENABLE_QT6_UI
     std::fill(s_targetComposePixels.begin(), s_targetComposePixels.end(), kOverlayTransparentKey);
     targetPixels = s_targetComposePixels.data();
-    if (drawLockedTargetText) {
-        DrawOutlinedTextQtToOverlay(targetPixels,
-            width,
-            height,
-            width * static_cast<int>(sizeof(unsigned int)),
-            textX - clippedRect.left,
-            textY - clippedRect.top,
-            label,
-            lockedTargetTextColor);
-    }
-    if (!hasArrowBitmap) {
-        const int tipY = labelY - kLockedTargetArrowBaseLift - bounce;
-        DrawFallbackLockedTargetArrowToPixels(
-            targetPixels,
-            width,
-            height,
-            centerX - clippedRect.left,
-            tipY - clippedRect.top);
-    }
+    DrawOutlinedTextQtToOverlay(targetPixels,
+        width,
+        height,
+        width * static_cast<int>(sizeof(unsigned int)),
+        textX - clippedRect.left,
+        textY - clippedRect.top,
+        label,
+        lockedTargetTextColor,
+        kHoverNameOutlineRadius);
 #else
-    const bool needComposeSurface = drawLockedTargetText || !hasArrowBitmap;
-    if (needComposeSurface) {
-        const bool composeReady = EnsureOverlayComposeSurface(width, height, &s_targetComposeSurface);
-        if (!composeReady) {
-            return false;
-        }
-
-        ClearOverlayComposeBits(s_targetComposeSurface.GetBits(), width, height);
-        if (drawLockedTargetText) {
-            const int savedDc = SaveDC(s_targetComposeSurface.GetDC());
-            SetViewportOrgEx(s_targetComposeSurface.GetDC(), -clippedRect.left, -clippedRect.top, nullptr);
-            DrawLockedTargetName(mode, s_targetComposeSurface.GetDC());
-            RestoreDC(s_targetComposeSurface.GetDC(), savedDc);
-        }
-        if (!hasArrowBitmap) {
-            const int savedArrowDc = SaveDC(s_targetComposeSurface.GetDC());
-            SetViewportOrgEx(s_targetComposeSurface.GetDC(), -clippedRect.left, -clippedRect.top, nullptr);
-            DrawLockedTargetArrow(mode, s_targetComposeSurface.GetDC());
-            RestoreDC(s_targetComposeSurface.GetDC(), savedArrowDc);
-        }
-        targetPixels = s_targetComposeSurface.GetPixels();
-    } else {
-        std::fill(s_targetComposePixels.begin(), s_targetComposePixels.end(), kOverlayTransparentKey);
-        targetPixels = s_targetComposePixels.data();
+    if (!EnsureOverlayComposeSurface(width, height, &s_targetComposeSurface)) {
+        return false;
     }
+
+    ClearOverlayComposeBits(s_targetComposeSurface.GetBits(), width, height);
+    const int savedDc = SaveDC(s_targetComposeSurface.GetDC());
+    SetViewportOrgEx(s_targetComposeSurface.GetDC(), -clippedRect.left, -clippedRect.top, nullptr);
+    DrawLockedTargetName(mode, s_targetComposeSurface.GetDC());
+    RestoreDC(s_targetComposeSurface.GetDC(), savedDc);
+    targetPixels = s_targetComposeSurface.GetPixels();
 #endif
-
-    if (hasArrowBitmap) {
-        for (int destY = 0; destY < arrowScaledHeight; ++destY) {
-            const int localY = (arrowDrawY - clippedRect.top) + destY;
-            if (localY < 0 || localY >= height) {
-                continue;
-            }
-
-            const int srcY = destY * s_arrowHeight / arrowScaledHeight;
-            for (int destX = 0; destX < arrowScaledWidth; ++destX) {
-                const int localX = (arrowDrawX - clippedRect.left) + destX;
-                if (localX < 0 || localX >= width) {
-                    continue;
-                }
-
-                const int srcX = destX * s_arrowWidth / arrowScaledWidth;
-                const unsigned int srcPixel = s_arrowPixels[static_cast<size_t>(srcY) * static_cast<size_t>(s_arrowWidth) + static_cast<size_t>(srcX)];
-                if ((srcPixel & 0x00FFFFFFu) == (kOverlayTransparentKey & 0x00FFFFFFu)) {
-                    continue;
-                }
-
-                const unsigned int srcAlpha = (srcPixel >> 24) & 0xFFu;
-                unsigned int& dstPixel = targetPixels[static_cast<size_t>(localY) * static_cast<size_t>(width) + static_cast<size_t>(localX)];
-                if (srcAlpha >= 0xFFu || (dstPixel & 0x00FFFFFFu) == (kOverlayTransparentKey & 0x00FFFFFFu)) {
-                    dstPixel = srcPixel & 0x00FFFFFFu;
-                } else if (srcAlpha != 0u) {
-                    const unsigned int dstBlue = dstPixel & 0xFFu;
-                    const unsigned int dstGreen = (dstPixel >> 8) & 0xFFu;
-                    const unsigned int dstRed = (dstPixel >> 16) & 0xFFu;
-                    const unsigned int srcBlue = srcPixel & 0xFFu;
-                    const unsigned int srcGreen = (srcPixel >> 8) & 0xFFu;
-                    const unsigned int srcRed = (srcPixel >> 16) & 0xFFu;
-                    const unsigned int invAlpha = 255u - srcAlpha;
-                    const unsigned int outBlue = (srcBlue * srcAlpha + dstBlue * invAlpha) / 255u;
-                    const unsigned int outGreen = (srcGreen * srcAlpha + dstGreen * invAlpha) / 255u;
-                    const unsigned int outRed = (srcRed * srcAlpha + dstRed * invAlpha) / 255u;
-                    dstPixel = (outRed << 16) | (outGreen << 8) | outBlue;
-                }
-            }
-        }
-    }
 
     ConvertOverlayComposeBitsToAlpha(targetPixels, width, height);
     s_targetTexture->Update(0,
@@ -1888,6 +1656,7 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
 
     std::string label;
     COLORREF textColor = RGB(255, 255, 255);
+    int outlineRadius = 1;
     int drawX = 0;
     int drawY = 0;
 
@@ -1941,6 +1710,7 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
             drawY += kPlayerVitalsBarHeight * 2 + kPlayerVitalsBorderThickness * 3 + kPlayerVitalsNameTopPadding - 10;
         }
         textColor = ResolveHoverNameColor(hoveredActor);
+        outlineRadius = kHoverNameOutlineRadius;
     }
 
     SIZE finalTextSize{};
@@ -1950,7 +1720,8 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
 
     RECT clientRect{};
     GetClientRect(g_hMainWnd, &clientRect);
-    RECT overlayRect{ drawX - 2, drawY - 2, drawX + finalTextSize.cx + 2, drawY + finalTextSize.cy + 2 };
+    RECT overlayRect{ drawX - kHoverNameOutlineRadius, drawY - kHoverNameOutlineRadius,
+        drawX + finalTextSize.cx + kHoverNameOutlineRadius, drawY + finalTextSize.cy + kHoverNameOutlineRadius };
     RECT clippedRect{};
     IntersectRect(&clippedRect, &overlayRect, &clientRect);
     const int width = clippedRect.right - clippedRect.left;
@@ -1989,7 +1760,8 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
         drawX - clippedRect.left,
         drawY - clippedRect.top,
         label,
-        textColor);
+        textColor,
+        outlineRadius);
     ConvertOverlayComposeBitsToAlpha(s_hoverTextPixels.data(), width, height);
     s_hoverTextTexture->Update(0,
         0,
@@ -2019,7 +1791,7 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
     face->indices = nullptr;
     face->numIndices = 0;
     face->tex = s_hoverTextTexture;
-    face->mtPreset = 0;
+    face->mtPreset = 3; // Point sampling preserves the rasterized glyph edges.
     face->cullMode = D3DCULL_NONE;
     face->srcAlphaMode = D3DBLEND_SRCALPHA;
     face->destAlphaMode = D3DBLEND_INVSRCALPHA;
@@ -2359,6 +2131,8 @@ bool RequestReturnToCharSelect()
         static_cast<int>(sizeof(packet)));
     if (!sent) {
         ClearPendingDisconnectAction();
+    } else {
+        g_modeMgr.BeginScreenTransition();
     }
     return sent;
 }
@@ -2379,11 +2153,13 @@ void RequestExitToWindows()
     PACKET_CZ_QUITGAME packet{};
     packet.PacketType = PACKETID_CZ_QUITGAME;
     packet.Type = 0;
-    CRagConnection::instance()->SendPacket(
-        reinterpret_cast<const char*>(&packet),
-        static_cast<int>(sizeof(packet)));
-    CRagConnection::instance()->Disconnect();
-    g_modeMgr.Quit();
+    g_modeMgr.BeginScreenTransition([packet] {
+        CRagConnection::instance()->SendPacket(
+            reinterpret_cast<const char*>(&packet),
+            static_cast<int>(sizeof(packet)));
+        CRagConnection::instance()->Disconnect();
+        g_modeMgr.Quit();
+    });
 }
 
 void TraceGamePacketFirstSeen(const PacketView& packet)
@@ -3398,8 +3174,11 @@ const char* GetPlayerContextActionName(CGameMode::PlayerContextAction action)
     }
 }
 
-COLORREF ResolveHoverNameColor(const CGameActor*)
+COLORREF ResolveHoverNameColor(const CGameActor* actor)
 {
+    if (IsNpcLikeHoverActor(actor) && !IsMonsterLikeHoverActor(actor)) {
+        return RGB(173, 216, 230);
+    }
     return RGB(255, 255, 255);
 }
 
@@ -3423,7 +3202,7 @@ std::string ResolveGroundItemHoverLabel(const CItem* item)
 }
 
 void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF color = RGB(255, 255, 255),
-    int fontHeight = kHoverNameFontHeight, bool bold = kHoverNameFontBold)
+    int fontHeight = kHoverNameFontHeight, bool bold = kHoverNameFontBold, int outlineRadius = 1)
 {
     if (!hdc || !text || !*text) {
         return;
@@ -3437,10 +3216,14 @@ void DrawOutlinedScreenText(HDC hdc, int x, int y, const char* text, COLORREF co
 
     const int textLen = static_cast<int>(std::strlen(text));
     drawDc.SetTextColor(RGB(0, 0, 0));
-    drawDc.TextOutA(x - 1, y, text, textLen);
-    drawDc.TextOutA(x + 1, y, text, textLen);
-    drawDc.TextOutA(x, y - 1, text, textLen);
-    drawDc.TextOutA(x, y + 1, text, textLen);
+    for (int offsetY = -outlineRadius; offsetY <= outlineRadius; ++offsetY) {
+        for (int offsetX = -outlineRadius; offsetX <= outlineRadius; ++offsetX) {
+            if ((offsetX != 0 || offsetY != 0)
+                && offsetX * offsetX + offsetY * offsetY <= outlineRadius * outlineRadius) {
+                drawDc.TextOutA(x + offsetX, y + offsetY, text, textLen);
+            }
+        }
+    }
 
     drawDc.SetTextColor(color);
     drawDc.TextOutA(x, y, text, textLen);
@@ -3566,7 +3349,8 @@ void DrawHoveredActorName(CGameMode& mode, HDC hdc)
     if (hoveredActor == mode.m_world->m_player || hoveredActor->m_gid == g_session.m_gid) {
             drawY += kPlayerVitalsBarHeight * 2 + kPlayerVitalsBorderThickness * 3 + kPlayerVitalsNameTopPadding - 10;
     }
-    DrawOutlinedScreenText(hdc, drawX, drawY, label.c_str(), ResolveHoverNameColor(hoveredActor));
+    DrawOutlinedScreenText(hdc, drawX, drawY, label.c_str(), ResolveHoverNameColor(hoveredActor),
+        kHoverNameFontHeight, kHoverNameFontBold, kHoverNameOutlineRadius);
 }
 
 void DrawLockedTargetName(CGameMode& mode, HDC hdc)
@@ -3603,136 +3387,8 @@ void DrawLockedTargetName(CGameMode& mode, HDC hdc)
     drawDc.GetTextExtentPoint32A(label.c_str(), static_cast<int>(label.size()), &textSize);
     const int drawX = labelX - (textSize.cx / 2);
     const int drawY = labelY + kHoverNameTextPadding + kHoverNameVerticalOffset;
-    DrawOutlinedScreenText(hdc, drawX, drawY, label.c_str(), ResolveHoverNameColor(actorIt->second));
-}
-
-void DrawFallbackLockedTargetArrow(HDC hdc, int centerX, int tipY)
-{
-    if (!hdc) {
-        return;
-    }
-
-    const POINT outer[] = {
-        { centerX, tipY },
-        { centerX - 7, tipY - 11 },
-        { centerX + 7, tipY - 11 },
-    };
-    const POINT inner[] = {
-        { centerX, tipY - 1 },
-        { centerX - 4, tipY - 9 },
-        { centerX + 4, tipY - 9 },
-    };
-
-    HPEN pen = CreatePen(PS_SOLID, 1, RGB(32, 16, 16));
-    HBRUSH outerBrush = CreateSolidBrush(RGB(255, 226, 120));
-    HBRUSH innerBrush = CreateSolidBrush(RGB(255, 92, 92));
-    if (!pen || !outerBrush || !innerBrush) {
-        if (pen) {
-            DeleteObject(pen);
-        }
-        if (outerBrush) {
-            DeleteObject(outerBrush);
-        }
-        if (innerBrush) {
-            DeleteObject(innerBrush);
-        }
-        return;
-    }
-
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    HGDIOBJ oldBrush = SelectObject(hdc, outerBrush);
-    Polygon(hdc, outer, 3);
-    SelectObject(hdc, innerBrush);
-    Polygon(hdc, inner, 3);
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(innerBrush);
-    DeleteObject(outerBrush);
-    DeleteObject(pen);
-}
-
-void DrawLockedTargetArrow(CGameMode& mode, HDC hdc)
-{
-    if (!hdc || !mode.m_world || !mode.m_view || mode.m_lastLockOnMonGid == 0) {
-        return;
-    }
-
-    const auto actorIt = mode.m_runtimeActors.find(mode.m_lastLockOnMonGid);
-    if (actorIt == mode.m_runtimeActors.end() || !actorIt->second || !actorIt->second->m_isVisible) {
-        return;
-    }
-
-    int centerX = 0;
-    int labelY = 0;
-    if (!mode.m_world->GetActorScreenMarker(mode.m_view->GetViewMatrix(),
-        mode.m_view->GetCameraLongitude(),
-        mode.m_lastLockOnMonGid,
-        &centerX,
-        nullptr,
-        &labelY)) {
-        return;
-    }
-
-    static bool s_bitmapLoaded = false;
-    static std::string s_bitmapPath;
-    static std::vector<unsigned int> s_bitmapPixels;
-    static int s_width = 0;
-    static int s_height = 0;
-    if (!s_bitmapLoaded) {
-        s_bitmapLoaded = true;
-        s_bitmapPath = ResolveDataPath(kLockedTargetArrowBitmapName, "bmp", {
-            "",
-            std::string(UiKorPrefix()),
-            "texture\\",
-            std::string(UiKorPrefix()) + "basic_interface\\",
-            "data\\",
-            "data\\texture\\",
-            std::string("data\\") + UiKorPrefix(),
-            std::string("data\\") + UiKorPrefix() + "basic_interface\\"
-        });
-        if (!s_bitmapPath.empty()) {
-            u32* pixels = nullptr;
-            if (LoadBgraPixelsFromGameData(s_bitmapPath.c_str(), &pixels, &s_width, &s_height)
-                && pixels
-                && s_width > 0
-                && s_height > 0) {
-                s_bitmapPixels.assign(
-                    pixels,
-                    pixels + static_cast<size_t>(s_width) * static_cast<size_t>(s_height));
-                delete[] pixels;
-                DbgLog("[GameMode] locked target arrow loaded path='%s' size=%dx%d\n",
-                    s_bitmapPath.c_str(),
-                    s_width,
-                    s_height);
-            } else {
-                delete[] pixels;
-                DbgLog("[GameMode] locked target arrow bitmap decode failed path='%s'\n",
-                    s_bitmapPath.c_str());
-            }
-        } else {
-            DbgLog("[GameMode] locked target arrow asset not found name='%s'\n",
-                kLockedTargetArrowBitmapName);
-        }
-    }
-
-    if (s_bitmapPixels.empty() || s_width <= 0 || s_height <= 0) {
-        const u32 now = GetTickCount();
-        const int bounce = static_cast<int>(std::lround((0.5f + 0.5f * std::sin(static_cast<float>(now) * kLockedTargetArrowBouncePerMs))
-            * kLockedTargetArrowBouncePixels));
-        const int tipY = labelY - kLockedTargetArrowBaseLift - bounce;
-        DrawFallbackLockedTargetArrow(hdc, centerX, tipY);
-        return;
-    }
-
-    const u32 now = GetTickCount();
-    const int bounce = static_cast<int>(std::lround((0.5f + 0.5f * std::sin(static_cast<float>(now) * kLockedTargetArrowBouncePerMs))
-        * kLockedTargetArrowBouncePixels));
-    const int scaledWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(s_width) * kLockedTargetArrowScale)));
-    const int scaledHeight = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(s_height) * kLockedTargetArrowScale)));
-    const int drawX = centerX - (scaledWidth / 2);
-    const int drawY = labelY - kLockedTargetArrowBaseLift - scaledHeight - kLockedTargetArrowYOffset - bounce;
-
-    AlphaBlendArgbToHdc(hdc, drawX, drawY, scaledWidth, scaledHeight, s_bitmapPixels.data(), s_width, s_height);
+    DrawOutlinedScreenText(hdc, drawX, drawY, label.c_str(), ResolveHoverNameColor(actorIt->second),
+        kHoverNameFontHeight, kHoverNameFontBold, kHoverNameOutlineRadius);
 }
 
 u32 PackLockedTargetColor(u8 alpha, u8 red, u8 green, u8 blue)
@@ -4073,19 +3729,6 @@ void NormalizeSessionMapName(char* mapName)
     }
 }
 
-std::string ChooseRandomLoadingWallpaper()
-{
-    RefreshDefaultLoadingScreenList();
-    const std::vector<std::string>& loadingScreens = GetLoadingScreenList();
-    if (loadingScreens.empty()) {
-        return {};
-    }
-
-    const DWORD tick = GetTickCount();
-    const size_t index = static_cast<size_t>(tick % static_cast<DWORD>(loadingScreens.size()));
-    return loadingScreens[index];
-}
-
 void UpdateMapLoadingUi(CGameMode& mode, const char* message, float progress)
 {
     g_windowMgr.UpdateLoadingScreen(message ? message : "Loading...", progress);
@@ -4104,6 +3747,7 @@ void FinishMapLoading(CGameMode& mode)
         mode.m_actorPosList.size(),
         mode.m_runtimeActors.size());
     mode.m_mapLoadingStage = CGameMode::MapLoading_None;
+    g_modeMgr.FinishScreenTransition();
 }
 
 void AdvanceMapLoading(CGameMode& mode)
@@ -7060,6 +6704,7 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
         pc->m_head = g_session.m_playerHead;
         pc->m_headPalette = g_session.m_playerHeadPalette;
         pc->m_bodyPalette = g_session.m_playerBodyPalette;
+        pc->m_bodyStyle = g_session.m_playerBodyStyle;
         pc->m_weapon = g_session.m_playerWeapon;
         pc->m_shield = g_session.m_playerShield;
         pc->m_accessory = g_session.m_playerAccessory;
@@ -7603,13 +7248,13 @@ void DrawBootstrapPlayerSprite(HDC hdc, int drawX, int drawY)
     const int curMotion = 0;
     const int weaponValue = g_session.GetCurrentPlayerWeaponValue();
 
-    const std::string bodyActName = g_session.GetPlayerBodyActName(g_session.m_playerJob, sex, weaponValue, bodyAct);
-    const std::string bodySprName = g_session.GetPlayerBodySprName(g_session.m_playerJob, sex, weaponValue, bodySpr);
+    const std::string bodyActName = g_session.GetPlayerBodyActName(g_session.m_playerJob, sex, weaponValue, bodyAct, g_session.m_playerBodyStyle);
+    const std::string bodySprName = g_session.GetPlayerBodySprName(g_session.m_playerJob, sex, weaponValue, bodySpr, g_session.m_playerBodyStyle);
     const std::string headActName = g_session.GetHeadActName(g_session.m_playerJob, &head, sex, headAct);
     const std::string headSprName = g_session.GetHeadSprName(g_session.m_playerJob, &head, sex, headSpr);
     const std::string imfPath = g_session.GetImfName(g_session.m_playerJob, head, sex, imfName);
     const std::string bodyPaletteName = g_session.m_playerBodyPalette > 0
-        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette)
+        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette, g_session.m_playerBodyStyle)
         : std::string();
     const std::string headPaletteName = g_session.m_playerHeadPalette > 0
         ? g_session.GetHeadPaletteName(head, g_session.m_playerJob, sex, g_session.m_playerHeadPalette, headPalette)
@@ -7680,13 +7325,13 @@ void DrawBootstrapPlayerSpriteToArgb(unsigned int* pixels, int width, int height
     const int curMotion = 0;
     const int weaponValue = g_session.GetCurrentPlayerWeaponValue();
 
-    const std::string bodyActName = g_session.GetPlayerBodyActName(g_session.m_playerJob, sex, weaponValue, bodyAct);
-    const std::string bodySprName = g_session.GetPlayerBodySprName(g_session.m_playerJob, sex, weaponValue, bodySpr);
+    const std::string bodyActName = g_session.GetPlayerBodyActName(g_session.m_playerJob, sex, weaponValue, bodyAct, g_session.m_playerBodyStyle);
+    const std::string bodySprName = g_session.GetPlayerBodySprName(g_session.m_playerJob, sex, weaponValue, bodySpr, g_session.m_playerBodyStyle);
     const std::string headActName = g_session.GetHeadActName(g_session.m_playerJob, &head, sex, headAct);
     const std::string headSprName = g_session.GetHeadSprName(g_session.m_playerJob, &head, sex, headSpr);
     const std::string imfPath = g_session.GetImfName(g_session.m_playerJob, head, sex, imfName);
     const std::string bodyPaletteName = g_session.m_playerBodyPalette > 0
-        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette)
+        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette, g_session.m_playerBodyStyle)
         : std::string();
     const std::string headPaletteName = g_session.m_playerHeadPalette > 0
         ? g_session.GetHeadPaletteName(head, g_session.m_playerJob, sex, g_session.m_playerHeadPalette, headPalette)
@@ -9354,8 +8999,7 @@ void CGameMode::OnInit(const char* worldName) {
 
     g_windowMgr.RemoveAllWindows();
     g_windowMgr.SetLoginStatus("");
-    m_loadingWallpaperName = ChooseRandomLoadingWallpaper();
-    g_windowMgr.ShowLoadingScreen(m_loadingWallpaperName, "Preparing loading screen...", 0.02f);
+    g_windowMgr.ShowLoadingScreen("Preparing loading screen...", 0.02f);
 
     m_cursorActNum = 0;
     m_cursorMotNum = 0;
@@ -9387,12 +9031,6 @@ void CGameMode::OnInit(const char* worldName) {
         g_session.m_playerDir);
 
     SendTimeSyncRequest(*this, true);
-
-    CAudio* audio = CAudio::GetInstance();
-    if (audio && m_rswName[0] != '\0') {
-        m_streamFileName = audio->ResolveMapBgmPath(m_rswName);
-        audio->PlayBGM(m_streamFileName.c_str());
-    }
 
     g_renderer.m_nClearColor = ResolveRefMapClearColor(m_rswName);
     MakeFog(g_session.m_fogOn);
@@ -9442,7 +9080,6 @@ void CGameMode::OnExit() {
     m_mapLoadingStartTick = 0;
     m_mapLoadingAckTick = 0;
     m_lastActorBootstrapPacketTick = 0;
-    m_loadingWallpaperName.clear();
 }
 int  CGameMode::OnRun() {
     SyncRendererToWindowSize();
@@ -9452,6 +9089,10 @@ int  CGameMode::OnRun() {
     OnUpdate();
     const DWORD updateEnd = GetTickCount();
     ClearQueuedMsgEffects();
+
+    if (g_modeMgr.IsModeSwitchPending() && !g_modeMgr.IsScreenTransitionActive()) {
+        return 1;
+    }
 
     const DWORD processUiStart = updateEnd;
     g_windowMgr.OnProcess();
@@ -9475,7 +9116,9 @@ int  CGameMode::OnRun() {
             }
         } else {
             g_windowMgr.OnDraw();
-            DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
+            if (!g_renderer.HasScreenFadeBeenDrawn()) {
+                DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
+            }
         }
         return 1;
     }
@@ -9488,6 +9131,7 @@ int  CGameMode::OnRun() {
         }
         DrawBootstrapScene(g_hMainWnd, *this);
         DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
+        UpdateMapAudio(*this);
         return 1;
     }
 
@@ -9544,7 +9188,8 @@ int  CGameMode::OnRun() {
         uiDrawEnd = GetTickCount();
     }
     const DWORD drawSceneStart = GetTickCount();
-    g_renderer.DrawScene();
+    // Window-drawn fallback UI must receive the fade after its own draw calls.
+    g_renderer.DrawScene(queuedModernOverlayFrame);
     const DWORD drawSceneEnd = GetTickCount();
     if (hasLegacyDevice) {
         const DWORD flipStart = GetTickCount();
@@ -9640,9 +9285,14 @@ int  CGameMode::OnRun() {
         g_overlayMovePerfStats = OverlayMovePerfStats{};
     }
 
+    // Start music after presenting gameplay so the last loading frame stays silent.
+    UpdateMapAudio(*this);
     return 1;
 }
 void CGameMode::OnUpdate() {
+    if (g_modeMgr.IsModeSwitchPending() || g_modeMgr.IsScreenTransitionActionPending()) {
+        return;
+    }
     DestroyDeferredRuntimeActors(*this);
     EnsureBootstrapSelfActor(*this);
     SendTimeSyncRequest(*this, false);
@@ -9653,6 +9303,12 @@ void CGameMode::OnUpdate() {
 
     // Poll a bounded number of packets per frame to avoid starvation.
     CRagConnection* conn = CRagConnection::instance();
+    if (GetPendingDisconnectAction() == PendingDisconnectAction::ReturnToCharSelect && !conn->IsOpen()) {
+        ClearPendingDisconnectAction();
+        g_session.m_pendingReturnToCharSelect = 0;
+        g_modeMgr.Switch(0, "");
+        return;
+    }
     std::vector<u8> rawPacket;
     int packetBudget = (m_mapLoadingStage != MapLoading_None) ? 128 : 64;
     int packetsProcessed = 0;
@@ -9669,6 +9325,9 @@ void CGameMode::OnUpdate() {
         if (!g_gameModePacketRouter.Dispatch(*this, packet)) {
             LogFirstSeenUnhandledGamePacket(packet.packetId, packet.packetLength);
         }
+        if (g_modeMgr.IsModeSwitchPending() || g_modeMgr.IsScreenTransitionActionPending()) {
+            return;
+        }
     }
     const DWORD packetEnd = GetTickCount();
 
@@ -9676,7 +9335,6 @@ void CGameMode::OnUpdate() {
     LogRuntimeActorSummary(*this);
     const DWORD actorSummaryEnd = GetTickCount();
 
-    UpdateMapAudio(*this);
     const DWORD worldNow = GetTickCount();
     const DWORD worldElapsedMs = worldNow - m_worldProcessTick;
     m_worldProcessTick = worldNow;

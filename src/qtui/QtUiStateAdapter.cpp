@@ -72,6 +72,7 @@ namespace {
 
 constexpr DWORD kHoverNameRequestCooldownMs = 1000;
 constexpr int kQtActorLabelVerticalOffset = 10;
+constexpr int kQtActorLabelFontPixelSize = 16;
 constexpr int kQtSpeechBubbleMaxTextWidth = 200;
 constexpr int kQtStatusIconSize = 56;
 constexpr int kQtStatusIconSpacing = 6;
@@ -3339,8 +3340,12 @@ QString ResolveHoverBackground(const CGameActor* actor)
     return QStringLiteral("#c05a1620");
 }
 
-QString ResolveHoverForeground(const CGameActor*)
+QString ResolveHoverForeground(const CGameActor* actor)
 {
+    if (actor && !actor->m_isPc && !IsMonsterLikeHoverActor(actor)
+        && ((actor->m_job >= 45 && actor->m_job < 1000) || actor->m_objectType == 6)) {
+        return QStringLiteral("#00b2d1");
+    }
     return QStringLiteral("#ffffff");
 }
 
@@ -3392,6 +3397,16 @@ QVariantMap MakeCenteredAnchor(const QString& text,
     anchor.insert(QStringLiteral("showBubble"), showBubble);
     anchor.insert(QStringLiteral("fontPixelSize"), fontPixelSize);
     anchor.insert(QStringLiteral("bold"), bold);
+    return anchor;
+}
+
+QVariantMap MakeActorNameAnchor(const QString& text, int centerX, int topY, const CGameActor* actor)
+{
+    QVariantMap anchor = MakeCenteredAnchor(text, centerX, topY,
+        ResolveHoverBackground(actor), ResolveHoverForeground(actor), true, kQtActorLabelFontPixelSize);
+    anchor.insert(QStringLiteral("kind"), QStringLiteral("actorName"));
+    // Let QML center the label using the actual font's measured width.
+    anchor.insert(QStringLiteral("centerX"), centerX);
     return anchor;
 }
 
@@ -3728,11 +3743,10 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
                     mode.m_world->GetActorScreenMarker(viewMatrix, cameraLongitude, hoveredActor->m_gid, &anchorX, nullptr, &anchorY);
                     anchorY += kQtActorLabelVerticalOffset;
                 }
-                anchors.push_back(MakeCenteredAnchor(ToQString(ResolveActorLabel(mode, hoveredActor)),
+                anchors.push_back(MakeActorNameAnchor(ToQString(ResolveActorLabel(mode, hoveredActor)),
                     anchorX,
                     anchorY,
-                    ResolveHoverBackground(hoveredActor),
-                    ResolveHoverForeground(hoveredActor)));
+                    hoveredActor));
             }
         } else if (!blocksGameplayHover) {
             CItem* hoveredItem = nullptr;
@@ -3761,19 +3775,10 @@ bool QtUiStateAdapter::syncGameplay(CGameMode& mode,
                         &labelY)) {
                     const QString lockLabel = ToQString(ResolveActorLabel(mode, actorIt->second));
                     if (!lockLabel.isEmpty()) {
-                        anchors.push_back(MakeCenteredAnchor(QStringLiteral("▼"),
-                            labelX - 6,
-                            labelY - 24,
-                            QStringLiteral("transparent"),
-                            ToCssColor(255, 226, 120),
-                            false,
-                            20,
-                            true));
-                        anchors.push_back(MakeCenteredAnchor(lockLabel,
+                        anchors.push_back(MakeActorNameAnchor(lockLabel,
                             labelX,
                             labelY + kQtActorLabelVerticalOffset,
-                            ResolveHoverBackground(actorIt->second),
-                            ResolveHoverForeground(actorIt->second)));
+                            actorIt->second));
                     }
                 }
             }

@@ -71,6 +71,7 @@ constexpr const char* kBodyTokenAssassinCross = "\xBE\xEE\xBD\xD8\xBD\xC5\xC5\xA
 constexpr const char* kBodyTokenClown = "\xC5\xAC\xB6\xF3\xBF\xEE";
 constexpr const char* kBodyTokenPecoLordKnight = "\xC6\xE4\xC4\xDA\xC6\xE4\xC4\xDA_\xB1\xE2\xBB\xE7_h";
 constexpr const char* kBodyTokenPecoPaladin = "\xC6\xE4\xC4\xDA\xC6\xC8\xB6\xF3\xB5\xF2";
+constexpr const char* kStyledBodyTokenPecoLordKnight = "\xB7\xCE\xB5\xE5\xC6\xE4\xC4\xDA";
 constexpr u32 kServerTimeLeadMs = 72u;
 constexpr u32 kServerTimeLateToleranceMs = 144u;
 constexpr const char* kFogParameterTableFile = "fogparametertable.txt";
@@ -962,6 +963,46 @@ std::string ResolvePlayerPaletteJobToken(int job)
     return ResolvePlayerResourceJobToken(job);
 }
 
+std::vector<std::string> BuildStyledPlayerBodyJobTokenCandidates(int job)
+{
+    std::vector<std::string> candidates = BuildPlayerBodyJobTokenCandidates(job);
+    // Alternate bodies can use the full job identity rather than the classic
+    // body spelling (for example, high priest and assassin cross).
+    AppendUniqueString(&candidates, ResolvePlayerPaletteJobToken(job));
+    if (job == 4014) {
+        AppendUniqueString(&candidates, kStyledBodyTokenPecoLordKnight);
+    }
+    std::string identityToken;
+    if (TryGetLuaPlayerIdentityToken(job, &identityToken)) {
+        AppendUniqueString(&candidates, identityToken);
+    }
+    return candidates;
+}
+
+bool TryResolveStyledPlayerBodyResourceName(int job, int sex, int bodyStyle,
+    const char* extension, char* buf)
+{
+    if (bodyStyle <= 0) {
+        return false;
+    }
+
+    const char* sexToken = GetSexToken(sex);
+    for (const std::string& token : BuildStyledPlayerBodyJobTokenCandidates(job)) {
+        char actPath[260] = {};
+        char sprPath[260] = {};
+        std::sprintf(actPath, "%s%s\\%s\\costume_%d\\%s_%s_%d.act",
+            kHumanSpriteRoot, kBodyDir, sexToken, bodyStyle, token.c_str(), sexToken, bodyStyle);
+        std::sprintf(sprPath, "%s%s\\%s\\costume_%d\\%s_%s_%d.spr",
+            kHumanSpriteRoot, kBodyDir, sexToken, bodyStyle, token.c_str(), sexToken, bodyStyle);
+        // Keep ACT and SPR selection together, including the fallback to style 0.
+        if (ResourceExistsLocalFirst(actPath) && ResourceExistsLocalFirst(sprPath)) {
+            std::strcpy(buf, std::strcmp(extension, "act") == 0 ? actPath : sprPath);
+            return true;
+        }
+    }
+    return false;
+}
+
 int NormalizeHeadValue(int head, int job)
 {
     if (head == 0) {
@@ -1169,8 +1210,13 @@ char* BuildPlayerBodyResourceName(const CSession& session,
     int sex,
     int weaponItemId,
     const char* extension,
-    char* buf)
+    char* buf,
+    int bodyStyle)
 {
+    if (TryResolveStyledPlayerBodyResourceName(job, sex, bodyStyle, extension, buf)) {
+        return buf;
+    }
+
     const int normalizedJob = NormalizePlayerBodyJob(job);
     const char* sexToken = GetSexToken(sex);
     const std::vector<std::string> jobTokens = BuildPlayerBodyJobTokenCandidates(job);
@@ -1244,7 +1290,7 @@ char* BuildPlayerBodyResourceName(const CSession& session,
 
 CSession::CSession() : m_aid(0), m_authCode(0), m_sex(0), m_isEffectOn(true), m_isMinEffect(false), m_fogOn(true),
     m_charServerPort(0), m_pendingReturnToCharSelect(0),
-    m_playerPosX(0), m_playerPosY(0), m_playerDir(0), m_playerJob(0), m_playerHead(0), m_playerBodyPalette(0),
+    m_playerPosX(0), m_playerPosY(0), m_playerDir(0), m_playerJob(0), m_playerHead(0), m_playerBodyPalette(0), m_playerBodyStyle(0),
     m_playerHeadPalette(0), m_playerWeapon(0), m_playerShield(0), m_playerAccessory(0), m_playerAccessory2(0),
     m_playerAccessory3(0), m_serverTime(0), m_numLatePacket(0), m_hasSelectedCharacterInfo(false), m_baseExpValue(0),
     m_nextBaseExpValue(0), m_jobExpValue(0), m_nextJobExpValue(0), m_hasBaseExpValue(false),
@@ -1421,6 +1467,8 @@ void CSession::SetSelectedCharacterAppearance(const CHARACTER_INFO& info)
     m_playerJob = info.job;
     m_playerHead = info.head;
     m_playerBodyPalette = info.bodypalette;
+    // The legacy character record has no body style; map look packets supply it.
+    m_playerBodyStyle = 0;
     m_playerHeadPalette = info.headpalette;
     m_playerWeapon = info.weapon;
     m_playerShield = info.shield;
@@ -2455,30 +2503,36 @@ int CSession::GetSex() const
     return m_sex ? 1 : 0;
 }
 
-char* CSession::GetJobActName(int job, int sex, char* buf)
+char* CSession::GetJobActName(int job, int sex, char* buf, int bodyStyle)
 {
+    if (TryResolveStyledPlayerBodyResourceName(job, sex, bodyStyle, "act", buf)) {
+        return buf;
+    }
     const char* sexToken = GetSexToken(sex);
     const std::string jobToken = ResolveExistingPlayerBodyJobToken(job, sex);
     std::sprintf(buf, "%s%s\\%s\\%s_%s.act", kHumanSpriteRoot, kBodyDir, sexToken, jobToken.c_str(), sexToken);
     return buf;
 }
 
-char* CSession::GetJobSprName(int job, int sex, char* buf)
+char* CSession::GetJobSprName(int job, int sex, char* buf, int bodyStyle)
 {
+    if (TryResolveStyledPlayerBodyResourceName(job, sex, bodyStyle, "spr", buf)) {
+        return buf;
+    }
     const char* sexToken = GetSexToken(sex);
     const std::string jobToken = ResolveExistingPlayerBodyJobToken(job, sex);
     std::sprintf(buf, "%s%s\\%s\\%s_%s.spr", kHumanSpriteRoot, kBodyDir, sexToken, jobToken.c_str(), sexToken);
     return buf;
 }
 
-char* CSession::GetPlayerBodyActName(int job, int sex, int weaponItemId, char* buf)
+char* CSession::GetPlayerBodyActName(int job, int sex, int weaponItemId, char* buf, int bodyStyle)
 {
-    return BuildPlayerBodyResourceName(*this, job, sex, weaponItemId, "act", buf);
+    return BuildPlayerBodyResourceName(*this, job, sex, weaponItemId, "act", buf, bodyStyle);
 }
 
-char* CSession::GetPlayerBodySprName(int job, int sex, int weaponItemId, char* buf)
+char* CSession::GetPlayerBodySprName(int job, int sex, int weaponItemId, char* buf, int bodyStyle)
 {
-    return BuildPlayerBodyResourceName(*this, job, sex, weaponItemId, "spr", buf);
+    return BuildPlayerBodyResourceName(*this, job, sex, weaponItemId, "spr", buf, bodyStyle);
 }
 
 char* CSession::GetHeadActName(int job, int* head, int sex, char* buf)
@@ -2645,9 +2699,19 @@ char* CSession::GetImfName(int job, int head, int sex, char* buf)
     return buf;
 }
 
-char* CSession::GetBodyPaletteName(int job, int sex, int palNum, char* buf)
+char* CSession::GetBodyPaletteName(int job, int sex, int palNum, char* buf, int bodyStyle)
 {
     const char* sexToken = GetSexToken(sex);
+    char bodyActPath[260] = {};
+    if (TryResolveStyledPlayerBodyResourceName(job, sex, bodyStyle, "act", bodyActPath)) {
+        for (const std::string& token : BuildStyledPlayerBodyJobTokenCandidates(job)) {
+            std::sprintf(buf, "%scostume_%d\\%s_%s_%d_%d.pal",
+                kBodyPaletteRoot, bodyStyle, token.c_str(), sexToken, palNum, bodyStyle);
+            if (ResourceExistsLocalFirst(buf)) {
+                return buf;
+            }
+        }
+    }
     const std::string jobToken = ResolvePlayerPaletteJobToken(job);
     std::sprintf(buf, "%s%s_%s_%d.pal", kBodyPaletteRoot, jobToken.c_str(), sexToken, palNum);
     return buf;

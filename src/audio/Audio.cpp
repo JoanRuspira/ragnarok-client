@@ -51,6 +51,7 @@ CAudio::CAudio()
     : m_soundVolume(1.0f)
     , m_bgmVolume(kMaxVolume)
     , m_bgmPaused(false)
+    , m_bgmSuppressed(false)
 {
 }
 
@@ -120,7 +121,7 @@ bool CAudio::PlaySound3D(const char* fName, const vector3d& soundPos, const vect
 
 void CAudio::PlayBGM(const char* fName)
 {
-    if (!fName || !*fName || !Init()) {
+    if (m_bgmSuppressed || !fName || !*fName || !Init()) {
         return;
     }
 
@@ -140,6 +141,17 @@ void CAudio::StopBGM()
         m_backend->StopBGM();
     }
     m_bgmPath.clear();
+}
+
+void CAudio::SetBgmSuppressed(bool suppressed)
+{
+    if (m_bgmSuppressed == suppressed) {
+        return;
+    }
+    m_bgmSuppressed = suppressed;
+    if (suppressed) {
+        StopBGM();
+    }
 }
 
 void CAudio::StopAllSounds()

@@ -1,0 +1,14 @@
+diff --git a/src/map/clif.cpp b/src/map/clif.cpp
+--- a/src/map/clif.cpp
++++ b/src/map/clif.cpp
+@@ -3547,7 +3547,9 @@ void clif_changelook(struct block_list *bl, int type, int val) {
+ #endif
+ 				break;
+ 			case LOOK_BODY2:
+-#if PACKETVER < 20150513
++// OpenMidgard supports LOOK_BODY2 through the existing ZC_SPRITE_CHANGE2
++// packet even when using the 2008 map packet profile.
++#if PACKETVER < 4
+ 				return;
+ #else
+ 				if (val && sd && sd->sc.option&OPTION_COSTUME)

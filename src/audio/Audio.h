@@ -76,6 +76,8 @@ public:
         int volumeMaxDist = 250, int volumeMinDist = 40, float vol = 1.0f);
     void PlayBGM(const char* fName);
     void StopBGM();
+    void SetBgmSuppressed(bool suppressed);
+    bool IsBgmSuppressed() const { return m_bgmSuppressed; }
     void StopAllSounds();
     void SetVolume(float vol);
     float GetVolume() const;
@@ -94,6 +96,7 @@ private:
     float m_soundVolume;
     int m_bgmVolume;
     bool m_bgmPaused;
+    bool m_bgmSuppressed;
     std::string m_bgmPath;
     std::vector<MapBgmEntry> m_mapBgmTable;
     std::unique_ptr<IAudioBackend> m_backend;

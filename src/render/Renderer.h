@@ -140,7 +140,10 @@ public:
     ~CRenderer();
 
     void Init();
-    bool DrawScene();
+    bool DrawScene(bool applyScreenFade = true);
+    void SetScreenFadeOpacity(float opacity);
+    bool HasScreenFadeBeenDrawn() const { return m_screenFadeDrawn; }
+    void ApplyScreenFadeToPixels(void* pixels, int width, int height, int pitch);
     void Clear(int color);
     void ClearBackground();
     void Flip();
@@ -237,6 +240,9 @@ public:
     std::list<CacheSurface> m_cacheSurfaces[16];
 
 private:
+    void DrawScreenFade();
+    float m_screenFadeOpacity = 0.0f;
+    bool m_screenFadeDrawn = false;
     void ApplyFogState();
     void FlushAlphaDepthList();
     void FlushAlphaList();

@@ -195,6 +195,12 @@ protected:
 
     void keyPressEvent(QKeyEvent* event) override
     {
+        if (event->key() == Qt::Key_F4 && event->modifiers().testFlag(Qt::AltModifier)) {
+            close();
+            event->accept();
+            return;
+        }
+
         const int virtualKey = MapQtKeyToVirtualKey(event->key());
         if (g_windowMgr.OnQtKeyDown(
                 virtualKey,

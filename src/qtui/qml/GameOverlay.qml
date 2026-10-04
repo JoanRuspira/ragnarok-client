@@ -197,8 +197,10 @@ Item {
         model: uiState.anchors
 
         delegate: Item {
+            id: worldAnchor
             required property var modelData
             property bool isPartyHpBar: modelData.kind === "partyHpBar"
+            property bool isActorName: modelData.kind === "actorName"
             property int bubblePaddingX: modelData.showBubble === false ? 0 : (modelData.paddingX || 12)
             property int bubblePaddingY: modelData.showBubble === false ? 0 : (modelData.paddingY || 8)
             property int maxTextWidth: modelData.maxTextWidth || 0
@@ -257,6 +259,30 @@ Item {
                 border.color: modelData.borderColor || "#80ffffff"
             }
 
+            // A two-pixel outline gives actor names a stronger edge on bright terrain.
+            Repeater {
+                model: worldAnchor.isActorName ? [
+                    Qt.point(0, -2),
+                    Qt.point(-1, -1), Qt.point(0, -1), Qt.point(1, -1),
+                    Qt.point(-2, 0), Qt.point(-1, 0), Qt.point(1, 0), Qt.point(2, 0),
+                    Qt.point(-1, 1), Qt.point(0, 1), Qt.point(1, 1),
+                    Qt.point(0, 2)
+                ] : []
+
+                delegate: Text {
+                    required property var modelData
+                    x: label.x + modelData.x
+                    y: label.y + modelData.y
+                    width: label.width
+                    text: label.text
+                    textFormat: Text.PlainText
+                    font: label.font
+                    color: "#000000"
+                    renderType: Text.NativeRendering
+                    horizontalAlignment: Text.AlignHCenter
+                }
+            }
+
             Text {
                 id: label
                 x: Math.floor(parent.bubblePaddingX / 2)
@@ -265,8 +291,12 @@ Item {
                 text: modelData.text
                 visible: !parent.isPartyHpBar
                 color: modelData.foreground
+                textFormat: parent.isActorName ? Text.PlainText : Text.AutoText
+                font.family: parent.isActorName ? "Arial" : Qt.application.font.family
                 font.pixelSize: modelData.fontPixelSize || 14
                 font.bold: modelData.bold !== false
+                font.hintingPreference: parent.isActorName ? Font.PreferFullHinting : Font.PreferDefaultHinting
+                renderType: parent.isActorName ? Text.NativeRendering : Text.QtRendering
                 style: modelData.outline ? Text.Outline : Text.Normal
                 styleColor: "#000000"
                 wrapMode: parent.wrapText ? Text.Wrap : Text.NoWrap
@@ -350,6 +380,7 @@ Item {
 
     Item {
         id: uiLayer
+        visible: !uiState.loadingVisible || uiState.loadingProgress <= 0
         x: 0
         y: 0
         width: root.uiScale > 0 ? root.width / root.uiScale : root.width

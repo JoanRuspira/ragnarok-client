@@ -819,7 +819,7 @@ void CRenderer::ClearBackground() {
     GetRenderDevice().ClearColor(m_nClearColor);
 }
 
-bool CRenderer::DrawScene() {
+bool CRenderer::DrawScene(bool applyScreenFade) {
     if (!m_renderDevice || !m_renderDevice->BeginScene())
         return false;
 
@@ -827,8 +827,90 @@ bool CRenderer::DrawScene() {
 
     FlushRenderList();
 
+    if (applyScreenFade) {
+        DrawScreenFade();
+    }
+
     m_renderDevice->EndScene();
     return true;
+}
+
+void CRenderer::SetScreenFadeOpacity(float opacity)
+{
+    m_screenFadeOpacity = (std::max)(0.0f, (std::min)(1.0f, opacity));
+    m_screenFadeDrawn = false;
+}
+
+void CRenderer::DrawScreenFade()
+{
+    // Legacy UI is drawn onto the window after presenting the world, so that
+    // path applies the fade to the complete window at the end of the frame.
+    if (m_screenFadeOpacity <= 0.0f || m_renderDevice->GetLegacyDevice()
+        || !m_renderDevice->PrepareOverlayPass()) {
+        return;
+    }
+    const int width = m_renderDevice->GetRenderWidth();
+    const int height = m_renderDevice->GetRenderHeight();
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    const DWORD color = static_cast<DWORD>(m_screenFadeOpacity * 255.0f + 0.5f) << 24;
+    const float right = static_cast<float>(width) - 0.5f;
+    const float bottom = static_cast<float>(height) - 0.5f;
+    const tlvertex3d vertices[] = {
+        { -0.5f, -0.5f, 0.0f, 1.0f, color, 0u, 0.0f, 0.0f },
+        { right, -0.5f, 0.0f, 1.0f, color, 0u, 0.0f, 0.0f },
+        { -0.5f, bottom, 0.0f, 1.0f, color, 0u, 0.0f, 0.0f },
+        { right, bottom, 0.0f, 1.0f, color, 0u, 0.0f, 0.0f },
+    };
+
+    SetMultiTextureMode(0);
+    m_renderDevice->BindTexture(0, nullptr);
+    m_oldTexture = nullptr;
+    m_renderDevice->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_FOGENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_CULLMODE, D3DCULL_NONE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_renderDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, D3DFVF_TLVERTEX, vertices, 4, 0);
+
+    SetMultiTextureMode(0);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_FOGENABLE, m_isFoggy ? TRUE : FALSE);
+    m_screenFadeDrawn = true;
+}
+
+void CRenderer::ApplyScreenFadeToPixels(void* pixels, int width, int height, int pitch)
+{
+    if (!pixels || width <= 0 || height <= 0 || pitch < width * static_cast<int>(sizeof(unsigned int))
+        || m_screenFadeOpacity <= 0.0f) {
+        return;
+    }
+    const unsigned int visibility = 255u - static_cast<unsigned int>(m_screenFadeOpacity * 255.0f + 0.5f);
+    for (int y = 0; y < height; ++y) {
+        auto* row = reinterpret_cast<unsigned int*>(static_cast<unsigned char*>(pixels) + static_cast<size_t>(y) * pitch);
+        for (int x = 0; x < width; ++x) {
+            const unsigned int pixel = row[x];
+            row[x] = (pixel & 0xFF000000u)
+                | ((((pixel >> 16) & 0xFFu) * visibility / 255u) << 16)
+                | ((((pixel >> 8) & 0xFFu) * visibility / 255u) << 8)
+                | ((pixel & 0xFFu) * visibility / 255u);
+        }
+    }
+    m_screenFadeDrawn = true;
 }
 
 void CRenderer::Flip() {

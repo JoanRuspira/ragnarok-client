@@ -41,7 +41,9 @@
 #include "gamemode/LoginMode.h"
 #include "gamemode/Mode.h"
 #include "qtui/QtUiRuntime.h"
+#include "audio/Audio.h"
 
+#include "core/ClientInfoLocale.h"
 #include "core/File.h"
 #include "res/Bitmap.h"
 #include "render3d/Device.h"
@@ -1083,6 +1085,7 @@ UIWindow* UIWindowMgr::MakeWindow(int windowId)
     }
 
     case WID_LOADINGWND:
+        CAudio::GetInstance()->SetBgmSuppressed(true);
         if (!m_loadingWnd) {
             m_loadingWnd = new UILoadingWnd();
             m_children.push_back(m_loadingWnd);
@@ -1268,6 +1271,7 @@ void UIWindowMgr::DeleteWindow(UIWindow* window)
     }
     if (window == m_loadingWnd) {
         m_loadingWnd = nullptr;
+        CAudio::GetInstance()->SetBgmSuppressed(false);
     }
     if (window == m_roMapWnd) {
         m_roMapWnd = nullptr;
@@ -1446,6 +1450,7 @@ void UIWindowMgr::Reset() {
     }
     ReleaseComposeSurface();
     m_loadedWallpaperPath.clear();
+    m_loadingScreenActive = false;
 }
 
 void UIWindowMgr::OnProcess() {
@@ -1507,6 +1512,13 @@ void UIWindowMgr::ClearDirtyVisualStateExcludingRoMap()
 void UIWindowMgr::DrawVisibleWindowsToHdc(HDC targetDC, bool includeRoMap)
 {
     if (!g_hMainWnd || !targetDC) {
+        return;
+    }
+
+    // The previous mode's windows still exist during the first loading frame.
+    if (IsLoadingScreenVisible(*this)) {
+        m_loadingWnd->DrawToHdc(targetDC);
+        ClearDirtyWindowRecursive(m_loadingWnd);
         return;
     }
 
@@ -1679,6 +1691,8 @@ void UIWindowMgr::OnDraw() {
     }
     bool presentedModernUiFrame = false;
     if (useCompose && hasModernBackend && m_uiComposeSurface.GetBits()) {
+        g_renderer.ApplyScreenFadeToPixels(m_uiComposeSurface.GetBits(), clientWidth, clientHeight,
+            clientWidth * static_cast<int>(sizeof(unsigned int)));
         presentedModernUiFrame = GetRenderDevice().UpdateBackBufferFromMemory(
             m_uiComposeSurface.GetBits(),
             clientWidth,
@@ -1876,11 +1890,16 @@ bool UIWindowMgr::SetWallpaperFromGameData(const std::string& wallpaperName) {
     return false;
 }
 
-void UIWindowMgr::ShowLoadingScreen(const std::string& wallpaperName, const std::string& message, float progress)
+void UIWindowMgr::ShowLoadingScreen(const std::string& message, float progress)
 {
-    const bool loadingAlreadyVisible = IsLoadingScreenVisible(*this);
-    if (!wallpaperName.empty() && !loadingAlreadyVisible) {
-        SetWallpaperFromGameData(wallpaperName);
+    CAudio::GetInstance()->SetBgmSuppressed(true);
+    if (!m_loadingScreenActive) {
+        const std::vector<std::string>& loadingScreens = GetLoadingScreenList();
+        if (!loadingScreens.empty()) {
+            const size_t index = static_cast<size_t>(GetTickCount()) % loadingScreens.size();
+            SetWallpaperFromGameData(loadingScreens[index]);
+        }
+        m_loadingScreenActive = true;
     }
 
     UILoadingWnd* loadingWnd = m_loadingWnd ? m_loadingWnd : static_cast<UILoadingWnd*>(MakeWindow(WID_LOADINGWND));
@@ -1899,6 +1918,7 @@ void UIWindowMgr::UpdateLoadingScreen(const std::string& message, float progress
         return;
     }
 
+    CAudio::GetInstance()->SetBgmSuppressed(true);
     m_loadingWnd->SetMessage(message);
     m_loadingWnd->SetProgress(progress);
     m_loadingWnd->SetShow(1);
@@ -1906,9 +1926,11 @@ void UIWindowMgr::UpdateLoadingScreen(const std::string& message, float progress
 
 void UIWindowMgr::HideLoadingScreen()
 {
+    m_loadingScreenActive = false;
     if (m_loadingWnd) {
         m_loadingWnd->SetShow(0);
     }
+    CAudio::GetInstance()->SetBgmSuppressed(false);
     m_loadedWallpaperPath.clear();
     SetWallpaper(nullptr);
 }
@@ -2482,6 +2504,7 @@ void UIWindowMgr::SetLoginStatus(const std::string& status) {
 void UIWindowMgr::SetLoginWallpaper(const std::string& wallpaperName) {
     m_loginWallpaper = wallpaperName;
     if (!IsLoadingScreenVisible(*this)) {
+        m_loadingScreenActive = false;
         SetWallpaperFromGameData(wallpaperName);
     }
 

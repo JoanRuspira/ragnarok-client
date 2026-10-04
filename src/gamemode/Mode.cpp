@@ -2,10 +2,10 @@
 #include "LoginMode.h"
 #include "GameMode.h"
 #include "DebugLog.h"
-#include "core/ClientInfoLocale.h"
 #include "core/Timer.h"
 #include "qtui/QtUiRuntime.h"
 #include "render/Renderer.h"
+#include "render/DC.h"
 #include "render3d/RenderDevice.h"
 #include "render3d/GraphicsSettings.h"
 #include "res/Texture.h"
@@ -16,9 +16,12 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <utility>
 #include <windows.h>
 
 namespace {
+
+constexpr u32 kScreenFadeDurationMs = 150;
 
 void RefreshFrameRate()
 {
@@ -90,19 +93,6 @@ void RecordFramePacing()
         intervals[(count - 1) * 99 / 100], intervals[count - 1]);
     count = 0;
     reportStart = now;
-}
-
-std::string ChooseRandomLoadingWallpaper()
-{
-    RefreshDefaultLoadingScreenList();
-    const std::vector<std::string>& loadingScreens = GetLoadingScreenList();
-    if (loadingScreens.empty()) {
-        return {};
-    }
-
-    const DWORD tick = GetTickCount();
-    const size_t index = static_cast<size_t>(tick % static_cast<DWORD>(loadingScreens.size()));
-    return loadingScreens[index];
 }
 
 bool QueueFullScreenOverlayQuad(CTexture* texture, int width, int height, float sortKey)
@@ -179,8 +169,7 @@ void DrawLoadingScreenFrame(const char* message, float progress)
 {
     RefreshFrameRate();
     WaitForNextFrame();
-    const std::string wallpaperName = ChooseRandomLoadingWallpaper();
-    g_windowMgr.ShowLoadingScreen(wallpaperName, message ? message : "Loading...", progress);
+    g_windowMgr.ShowLoadingScreen(message ? message : "Loading...", progress);
     g_windowMgr.OnProcess();
     const bool hasLegacyDevice = GetRenderDevice().GetLegacyDevice() != nullptr;
     if (!hasLegacyDevice && IsQtUiRuntimeEnabled() && g_hMainWnd) {
@@ -268,24 +257,151 @@ void CModeMgr::Quit()
     PostQuitMessage(0);
 }
 
-void CModeMgr::Switch(int newMode, const char* worldName)
+void CModeMgr::Switch(int newMode, const char* worldName, bool restartMode)
 {
     m_nextModeType = newMode;
+    m_restartMode = restartMode;
     if (worldName) {
         std::strncpy(m_nextModeName, worldName, 39);
         m_nextModeName[39] = '\0';
+    }
+    if (IsModeSwitchPending()) {
+        if (m_curModeType == 1 && newMode == 1) {
+            // Map changes keep their loading screen without a fade.
+            m_screenFadeState = ScreenFadeState::Visible;
+            m_screenFadeOpacity = 0.0f;
+            m_screenTransitionFinished = false;
+            m_afterFadeOut = {};
+            g_renderer.SetScreenFadeOpacity(0.0f);
+        } else {
+            BeginScreenTransition();
+        }
     }
 }
 
 void CModeMgr::PresentLoadingScreen(const char* message, float progress)
 {
     DrawLoadingScreenFrame(message, progress);
+    DrawScreenFadeToWindow();
+}
+
+void CModeMgr::BeginScreenTransition(std::function<void()> afterFadeOut)
+{
+    m_screenTransitionFinished = false;
+    if (afterFadeOut) {
+        m_afterFadeOut = std::move(afterFadeOut);
+    }
+    if (m_screenFadeState == ScreenFadeState::FadingOut
+        || m_screenFadeState == ScreenFadeState::Black) {
+        return;
+    }
+
+    m_screenFadeStartOpacity = m_screenFadeOpacity;
+    m_screenFadeStartTick = GetTickCount();
+    m_screenFadeState = ScreenFadeState::FadingOut;
+    m_blackFramePresented = false;
+}
+
+void CModeMgr::FinishScreenTransition()
+{
+    m_screenTransitionFinished = true;
+    if (m_screenFadeState == ScreenFadeState::Black && m_blackFramePresented && !m_afterFadeOut
+        && !IsModeSwitchPending()) {
+        m_screenFadeStartTick = GetTickCount();
+        m_screenFadeState = ScreenFadeState::FadingIn;
+    }
+}
+
+bool CModeMgr::IsScreenTransitionActionPending() const
+{
+    return static_cast<bool>(m_afterFadeOut);
+}
+
+void CModeMgr::UpdateScreenTransition()
+{
+    const float progress = (std::min)(1.0f,
+        static_cast<float>(GetTickCount() - m_screenFadeStartTick)
+            / static_cast<float>(kScreenFadeDurationMs));
+    if (m_screenFadeState == ScreenFadeState::FadingOut) {
+        m_screenFadeOpacity = m_screenFadeStartOpacity
+            + (1.0f - m_screenFadeStartOpacity) * progress;
+        if (progress >= 1.0f) {
+            m_screenFadeState = ScreenFadeState::Black;
+        }
+    } else if (m_screenFadeState == ScreenFadeState::FadingIn) {
+        m_screenFadeOpacity = 1.0f - progress;
+        if (progress >= 1.0f) {
+            m_screenFadeState = ScreenFadeState::Visible;
+        }
+    }
+
+    // Present a fully black frame before any scene mutation or blocking reconnect.
+    if (m_screenFadeState == ScreenFadeState::Black && m_blackFramePresented) {
+        if (m_afterFadeOut) {
+            auto action = std::move(m_afterFadeOut);
+            m_afterFadeOut = {};
+            action();
+        }
+        if (m_screenTransitionFinished) {
+            FinishScreenTransition();
+        }
+    }
+}
+
+bool CModeMgr::DrawScreenFadeToWindow()
+{
+    if (g_renderer.HasScreenFadeBeenDrawn()) {
+        return true;
+    }
+    if (m_screenFadeOpacity <= 0.0f || !g_hMainWnd) {
+        return false;
+    }
+    RECT rect{};
+    GetClientRect(g_hMainWnd, &rect);
+    HDC hdc = GetDC(g_hMainWnd);
+    if (hdc) {
+        const unsigned int pixel = static_cast<unsigned int>(m_screenFadeOpacity * 255.0f + 0.5f) << 24;
+        const bool drawn = AlphaBlendArgbToHdc(hdc, 0, 0, rect.right, rect.bottom, &pixel, 1, 1);
+        ReleaseDC(g_hMainWnd, hdc);
+        return drawn;
+    }
+    return false;
+}
+
+bool CModeMgr::IsModeSwitchPending() const
+{
+    return !m_curMode || m_restartMode
+        || m_curModeType != m_nextModeType
+        || std::strncmp(m_curModeName, m_nextModeName, sizeof(m_curModeName)) != 0;
 }
 
 msgresult_t CModeMgr::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra)
 {
     if (!m_curMode) {
         return 0;
+    }
+    if (m_screenFadeState != ScreenFadeState::Visible) {
+        if (m_curModeType == 1) {
+            // Releases must still clear held movement and mouse capture.
+            if (msg == CGameMode::GameMsg_LButtonUp || msg == CGameMode::GameMsg_RButtonUp) {
+                return m_curMode->SendMsg(msg, wparam, lparam, extra);
+            }
+            return 0;
+        }
+        if (m_curModeType != 0) {
+            return 0;
+        }
+        switch (msg) {
+        case CLoginMode::LoginMsg_Quit:
+        case CLoginMode::LoginMsg_GetEmail:
+        case CLoginMode::LoginMsg_GetMakingCharName:
+        case CLoginMode::LoginMsg_GetCharParam:
+        case CLoginMode::LoginMsg_GetCharInfo:
+        case CLoginMode::LoginMsg_GetCharCount:
+            break;
+        default:
+            return 0;
+        }
     }
     return m_curMode->SendMsg(msg, wparam, lparam, extra);
 }
@@ -310,6 +426,14 @@ void CModeMgr::Run(int startMode, const char* worldName)
         m_nextModeName[39] = '\0';
     }
 
+    // The first scene also starts covered, and reveals itself when ready.
+    m_screenFadeState = ScreenFadeState::Black;
+    m_screenFadeOpacity = 1.0f;
+    m_blackFramePresented = true;
+    m_screenTransitionFinished = false;
+    m_afterFadeOut = {};
+    m_restartMode = false;
+
     MSG msg{};
     while (m_loopCond)
     {
@@ -331,12 +455,15 @@ void CModeMgr::Run(int startMode, const char* worldName)
         if (!m_loopCond) {
             break;
         }
+        UpdateScreenTransition();
+        if (!m_loopCond) {
+            break;
+        }
+        g_renderer.SetScreenFadeOpacity(m_screenFadeOpacity);
         {
-            const bool reloadCurrentMode = m_curMode
-                && m_curModeType == m_nextModeType
-                && std::strncmp(m_curModeName, m_nextModeName, sizeof(m_curModeName)) != 0;
-            if (!m_curMode || m_curModeType != m_nextModeType || reloadCurrentMode) {
-                if (m_curMode) {
+            if (IsModeSwitchPending() && (m_screenFadeState == ScreenFadeState::Visible
+                || (m_screenFadeState == ScreenFadeState::Black && m_blackFramePresented))) {
+                if (m_curMode && m_screenFadeState == ScreenFadeState::Visible) {
                     DrawLoadingScreenFrame("Loading new map...", 0.01f);
                 }
                 if (m_curMode) {
@@ -346,6 +473,7 @@ void CModeMgr::Run(int startMode, const char* worldName)
                 }
 
                 m_curModeType = m_nextModeType;
+                m_restartMode = false;
                 std::strncpy(m_curModeName, m_nextModeName, 39);
                 m_curModeName[39] = '\0';
 
@@ -359,12 +487,17 @@ void CModeMgr::Run(int startMode, const char* worldName)
                 ProcessQtUiRuntimeEvents();
                 if (m_loopCond) {
                     m_curMode->OnRun();
+                    const bool fadePresented = DrawScreenFadeToWindow();
+                    if (m_screenFadeState == ScreenFadeState::Black && fadePresented) {
+                        m_blackFramePresented = true;
+                    }
                     RecordMainWindowFrame();
                 }
             }
         }
     }
 
+    m_afterFadeOut = {};
     if (m_curMode) {
         DbgLog("[Mode] Final mode exit starting type=%d name='%s' ptr=%p\n",
             m_curModeType,

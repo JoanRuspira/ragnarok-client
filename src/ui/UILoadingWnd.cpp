@@ -214,18 +214,18 @@ void UILoadingWnd::OnDraw()
     HGDIOBJ oldFont = SelectObject(hdc, titleFont);
     RECT titleRect = MakeRect(panelLeft + 22, panelTop + 10, panelLeft + panelWidth - 22, panelTop + 32);
 #if RO_ENABLE_QT6_UI
-    DrawLoadingText(hdc, titleRect, "Entering World", RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    DrawLoadingText(hdc, titleRect, "Loading", RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 #else
-    DrawTextA(hdc, "Entering World", -1, &titleRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    DrawTextA(hdc, "Loading", -1, &titleRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 #endif
 
     SelectObject(hdc, bodyFont);
     RECT messageRect = MakeRect(panelLeft + 24, panelTop + 28, panelLeft + panelWidth - 24, panelTop + 48);
-#if RO_ENABLE_QT6_UI
-    DrawLoadingText(hdc, messageRect, m_message.c_str(), RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-#else
-    DrawTextA(hdc, m_message.c_str(), -1, &messageRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-#endif
+// #if RO_ENABLE_QT6_UI
+//     DrawLoadingText(hdc, messageRect, m_message.c_str(), RGB(245, 239, 221), DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+// #else
+//     DrawTextA(hdc, m_message.c_str(), -1, &messageRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+// #endif
 
     char percentText[16] = {};
     std::snprintf(percentText, sizeof(percentText), "%d%%", static_cast<int>(m_progress * 100.0f + 0.5f));

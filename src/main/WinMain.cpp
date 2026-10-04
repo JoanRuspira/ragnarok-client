@@ -507,6 +507,10 @@ int ReadRegistry()
 // ---------------------------------------------------------------------------
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (msg == WM_SYSKEYDOWN && wParam == VK_F4 && (lParam & (1L << 29)) != 0) {
+        return SendMessageA(hwnd, WM_CLOSE, 0, 0);
+    }
+
     switch (msg) {
     case WM_MOUSEMOVE:
     case WM_LBUTTONDOWN:

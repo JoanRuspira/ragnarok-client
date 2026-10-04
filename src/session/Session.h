@@ -123,6 +123,7 @@ public:
     int m_playerJob;
     int m_playerHead;
     int m_playerBodyPalette;
+    int m_playerBodyStyle;
     int m_playerHeadPalette;
     int m_playerWeapon;
     int m_playerShield;
@@ -283,16 +284,16 @@ public:
     const char* GetJobHitWaveName(int job) const;
     const char* GetWeaponHitWaveName(int weapon) const;
     int GetSex() const;
-    char* GetJobActName(int job, int sex, char* buf);
-    char* GetJobSprName(int job, int sex, char* buf);
-    char* GetPlayerBodyActName(int job, int sex, int weaponItemId, char* buf);
-    char* GetPlayerBodySprName(int job, int sex, int weaponItemId, char* buf);
+    char* GetJobActName(int job, int sex, char* buf, int bodyStyle = 0);
+    char* GetJobSprName(int job, int sex, char* buf, int bodyStyle = 0);
+    char* GetPlayerBodyActName(int job, int sex, int weaponItemId, char* buf, int bodyStyle = 0);
+    char* GetPlayerBodySprName(int job, int sex, int weaponItemId, char* buf, int bodyStyle = 0);
     char* GetHeadActName(int job, int* head, int sex, char* buf);
     char* GetHeadSprName(int job, int* head, int sex, char* buf);
     char* GetAccessoryActName(int job, int* head, int sex, int accessory, char* buf);
     char* GetAccessorySprName(int job, int* head, int sex, int accessory, char* buf);
     char* GetImfName(int job, int head, int sex, char* buf);
-    char* GetBodyPaletteName(int job, int sex, int palNum, char* buf);
+    char* GetBodyPaletteName(int job, int sex, int palNum, char* buf, int bodyStyle = 0);
     char* GetHeadPaletteName(int head, int job, int sex, int palNum, char* buf);
     
 private:

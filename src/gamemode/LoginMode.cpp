@@ -1245,6 +1245,7 @@ CLoginMode::~CLoginMode() {
 
 void CLoginMode::OnInit(const char* worldName) {
     (void)worldName;
+    CAudio::GetInstance()->StopBGM();
 
     m_loopCond = 1;
     m_isConnected = 0;
@@ -1274,11 +1275,6 @@ void CLoginMode::OnInit(const char* worldName) {
         SetLoginStatus("Login: ready.");
     }
 
-    CAudio* audio = CAudio::GetInstance();
-    if (audio) {
-        audio->PlayBGM("bgm\\01.mp3");
-    }
-
     OnChangeState(m_subMode);
 }
 
@@ -1305,8 +1301,11 @@ int CLoginMode::OnRun() {
 void CLoginMode::OnUpdate() {
     SyncRendererToWindowSize();
 
-    if (m_isConnected) {
+    if (m_isConnected && !g_modeMgr.IsModeSwitchPending()) {
         PollNetwork();
+        if (g_modeMgr.IsModeSwitchPending()) {
+            return;
+        }
         if (m_isConnected && !CRagConnection::instance()->IsOpen()) {
             const char* message = (m_subMode == LoginSubMode_ConnectAccount)
                 ? (m_waitingForPasswordHash
@@ -1346,7 +1345,7 @@ void CLoginMode::OnUpdate() {
             g_renderer.Flip();
         } else {
             g_windowMgr.OnDraw();
-            if (!IsQtUiRuntimeEnabled()) {
+            if (!IsQtUiRuntimeEnabled() && !g_renderer.HasScreenFadeBeenDrawn()) {
                 DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
             }
         }
@@ -1355,6 +1354,14 @@ void CLoginMode::OnUpdate() {
     }
     if (hasLegacyDevice) {
         DrawModeCursor(m_cursorActNum, m_mouseAnimStartTick);
+    }
+
+    if (!g_modeMgr.IsModeSwitchPending()
+        && (m_subMode == LoginSubMode_Login || m_subMode == LoginSubMode_CharSelect)) {
+        CAudio* audio = CAudio::GetInstance();
+        if (audio && !audio->IsBgmSuppressed() && audio->GetCurrentBgmPath().empty()) {
+            audio->PlayBGM("bgm\\01.mp3");
+        }
     }
 
 }
@@ -1557,6 +1564,7 @@ void CLoginMode::OnChangeState(int newState) {
         } else {
             SetLoginStatus("Login: ready.");
         }
+        g_modeMgr.FinishScreenTransition();
         break;
     }
 
@@ -1661,6 +1669,7 @@ void CLoginMode::OnChangeState(int newState) {
         }
         g_windowMgr.SetLoginStatus("");
         DbgLog("[Login] LoginSubMode_CharSelect ready\n");
+        g_modeMgr.FinishScreenTransition();
         break;
     }
 

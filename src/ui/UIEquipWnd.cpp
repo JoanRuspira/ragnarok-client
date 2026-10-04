@@ -771,8 +771,8 @@ bool DrawEquipPreviewPlayerSpriteToArgb(unsigned int* pixels, int width, int hei
     const int curAction = 0;
     const int curMotion = 0;
 
-    const std::string bodyActName = g_session.GetJobActName(g_session.m_playerJob, sex, bodyAct);
-    const std::string bodySprName = g_session.GetJobSprName(g_session.m_playerJob, sex, bodySpr);
+    const std::string bodyActName = g_session.GetJobActName(g_session.m_playerJob, sex, bodyAct, g_session.m_playerBodyStyle);
+    const std::string bodySprName = g_session.GetJobSprName(g_session.m_playerJob, sex, bodySpr, g_session.m_playerBodyStyle);
     const std::string headActName = g_session.GetHeadActName(g_session.m_playerJob, &head, sex, headAct);
     const std::string headSprName = g_session.GetHeadSprName(g_session.m_playerJob, &head, sex, headSpr);
     const std::string accessoryBottomActName = g_session.GetAccessoryActName(g_session.m_playerJob, &head, sex, g_session.m_playerAccessory, accessoryBottomAct);
@@ -783,7 +783,7 @@ bool DrawEquipPreviewPlayerSpriteToArgb(unsigned int* pixels, int width, int hei
     const std::string accessoryTopSprName = g_session.GetAccessorySprName(g_session.m_playerJob, &head, sex, g_session.m_playerAccessory2, accessoryTopSpr);
     const std::string imfPath = g_session.GetImfName(g_session.m_playerJob, head, sex, imfName);
     const std::string bodyPaletteName = g_session.m_playerBodyPalette > 0
-        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette)
+        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette, g_session.m_playerBodyStyle)
         : std::string();
     const std::string headPaletteName = g_session.m_playerHeadPalette > 0
         ? g_session.GetHeadPaletteName(head, g_session.m_playerJob, sex, g_session.m_playerHeadPalette, headPalette)
@@ -826,8 +826,8 @@ bool DrawEquipPreviewPlayerSprite(HDC hdc, int drawX, int drawY)
     const int curAction = 0;
     const int curMotion = 0;
 
-    const std::string bodyActName = g_session.GetJobActName(g_session.m_playerJob, sex, bodyAct);
-    const std::string bodySprName = g_session.GetJobSprName(g_session.m_playerJob, sex, bodySpr);
+    const std::string bodyActName = g_session.GetJobActName(g_session.m_playerJob, sex, bodyAct, g_session.m_playerBodyStyle);
+    const std::string bodySprName = g_session.GetJobSprName(g_session.m_playerJob, sex, bodySpr, g_session.m_playerBodyStyle);
     const std::string headActName = g_session.GetHeadActName(g_session.m_playerJob, &head, sex, headAct);
     const std::string headSprName = g_session.GetHeadSprName(g_session.m_playerJob, &head, sex, headSpr);
     const std::string accessoryBottomActName = g_session.GetAccessoryActName(g_session.m_playerJob, &head, sex, g_session.m_playerAccessory, accessoryBottomAct);
@@ -838,7 +838,7 @@ bool DrawEquipPreviewPlayerSprite(HDC hdc, int drawX, int drawY)
     const std::string accessoryTopSprName = g_session.GetAccessorySprName(g_session.m_playerJob, &head, sex, g_session.m_playerAccessory2, accessoryTopSpr);
     const std::string imfPath = g_session.GetImfName(g_session.m_playerJob, head, sex, imfName);
     const std::string bodyPaletteName = g_session.m_playerBodyPalette > 0
-        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette)
+        ? g_session.GetBodyPaletteName(g_session.m_playerJob, sex, g_session.m_playerBodyPalette, bodyPalette, g_session.m_playerBodyStyle)
         : std::string();
     const std::string headPaletteName = g_session.m_playerHeadPalette > 0
         ? g_session.GetHeadPaletteName(head, g_session.m_playerJob, sex, g_session.m_playerHeadPalette, headPalette)

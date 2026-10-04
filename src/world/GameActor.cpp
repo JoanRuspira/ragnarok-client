@@ -1243,6 +1243,7 @@ struct SharedPlayerBillboardKey {
     int sex = 0;
     int head = 0;
     int bodyPalette = 0;
+    int bodyStyle = 0;
     int headPalette = 0;
     int accessoryBottom = 0;
     int accessoryMid = 0;
@@ -1265,6 +1266,9 @@ struct SharedPlayerBillboardKey {
         }
         if (bodyPalette != other.bodyPalette) {
             return bodyPalette < other.bodyPalette;
+        }
+        if (bodyStyle != other.bodyStyle) {
+            return bodyStyle < other.bodyStyle;
         }
         if (headPalette != other.headPalette) {
             return headPalette < other.headPalette;
@@ -1405,6 +1409,7 @@ struct SharedPlayerBillboardStripKey {
     int sex = 0;
     int head = 0;
     int bodyPalette = 0;
+    int bodyStyle = 0;
     int headPalette = 0;
     int accessoryBottom = 0;
     int accessoryMid = 0;
@@ -1426,6 +1431,9 @@ struct SharedPlayerBillboardStripKey {
         }
         if (bodyPalette != other.bodyPalette) {
             return bodyPalette < other.bodyPalette;
+        }
+        if (bodyStyle != other.bodyStyle) {
+            return bodyStyle < other.bodyStyle;
         }
         if (headPalette != other.headPalette) {
             return headPalette < other.headPalette;
@@ -1468,6 +1476,7 @@ SharedPlayerBillboardKey BuildSharedPlayerBillboardKey(const CPc& actor, int dis
         sex,
         actor.m_head,
         actor.m_bodyPalette,
+        actor.m_bodyStyle,
         actor.m_headPalette,
         actor.m_accessory,
         actor.m_accessory3,
@@ -1574,7 +1583,7 @@ void PrimePlayerBillboardStrip(CPc& actor,
     int bodyAction)
 {
     char bodyAct[260] = {};
-    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct);
+    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct, actor.m_bodyStyle);
     CActRes* bodyActRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
     const int motionCount = bodyActRes ? bodyActRes->GetMotionCount(bodyAction) : 0;
     if (motionCount <= 1 || motionCount > kSharedPlayerWarmupMotionLimit) {
@@ -1586,6 +1595,7 @@ void PrimePlayerBillboardStrip(CPc& actor,
         sharedPlayerKey.sex,
         sharedPlayerKey.head,
         sharedPlayerKey.bodyPalette,
+        sharedPlayerKey.bodyStyle,
         sharedPlayerKey.headPalette,
         sharedPlayerKey.accessoryBottom,
         sharedPlayerKey.accessoryMid,
@@ -2705,7 +2715,7 @@ CActRes* ResolvePcTransientActRes(const CGameActor& actor, int action)
     const int displayJob = ResolveDisplayJob(actor);
     const int sex = actor.m_sex != 0 ? 1 : 0;
     char bodyActPath[260] = {};
-    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyActPath);
+    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyActPath, actor.m_bodyStyle);
     CActRes* bodyActRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
 
     const bool isAttackLikeState = actor.m_stateId == kAttackStateId
@@ -3041,8 +3051,8 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     const int curMotion = headMotion;
     const int weaponValue = ResolvePcAttackWeaponValue(actor);
 
-    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct);
-    const std::string bodySprName = g_session.GetJobSprName(displayJob, sex, bodySpr);
+    const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct, actor.m_bodyStyle);
+    const std::string bodySprName = g_session.GetJobSprName(displayJob, sex, bodySpr, actor.m_bodyStyle);
     const std::string headActName = g_session.GetHeadActName(displayJob, &head, sex, headAct);
     const std::string headSprName = g_session.GetHeadSprName(displayJob, &head, sex, headSpr);
     const std::string accessoryBottomActName = g_session.GetAccessoryActName(displayJob, &head, sex, actor.m_accessory, accessoryBottomAct);
@@ -3053,7 +3063,7 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     const std::string accessoryTopSprName = g_session.GetAccessorySprName(displayJob, &head, sex, actor.m_accessory2, accessoryTopSpr);
     const std::string imfPath = g_session.GetImfName(displayJob, head, sex, imfName);
     const std::string bodyPaletteName = actor.m_bodyPalette > 0
-        ? g_session.GetBodyPaletteName(displayJob, sex, actor.m_bodyPalette, bodyPalette)
+        ? g_session.GetBodyPaletteName(displayJob, sex, actor.m_bodyPalette, bodyPalette, actor.m_bodyStyle)
         : std::string();
     const std::string headPaletteName = actor.m_headPalette > 0
         ? g_session.GetHeadPaletteName(head, displayJob, sex, actor.m_headPalette, headPalette)
@@ -3071,6 +3081,12 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     BuildWeaponOverlayPath(actor, bodyActName, weaponValue, true, "spr", &weaponLayer6SprNameResolved);
     BuildShieldOverlayPath(bodyActName, actor.m_shield, "act", &shieldActNameResolved);
     BuildShieldOverlayPath(bodyActName, actor.m_shield, "spr", &shieldSprNameResolved);
+    if (actor.m_bodyStyle > 0 && (shieldActNameResolved.empty() || shieldSprNameResolved.empty())) {
+        char originalBodyAct[260] = {};
+        const std::string originalBodyActName = g_session.GetJobActName(displayJob, sex, originalBodyAct);
+        BuildShieldOverlayPath(originalBodyActName, actor.m_shield, "act", &shieldActNameResolved);
+        BuildShieldOverlayPath(originalBodyActName, actor.m_shield, "spr", &shieldSprNameResolved);
+    }
 
     const bool isLocalPlayer = actor.m_gid != 0
         && (actor.m_gid == g_session.m_gid || actor.m_gid == g_session.m_aid);
@@ -4272,6 +4288,7 @@ CGameActor::CGameActor()
     , m_gid(0)
     , m_job(0)
     , m_sex(0)
+    , m_bodyStyle(0)
     , m_balloon(nullptr)
     , m_chatTitle(nullptr)
     , m_merchantShopTitle(nullptr)
@@ -5627,6 +5644,7 @@ CPc::CPc()
     , m_cachedBillboardHead(-1)
     , m_cachedBillboardSex(-1)
     , m_cachedBillboardBodyPalette(-1)
+    , m_cachedBillboardBodyStyle(-1)
     , m_cachedBillboardHeadPalette(-1)
     , m_cachedBillboardWeapon(-1)
     , m_cachedBillboardShield(-1)
@@ -5749,6 +5767,7 @@ void CPc::InvalidateBillboard()
     m_cachedBillboardHead = -1;
     m_cachedBillboardSex = -1;
     m_cachedBillboardBodyPalette = -1;
+    m_cachedBillboardBodyStyle = -1;
     m_cachedBillboardHeadPalette = -1;
     m_cachedBillboardWeapon = -1;
     m_cachedBillboardShield = -1;
@@ -5824,7 +5843,7 @@ CActRes* ResolveRuntimeActorActRes(CRenderObject* object)
         const int displayJob = ResolveDisplayJob(*actor);
         const int sex = actor->m_sex != 0 ? 1 : 0;
         char bodyActPath[260] = {};
-        const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyActPath);
+        const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyActPath, actor->m_bodyStyle);
         actor->m_actRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
         return actor->m_actRes;
     }
@@ -5867,7 +5886,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     const bool isLocalPlayer = m_gid != 0 && (m_gid == g_session.m_gid || m_gid == g_session.m_aid);
     if (usePlayerStyleBillboard) {
         char bodyAct[260] = {};
-        const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct);
+        const std::string bodyActName = g_session.GetJobActName(displayJob, sex, bodyAct, m_bodyStyle);
         CActRes* bodyActRes = ResolvePcTransientActRes(*this, m_curAction);
         if (!bodyActRes) {
             bodyActRes = g_resMgr.GetAs<CActRes>(bodyActName.c_str());
@@ -5933,6 +5952,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         && m_cachedBillboardHead == (usePlayerStyleBillboard ? m_head : 0)
         && m_cachedBillboardSex == sex
         && m_cachedBillboardBodyPalette == (usePlayerStyleBillboard ? m_bodyPalette : 0)
+        && m_cachedBillboardBodyStyle == (usePlayerStyleBillboard ? m_bodyStyle : 0)
         && m_cachedBillboardHeadPalette == (usePlayerStyleBillboard ? m_headPalette : 0)
         && m_cachedBillboardWeapon == (usePlayerStyleBillboard ? m_weapon : 0)
         && m_cachedBillboardShield == (usePlayerStyleBillboard ? m_shield : 0)
@@ -5989,6 +6009,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardHead = 0;
             m_cachedBillboardSex = sex;
             m_cachedBillboardBodyPalette = 0;
+            m_cachedBillboardBodyStyle = 0;
             m_cachedBillboardHeadPalette = 0;
             m_cachedBillboardWeapon = 0;
             m_cachedBillboardShield = 0;
@@ -6025,6 +6046,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
             m_cachedBillboardHead = m_head;
             m_cachedBillboardSex = sex;
             m_cachedBillboardBodyPalette = m_bodyPalette;
+            m_cachedBillboardBodyStyle = m_bodyStyle;
             m_cachedBillboardHeadPalette = m_headPalette;
             m_cachedBillboardWeapon = m_weapon;
             m_cachedBillboardShield = m_shield;
@@ -6183,6 +6205,7 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
     m_cachedBillboardHead = resolvedHead;
     m_cachedBillboardSex = resolvedSex;
     m_cachedBillboardBodyPalette = resolvedBodyPalette;
+    m_cachedBillboardBodyStyle = usePlayerStyleBillboard ? m_bodyStyle : 0;
     m_cachedBillboardHeadPalette = resolvedHeadPalette;
     m_cachedBillboardWeapon = usePlayerStyleBillboard ? m_weapon : 0;
     m_cachedBillboardShield = usePlayerStyleBillboard ? m_shield : 0;

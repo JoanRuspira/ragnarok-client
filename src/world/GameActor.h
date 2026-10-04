@@ -229,6 +229,7 @@ public:
     int m_isBladeStop;
     u32 m_gid;
     int m_job, m_sex;
+    int m_bodyStyle;
     UIBalloonText* m_balloon;
     UIChatRoomTitle* m_chatTitle;
     UIMerchantShopTitle* m_merchantShopTitle;
@@ -424,6 +425,7 @@ public:
     int m_cachedBillboardHead;
     int m_cachedBillboardSex;
     int m_cachedBillboardBodyPalette;
+    int m_cachedBillboardBodyStyle;
     int m_cachedBillboardHeadPalette;
     int m_cachedBillboardWeapon;
     int m_cachedBillboardShield;

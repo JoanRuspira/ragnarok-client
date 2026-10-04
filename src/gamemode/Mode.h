@@ -3,6 +3,7 @@
 #include "Types.h"
 #include <vector>
 #include <string>
+#include <functional>
 
 // Forward declarations for UI/World classes
 class UITransBalloonText;
@@ -80,14 +81,32 @@ public:
     ~CModeMgr();
 
     void Run(int startMode, const char* worldName);
-    void Switch(int newMode, const char* worldName);
+    void Switch(int newMode, const char* worldName, bool restartMode = false);
+    bool IsModeSwitchPending() const;
     void PresentLoadingScreen(const char* message, float progress);
+    void BeginScreenTransition(std::function<void()> afterFadeOut = {});
+    void FinishScreenTransition();
+    bool IsScreenTransitionActionPending() const;
+    bool IsScreenTransitionActive() const { return m_screenFadeState != ScreenFadeState::Visible; }
     msgresult_t SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra = 0);
     CGameMode* GetCurrentGameMode() const;
     CLoginMode* GetCurrentLoginMode() const;
     void Quit();
 
 private:
+    enum class ScreenFadeState { Visible, FadingOut, Black, FadingIn };
+    void UpdateScreenTransition();
+    bool DrawScreenFadeToWindow();
+
+    ScreenFadeState m_screenFadeState = ScreenFadeState::Visible;
+    float m_screenFadeOpacity = 0.0f;
+    float m_screenFadeStartOpacity = 0.0f;
+    u32 m_screenFadeStartTick = 0;
+    bool m_blackFramePresented = false;
+    bool m_screenTransitionFinished = false;
+    std::function<void()> m_afterFadeOut;
+    bool m_restartMode = false;
+
     // Memory layout from HighPriest.exe.h:30965
     int m_loopCond;
     CMode* m_curMode;

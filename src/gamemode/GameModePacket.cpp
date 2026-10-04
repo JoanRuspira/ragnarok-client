@@ -5500,6 +5500,7 @@ enum LookType {
     kLookClothesColor = 7,
     kLookShield = 8,
     kLookRobe = 12,
+    kLookBodyStyle = 13,
 };
 
 bool IsPlayerLikeObjectType(u8 objectType)
@@ -5771,6 +5772,7 @@ void InitializeRuntimeActorDefaults(CGameActor* actor, u32 gid)
     actor->m_objectType = 0;
     actor->m_actorType = 0;
     actor->m_bodyPalette = 0;
+    actor->m_bodyStyle = 0;
     actor->m_birdEffect = nullptr;
     actor->m_moveSrcX = 0;
     actor->m_moveSrcY = 0;
@@ -6042,6 +6044,8 @@ void ApplyRuntimeActorState(CGameMode& mode, const RuntimeActorState& state)
         pcActor->m_accessory2 = isPc ? state.headTop : 0;
         pcActor->m_accessory3 = isPc ? state.headMid : 0;
         pcActor->m_bodyPalette = isPc ? state.clothColor : 0;
+        // These legacy spawn/walk packets omit body style. Preserve the style
+        // received through LOOK_BODY2 instead of resetting it during movement.
     }
 
     if (!hadResolvedIdentity && !isPc && actor->m_objectType == 6) {
@@ -7788,6 +7792,7 @@ void HandleDisconnectCharacterAck(CGameMode&, const PacketView& packet)
         ReturnToLoginMode();
     } else {
         g_session.m_pendingReturnToCharSelect = 0;
+        g_modeMgr.FinishScreenTransition();
     }
 }
 
@@ -7818,40 +7823,39 @@ void HandleMapChange(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    const bool sameMapAlreadyLoaded = !info.hasServerMove && IsSameMapAlreadyLoaded(mode, info);
-    ApplyMapChangeSessionState(info);
-
     DbgLog("[GameMode] map change packet=0x%04X map='%s' pos=%d,%d serverMove=%d\n",
-        packet.packetId,
-        g_session.m_curMap,
-        info.x,
-        info.y,
-        info.hasServerMove ? 1 : 0);
+        packet.packetId, info.mapName.c_str(), info.x, info.y, info.hasServerMove ? 1 : 0);
 
+    const bool sameMapAlreadyLoaded = !info.hasServerMove && IsSameMapAlreadyLoaded(mode, info);
     if (sameMapAlreadyLoaded) {
-        PrepareSameMapWarpReuse(mode);
-        const bool sentLoadAck = SendLoadEndAckPacket();
-        mode.m_sentLoadEndAck = sentLoadAck ? 1 : 0;
-        mode.m_mapLoadingAckTick = GetTickCount();
-        mode.m_lastActorBootstrapPacketTick = mode.m_mapLoadingAckTick;
-        DbgLog("[GameMode] reused loaded map='%s' pos=%d,%d sentLoadAck=%d\n",
-            g_session.m_curMap,
-            info.x,
-            info.y,
-            sentLoadAck ? 1 : 0);
+        g_modeMgr.BeginScreenTransition([&mode, info] {
+            ApplyMapChangeSessionState(info);
+            PrepareSameMapWarpReuse(mode);
+            const bool sentLoadAck = SendLoadEndAckPacket();
+            mode.m_sentLoadEndAck = sentLoadAck ? 1 : 0;
+            mode.m_mapLoadingStartTick = GetTickCount();
+            mode.m_mapLoadingAckTick = mode.m_mapLoadingStartTick;
+            mode.m_lastActorBootstrapPacketTick = mode.m_mapLoadingStartTick;
+            mode.m_mapLoadingStage = CGameMode::MapLoading_AwaitActors;
+            DbgLog("[GameMode] reused loaded map='%s' pos=%d,%d sentLoadAck=%d\n",
+                g_session.m_curMap,
+                info.x,
+                info.y,
+                sentLoadAck ? 1 : 0);
+        });
         return;
     }
 
+    ApplyMapChangeSessionState(info);
+    char worldName[40] = {};
+    std::snprintf(worldName, sizeof(worldName), "%s.rsw", g_session.m_curMap);
+    g_modeMgr.Switch(1, worldName, true);
     g_modeMgr.PresentLoadingScreen("Loading new map...", 0.01f);
 
     if (!ReconnectForServerMove(info)) {
         ReturnToLoginMode();
         return;
     }
-
-    char worldName[40] = {};
-    std::snprintf(worldName, sizeof(worldName), "%s.rsw", g_session.m_curMap);
-    g_modeMgr.Switch(1, worldName);
 }
 
 void HandleAcceptEnter(CGameMode&, const PacketView& packet)
@@ -8295,6 +8299,12 @@ void HandleActorSpriteChange(CGameMode& mode, const PacketView& packet)
     case kLookRobe:
         billboardDirty = true;
         break;
+    case kLookBodyStyle:
+        actor->m_bodyStyle = static_cast<int>(value & 0xFFFFu);
+        actor->m_actRes = nullptr;
+        actor->m_sprRes = nullptr;
+        billboardDirty = true;
+        break;
     default:
         return;
     }
@@ -8352,6 +8362,9 @@ void HandleActorSpriteChange(CGameMode& mode, const PacketView& packet)
                 if (info) {
                     info->bodypalette = static_cast<s16>(value & 0xFFFFu);
                 }
+                break;
+            case kLookBodyStyle:
+                g_session.m_playerBodyStyle = actor->m_bodyStyle;
                 break;
             case kLookShield:
                 g_session.m_playerShield = static_cast<int>(value);

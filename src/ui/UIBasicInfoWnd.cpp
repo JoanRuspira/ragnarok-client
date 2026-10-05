@@ -956,13 +956,8 @@ void UIBasicInfoWnd::DrawBar(HDC hdc, int x, int y, int percent, bool redBar) co
 void UIBasicInfoWnd::DrawExpBar(HDC hdc, int x, int y, int percent) const
 {
     RECT outerRect = { x, y, x + kExpBarWidth, y + kExpBarHeight };
-    HBRUSH backgroundBrush = CreateSolidBrush(RGB(255, 255, 255));
-    FillRect(hdc, &outerRect, backgroundBrush);
-    DeleteObject(backgroundBrush);
-
-    HBRUSH borderBrush = CreateSolidBrush(RGB(56, 64, 88));
-    FrameRect(hdc, &outerRect, borderBrush);
-    DeleteObject(borderBrush);
+    uitheme::FillRoundedRect(hdc, outerRect, RGB(255, 255, 255));
+    uitheme::FrameRoundedRect(hdc, outerRect, RGB(56, 64, 88));
 
     const int clampedPercent = ClampPercent(percent);
     const int innerWidth = (outerRect.right - outerRect.left - 2) * clampedPercent / 100;
@@ -971,9 +966,7 @@ void UIBasicInfoWnd::DrawExpBar(HDC hdc, int x, int y, int percent) const
     }
 
     RECT fillRect = { x + 1, y + 1, x + 1 + innerWidth, y + kExpBarHeight - 1 };
-    HBRUSH fillBrush = CreateSolidBrush(RGB(129, 146, 199));
-    FillRect(hdc, &fillRect, fillBrush);
-    DeleteObject(fillBrush);
+    uitheme::FillRoundedRect(hdc, fillRect, RGB(129, 146, 199));
 }
 
 void UIBasicInfoWnd::DrawWindowText(HDC hdc, int x, int y, const char* text, COLORREF color, UINT format, HFONT font, int height) const

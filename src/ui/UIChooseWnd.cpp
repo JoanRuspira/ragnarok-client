@@ -24,7 +24,7 @@ constexpr int kButtonHeight = 20;
 constexpr int kButtonSpacing = 3;
 constexpr int kMenuButtonBaseId = 200;
 constexpr int kMenuEntryCount = 4;
-constexpr int kWindowCornerRadius = 8;
+constexpr int kWindowCornerRadius = uitheme::kCornerRadius;
 
 std::string ToLowerAscii(std::string value)
 {
@@ -126,29 +126,18 @@ RECT MakeRect(int x, int y, int w, int h)
 
 void FillRectColor(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rc, color);
 }
 
 void DrawRectFrame(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rc, color);
 }
 
 void FillRoundedRectColor(HDC hdc, const RECT& rc, COLORREF color, int radius)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    HPEN pen = CreatePen(PS_SOLID, 1, color);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(pen);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rc, color, radius);
+    uitheme::FrameRoundedRect(hdc, rc, color, radius);
 }
 
 const char* GetEntryBitmapName(int index, int stateIndex)

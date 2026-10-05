@@ -30,7 +30,7 @@ constexpr int kOptionHeight = 18;
 constexpr int kOptionsToButtonsGap = 14;
 constexpr int kButtonWidth = 68;
 constexpr int kButtonHeight = 22;
-constexpr int kCornerRadius = 10;
+constexpr int kCornerRadius = uitheme::kCornerRadius;
 
 int GetNpcMenuHeightForOptionCount(int optionCount)
 {
@@ -51,29 +51,18 @@ HFONT GetNpcMenuFont()
 
 void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 void DrawRectOutline(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rect, color);
 }
 
 void FillRoundedRect(HDC hdc, const RECT& rect, COLORREF fillColor, COLORREF borderColor, int radius)
 {
-    HBRUSH brush = CreateSolidBrush(fillColor);
-    HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(pen);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, fillColor, radius);
+    uitheme::FrameRoundedRect(hdc, rect, borderColor, radius);
 }
 
 RECT MakeRect(int left, int top, int width, int height)
@@ -298,7 +287,7 @@ void UINpcMenuWnd::OnDraw()
     RECT outer = MakeRect(m_x, m_y, m_w, m_h);
     RECT inner = MakeRect(m_x + kBorder, m_y + kBorder, m_w - 2 * kBorder, m_h - 2 * kBorder);
     FillRoundedRect(hdc, outer, RGB(130, 130, 130), RGB(130, 130, 130), kCornerRadius);
-    FillRoundedRect(hdc, inner, RGB(248, 248, 248), RGB(224, 224, 224), kCornerRadius - 2);
+    FillRoundedRect(hdc, inner, RGB(248, 248, 248), RGB(224, 224, 224), (std::max)(0, kCornerRadius - 1));
 
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, GetNpcMenuFont()));
     SetBkMode(hdc, TRANSPARENT);

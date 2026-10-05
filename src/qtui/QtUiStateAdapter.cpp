@@ -1616,6 +1616,10 @@ void PopulateExperienceBarState(QtUiState* state)
     data.insert(QStringLiteral("height"), bars->m_h);
     data.insert(QStringLiteral("baseProgress"), bars->GetBaseProgress());
     data.insert(QStringLiteral("jobProgress"), bars->GetJobProgress());
+    data.insert(QStringLiteral("baseProgressText"), ToQString(bars->GetBaseProgressText()));
+    data.insert(QStringLiteral("jobProgressText"), ToQString(bars->GetJobProgressText()));
+    data.insert(QStringLiteral("labelFontSize"), UIExperienceBarWnd::kLabelFontSize);
+    data.insert(QStringLiteral("frameWidth"), UIExperienceBarWnd::kFrameWidth);
     data.insert(QStringLiteral("baseColor"), ToCssColor(GetRValue(UIExperienceBarWnd::kBaseColor),
         GetGValue(UIExperienceBarWnd::kBaseColor), GetBValue(UIExperienceBarWnd::kBaseColor)));
     data.insert(QStringLiteral("jobColor"), ToCssColor(GetRValue(UIExperienceBarWnd::kJobColor),

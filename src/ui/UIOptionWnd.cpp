@@ -62,7 +62,7 @@ constexpr int kSliderMin = 0;
 constexpr int kSliderMax = 127;
 constexpr int kTabHeight = 18;
 constexpr int kGraphicsRowHeight = 24;
-constexpr int kWindowCornerRadius = 10;
+constexpr int kWindowCornerRadius = uitheme::kCornerRadius;
 constexpr int kToggleSize = 16;
 
 constexpr COLORREF kFallbackTitleBarColor = RGB(98, 114, 158);
@@ -254,31 +254,18 @@ bool PointInRectXY(const RECT& rc, int x, int y)
 
 void FillRectColor(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rc, color);
 }
 
 void FillRoundedRectColor(HDC hdc, const RECT& rc, COLORREF color, int radius)
 {
-    if (!hdc) {
-        return;
-    }
-
-    HBRUSH brush = CreateSolidBrush(color);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    HGDIOBJ oldPen = SelectObject(hdc, GetStockObject(NULL_PEN));
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rc, color, radius);
+    uitheme::FrameRoundedRect(hdc, rc, color, radius);
 }
 
 void DrawRectFrame(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rc, color);
 }
 
 void DrawWindowTitleText(HDC hdc, int x, int y, int windowRight, const char* text, COLORREF color)
@@ -1153,7 +1140,7 @@ void UIOptionWnd::DrawSlider(HDC hdc,
     DrawRectFrame(hdc, track, kSliderTrackBorderColor);
 
     RECT knob = GetSliderKnobRect(sliderRect, value, minValue, maxValue);
-    FillRoundedRectColor(hdc, knob, kSliderKnobFillColor, 6);
+    FillRoundedRectColor(hdc, knob, kSliderKnobFillColor, uitheme::kCornerRadius);
     DrawRectFrame(hdc, knob, kSliderKnobBorderColor);
 
     SetBkMode(hdc, TRANSPARENT);
@@ -1175,7 +1162,7 @@ void UIOptionWnd::DrawSlider(HDC hdc,
 
 void UIOptionWnd::DrawHeaderButton(HDC hdc, const RECT& rect, const char* text) const
 {
-    FillRoundedRectColor(hdc, rect, kHeaderButtonFillColor, 6);
+    FillRoundedRectColor(hdc, rect, kHeaderButtonFillColor, uitheme::kCornerRadius);
     DrawRectFrame(hdc, rect, kHeaderButtonBorderColor);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, kHeaderButtonTextColor);
@@ -1188,7 +1175,7 @@ void UIOptionWnd::DrawHeaderButton(HDC hdc, const RECT& rect, const char* text) 
 
 void UIOptionWnd::DrawTabButton(HDC hdc, const RECT& rect, const char* text, bool active) const
 {
-    FillRoundedRectColor(hdc, rect, active ? kActiveTabFillColor : kInactiveTabFillColor, 8);
+    FillRoundedRectColor(hdc, rect, active ? kActiveTabFillColor : kInactiveTabFillColor, uitheme::kCornerRadius);
     DrawRectFrame(hdc, rect, active ? kActiveTabBorderColor : kInactiveTabBorderColor);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(0, 0, 0));
@@ -1202,7 +1189,7 @@ void UIOptionWnd::DrawTabButton(HDC hdc, const RECT& rect, const char* text, boo
 void UIOptionWnd::DrawSettingRow(HDC hdc, int rowIndex, const char* label, const std::string& value) const
 {
     const RECT rowRect = GetRowRect(rowIndex);
-    FillRoundedRectColor(hdc, rowRect, kSettingRowFillColor, 8);
+    FillRoundedRectColor(hdc, rowRect, kSettingRowFillColor, uitheme::kCornerRadius);
     DrawRectFrame(hdc, rowRect, kSettingRowBorderColor);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(0, 0, 0));
@@ -1441,7 +1428,7 @@ void UIOptionWnd::OnDraw()
     const RECT bodyRect = GetBodyRect();
     RECT windowRect = { m_x, m_y, m_x + m_w, m_y + m_h };
     HRGN clipRegion = CreateRoundRectRgn(windowRect.left, windowRect.top, windowRect.right + 1, windowRect.bottom + 1,
-        kWindowCornerRadius, kWindowCornerRadius);
+        kWindowCornerRadius * 2, kWindowCornerRadius * 2);
     int savedDc = SaveDC(hdc);
     if (clipRegion) {
         SelectClipRgn(hdc, clipRegion);
@@ -1578,7 +1565,7 @@ void UIOptionWnd::OnDraw()
     HGDIOBJ oldPen = SelectObject(hdc, borderPen);
     HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
     RoundRect(hdc, windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
-        kWindowCornerRadius, kWindowCornerRadius);
+        kWindowCornerRadius * 2, kWindowCornerRadius * 2);
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
     DeleteObject(borderPen);

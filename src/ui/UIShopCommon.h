@@ -188,28 +188,12 @@ inline void DrawBitmapPixelsTransparent(HDC target, const BitmapPixels& bitmap, 
 
 inline void FillRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-#if RO_PLATFORM_WINDOWS
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
-#else
-    (void)hdc;
-    (void)rect;
-    (void)color;
-#endif
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 inline void FrameRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-#if RO_PLATFORM_WINDOWS
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rect, brush);
-    DeleteObject(brush);
-#else
-    (void)hdc;
-    (void)rect;
-    (void)color;
-#endif
+    uitheme::FrameRoundedRect(hdc, rect, color);
 }
 
 inline HFONT GetUiFont()

@@ -359,16 +359,12 @@ bool PointInRectXY(const RECT& rc, int x, int y)
 
 void FillRectColor(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rc, color);
 }
 
 void DrawRectFrame(HDC hdc, const RECT& rc, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rc, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rc, color);
 }
 
 void DrawSlotInset(HDC hdc, const RECT& rc, COLORREF color)

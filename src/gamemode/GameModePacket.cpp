@@ -3986,6 +3986,9 @@ void QueueCombatHitReaction(CGameActor* sourceActor, CGameActor* targetActor, in
     hitInfo.time = timeGetTime();
     hitInfo.message = ResolveQueuedCombatMessage(actionType);
     hitInfo.attackedMotionTime = attackedMT;
+    // Preserve hit/miss detection. Keep damageKind zero because skill numbers
+    // are emitted separately by the packet handler.
+    hitInfo.damage = damage;
     hitInfo.damageDestX = targetActor->m_pos.x;
     hitInfo.damageDestZ = targetActor->m_pos.z;
     if (actionType != kNotifyActLuckyDodge) {

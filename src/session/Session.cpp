@@ -76,6 +76,10 @@ constexpr u32 kServerTimeLeadMs = 72u;
 constexpr u32 kServerTimeLateToleranceMs = 144u;
 constexpr const char* kFogParameterTableFile = "fogparametertable.txt";
 
+// rAthena sends these next-EXP limits when the corresponding level is capped.
+constexpr int kMaxLevelBaseExp = 99'999'999;
+constexpr int kMaxLevelJobExp = 999'999'999;
+
 int ClampShortcutPageIndex(int page)
 {
     return (std::max)(0, (std::min)(page, kShortcutPageCount - 1));
@@ -1578,7 +1582,14 @@ void CSession::SetNextJobExpValue(int value)
 
 bool CSession::TryGetBaseExpPercent(int* outPercent) const
 {
-    if (!outPercent || !m_hasBaseExpValue || !m_hasNextBaseExpValue || m_nextBaseExpValue <= 0) {
+    if (!outPercent || !m_hasNextBaseExpValue) {
+        return false;
+    }
+    if (m_nextBaseExpValue == kMaxLevelBaseExp) {
+        *outPercent = 100;
+        return true;
+    }
+    if (!m_hasBaseExpValue || m_nextBaseExpValue <= 0) {
         return false;
     }
 
@@ -1589,7 +1600,14 @@ bool CSession::TryGetBaseExpPercent(int* outPercent) const
 
 bool CSession::TryGetJobExpPercent(int* outPercent) const
 {
-    if (!outPercent || !m_hasJobExpValue || !m_hasNextJobExpValue || m_nextJobExpValue <= 0) {
+    if (!outPercent || !m_hasNextJobExpValue) {
+        return false;
+    }
+    if (m_nextJobExpValue == kMaxLevelJobExp) {
+        *outPercent = 100;
+        return true;
+    }
+    if (!m_hasJobExpValue || m_nextJobExpValue <= 0) {
         return false;
     }
 
@@ -1600,6 +1618,9 @@ bool CSession::TryGetJobExpPercent(int* outPercent) const
 
 double CSession::GetBaseExpProgress() const
 {
+    if (m_hasNextBaseExpValue && m_nextBaseExpValue == kMaxLevelBaseExp) {
+        return 1.0;
+    }
     if (m_hasBaseExpValue && m_hasNextBaseExpValue && m_nextBaseExpValue > 0) {
         return std::clamp(static_cast<double>(m_baseExpValue) / m_nextBaseExpValue, 0.0, 1.0);
     }
@@ -1608,6 +1629,9 @@ double CSession::GetBaseExpProgress() const
 
 double CSession::GetJobExpProgress() const
 {
+    if (m_hasNextJobExpValue && m_nextJobExpValue == kMaxLevelJobExp) {
+        return 1.0;
+    }
     if (m_hasJobExpValue && m_hasNextJobExpValue && m_nextJobExpValue > 0) {
         return std::clamp(static_cast<double>(m_jobExpValue) / m_nextJobExpValue, 0.0, 1.0);
     }

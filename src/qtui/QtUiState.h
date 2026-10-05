@@ -290,6 +290,7 @@ public:
         };
         static const QVariantMap palette {
             { QStringLiteral("uiFontFamily"), QString::fromLatin1(uitheme::kUiFontFamily) },
+            { QStringLiteral("cornerRadius"), uitheme::kCornerRadius },
             { QStringLiteral("panelBackground"), color(uitheme::kPanelBackground, uitheme::kPanelAlpha) },
             { QStringLiteral("controlBackground"), color(uitheme::kControlBackground) },
             { QStringLiteral("controlBackgroundText"), color(uitheme::kControlBackgroundText) },

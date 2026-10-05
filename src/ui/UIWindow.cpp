@@ -828,10 +828,8 @@ void UIEditCtrl::OnDraw()
 
     RECT rc = { m_x, m_y, m_x + m_w, m_y + m_h };
     const COLORREF bgCol = m_hasFocus ? RGB(255, 255, 200) : RGB(m_r, m_g, m_b);
-    HBRUSH bg = CreateSolidBrush(bgCol);
-    FillRect(hdc, &rc, bg);
-    DeleteObject(bg);
-    FrameRect(hdc, &rc, static_cast<HBRUSH>(m_hasFocus ? GetStockObject(BLACK_BRUSH) : GetStockObject(GRAY_BRUSH)));
+    uitheme::FillRoundedRect(hdc, rc, bgCol);
+    uitheme::FrameRoundedRect(hdc, rc, m_hasFocus ? RGB(0, 0, 0) : RGB(128, 128, 128));
 
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(m_textR, m_textG, m_textB));
@@ -919,13 +917,8 @@ void UICheckBox::OnDraw()
     } else {
         const int fallbackSize = (std::max)(12, (std::min)(m_w > 0 ? m_w : 16, m_h > 0 ? m_h : 16));
         RECT boxRect = { m_x, m_y, m_x + fallbackSize, m_y + fallbackSize };
-        HBRUSH fillBrush = CreateSolidBrush(RGB(244, 239, 228));
-        FillRect(hdc, &boxRect, fillBrush);
-        DeleteObject(fillBrush);
-
-        HBRUSH frameBrush = CreateSolidBrush(RGB(82, 63, 45));
-        FrameRect(hdc, &boxRect, frameBrush);
-        DeleteObject(frameBrush);
+        uitheme::FillRoundedRect(hdc, boxRect, RGB(244, 239, 228));
+        uitheme::FrameRoundedRect(hdc, boxRect, RGB(82, 63, 45));
 
         if (m_isChecked) {
             HPEN pen = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));

@@ -27,12 +27,7 @@ RECT MakeRect(int left, int top, int right, int bottom)
 
 void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    if (!brush) {
-        return;
-    }
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 #if RO_ENABLE_QT6_UI
@@ -193,14 +188,8 @@ void UILoadingWnd::OnDraw()
         FillSolidRect(hdc, barFillRect, uitheme::kAccent);
     }
 
-    HPEN borderPen = CreatePen(PS_SOLID, 1, uitheme::kFrame);
-    HGDIOBJ oldPen = SelectObject(hdc, borderPen);
-    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(hdc, panelRect.left, panelRect.top, panelRect.right, panelRect.bottom);
-    Rectangle(hdc, barBackRect.left, barBackRect.top, barBackRect.right, barBackRect.bottom);
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(borderPen);
+    uitheme::FrameRoundedRect(hdc, panelRect, uitheme::kFrame);
+    uitheme::FrameRoundedRect(hdc, barBackRect, uitheme::kFrame);
 
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, uitheme::kUiText);

@@ -247,7 +247,8 @@ void UISelectServerWnd::OnDraw()
     HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(120, 112, 96));
     HGDIOBJ oldBrush = SelectObject(hdc, panelBrush);
     HGDIOBJ oldPen = SelectObject(hdc, borderPen);
-    RoundRect(hdc, panel.left, panel.top, panel.right, panel.bottom, 8, 8);
+    RoundRect(hdc, panel.left, panel.top, panel.right, panel.bottom,
+        uitheme::kCornerRadius * 2, uitheme::kCornerRadius * 2);
     SelectObject(hdc, oldPen);
     SelectObject(hdc, oldBrush);
     DeleteObject(borderPen);

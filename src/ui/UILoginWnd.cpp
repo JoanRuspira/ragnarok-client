@@ -52,12 +52,8 @@ bool ContainsPoint(int left, int top, int width, int height, int x, int y)
 
 void DrawSolidBox(HDC dc, const RECT& rect, COLORREF background, COLORREF border)
 {
-    HBRUSH backgroundBrush = CreateSolidBrush(background);
-    FillRect(dc, &rect, backgroundBrush);
-    DeleteObject(backgroundBrush);
-    HBRUSH borderBrush = CreateSolidBrush(border);
-    FrameRect(dc, &rect, borderBrush);
-    DeleteObject(borderBrush);
+    uitheme::FillRoundedRect(dc, rect, background);
+    uitheme::FrameRoundedRect(dc, rect, border);
 }
 
 void DrawLoginText(HDC dc, RECT rect, const char* text, COLORREF color,

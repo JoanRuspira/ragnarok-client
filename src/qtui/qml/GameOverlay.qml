@@ -8,6 +8,10 @@ Item {
     property real uiScale: Math.max(0.5, uiState.uiScale || 1.0)
     readonly property var uiTheme: uiState.uiTheme
 
+    component UiRectangle: Rectangle {
+        radius: Math.max(0, Math.min(uiState.uiTheme.cornerRadius, width / 2, height / 2))
+    }
+
     component UiText: Text {
         font.family: uiState.uiTheme.uiFontFamily
     }
@@ -227,7 +231,7 @@ Item {
             width: isPartyHpBar ? (modelData.width || 60) : (textWidth + bubblePaddingX)
             height: isPartyHpBar ? (modelData.height || 5) : (Math.max(1, Math.ceil(label.implicitHeight)) + bubblePaddingY)
 
-            Rectangle {
+            UiRectangle {
                 visible: parent.isPartyHpBar
                 x: 0
                 y: 0
@@ -235,7 +239,7 @@ Item {
                 height: parent.height
                 color: "#14199b"
 
-                Rectangle {
+                UiRectangle {
                     x: 1
                     y: 1
                     width: parent.width - 2
@@ -243,7 +247,7 @@ Item {
                     color: "#1e243a"
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: 1
                     y: 1
                     width: {
@@ -256,9 +260,9 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 anchors.fill: parent
-                radius: modelData.radius !== undefined ? modelData.radius : 6
+                radius: modelData.radius !== undefined ? modelData.radius : uiState.uiTheme.cornerRadius
                 color: modelData.background
                 visible: !parent.isPartyHpBar && modelData.showBubble !== false
                 border.width: 1
@@ -311,13 +315,12 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 42
         width: Math.min(540, parent.width - 80)
         height: 92
-        radius: 8
         color: root.uiTheme.panelBackground
         border.width: 1
         border.color: root.uiTheme.frame
@@ -362,22 +365,20 @@ Item {
                 elide: Text.ElideRight
             }
 
-            Rectangle {
+            UiRectangle {
                 width: parent.width
                 height: 20
-                radius: 4
                 color: root.uiTheme.controlBackground
                 border.width: 1
                 border.color: root.uiTheme.frame
                 visible: uiState.loadingProgress > 0
 
-                Rectangle {
+                UiRectangle {
                     anchors.left: parent.left
                     anchors.leftMargin: 2
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max(0, (parent.width - 4) * uiState.loadingProgress)
                     height: parent.height - 4
-                    radius: 3
                     color: root.uiTheme.accent
                 }
             }
@@ -397,23 +398,21 @@ Item {
     Repeater {
         model: uiState.notifications
 
-        delegate: Rectangle {
+        delegate: UiRectangle {
             required property var modelData
             x: modelData.x
             y: modelData.y
             width: modelData.width
             height: modelData.height
-            radius: 6
             color: "#de1f2328"
             border.width: 1
             border.color: modelData.accent
 
-            Rectangle {
+            UiRectangle {
                 x: 2
                 y: 2
                 width: parent.width - 4
                 height: parent.height - 4
-                radius: 5
                 color: "#ee2b3138"
                 border.width: 1
                 border.color: "#70ffffff"
@@ -429,12 +428,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.npcMenuX
         y: uiState.npcMenuY
         width: uiState.npcMenuWidth
         height: uiState.npcMenuHeight
-        radius: 10
         color: "#f8f8f8"
         border.width: 1
         border.color: "#828282"
@@ -449,7 +447,7 @@ Item {
             Repeater {
                 model: uiState.npcMenuOptions
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property int index
                     required property var modelData
                     width: parent.width
@@ -477,7 +475,7 @@ Item {
         Repeater {
             model: uiState.npcMenuButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.npcMenuX
                 y: (modelData.y || 0) - uiState.npcMenuY
@@ -497,12 +495,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.sayDialogX
         y: uiState.sayDialogY
         width: uiState.sayDialogWidth
         height: uiState.sayDialogHeight
-        radius: 10
         color: "#f8f8f8"
         border.width: 1
         border.color: "#828282"
@@ -520,7 +517,7 @@ Item {
             verticalAlignment: Text.AlignTop
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.sayDialogActionButton.x || 0) - uiState.sayDialogX
             y: (uiState.sayDialogActionButton.y || 0) - uiState.sayDialogY
             width: uiState.sayDialogActionButton.width || 0
@@ -539,12 +536,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.npcInputX
         y: uiState.npcInputY
         width: uiState.npcInputWidth
         height: uiState.npcInputHeight
-        radius: 10
         color: "#f8f8f8"
         border.width: 1
         border.color: "#828282"
@@ -559,7 +555,7 @@ Item {
             font.pixelSize: 12
         }
 
-        Rectangle {
+        UiRectangle {
             x: 10
             y: 26
             width: parent.width - 20
@@ -583,7 +579,7 @@ Item {
         Repeater {
             model: uiState.npcInputButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.npcInputX
                 y: (modelData.y || 0) - uiState.npcInputY
@@ -603,12 +599,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.chooseMenuX
         y: uiState.chooseMenuY
         width: uiState.chooseMenuWidth
         height: uiState.chooseMenuHeight
-        radius: 8
         color: "#ffffff"
         border.width: 1
         border.color: "#b8b8b8"
@@ -617,7 +612,7 @@ Item {
         Repeater {
             model: uiState.chooseMenuOptions
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property int index
                 required property var modelData
                 x: (parent.width - 221) / 2
@@ -640,7 +635,7 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemShopX
         y: uiState.itemShopY
         width: uiState.itemShopWidth
@@ -650,7 +645,7 @@ Item {
         border.color: "#484848"
         visible: uiState.itemShopVisible
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 0
             width: parent.width
@@ -667,7 +662,7 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 22
             width: parent.width - 16
@@ -682,7 +677,7 @@ Item {
                 width: parent.width - 2
                 spacing: 0
 
-                Rectangle {
+                UiRectangle {
                     width: parent.width
                     height: 17
                     color: "#dee5ed"
@@ -721,7 +716,7 @@ Item {
                 Repeater {
                     model: uiState.itemShopRows
 
-                    delegate: Rectangle {
+                    delegate: UiRectangle {
                         required property var modelData
                         width: parent.width
                         height: 18
@@ -763,7 +758,7 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemPurchaseX
         y: uiState.itemPurchaseY
         width: uiState.itemPurchaseWidth
@@ -773,7 +768,7 @@ Item {
         border.color: "#484848"
         visible: uiState.itemPurchaseVisible
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 0
             width: parent.width
@@ -790,7 +785,7 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 22
             width: parent.width - 16
@@ -805,7 +800,7 @@ Item {
                 width: parent.width - 2
                 spacing: 0
 
-                Rectangle {
+                UiRectangle {
                     width: parent.width
                     height: 17
                     color: "#dee5ed"
@@ -842,7 +837,7 @@ Item {
                 Repeater {
                     model: uiState.itemPurchaseRows
 
-                    delegate: Rectangle {
+                    delegate: UiRectangle {
                         required property var modelData
                         width: parent.width
                         height: 18
@@ -903,7 +898,7 @@ Item {
         Repeater {
             model: uiState.itemPurchaseButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.itemPurchaseX
                 y: (modelData.y || 0) - uiState.itemPurchaseY
@@ -923,7 +918,7 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemSellX
         y: uiState.itemSellY
         width: uiState.itemSellWidth
@@ -933,7 +928,7 @@ Item {
         border.color: "#484848"
         visible: uiState.itemSellVisible
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 0
             width: parent.width
@@ -950,7 +945,7 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 22
             width: parent.width - 16
@@ -965,7 +960,7 @@ Item {
                 width: parent.width - 2
                 spacing: 0
 
-                Rectangle {
+                UiRectangle {
                     width: parent.width
                     height: 17
                     color: "#dee5ed"
@@ -1002,7 +997,7 @@ Item {
                 Repeater {
                     model: uiState.itemSellRows
 
-                    delegate: Rectangle {
+                    delegate: UiRectangle {
                         required property var modelData
                         width: parent.width
                         height: 18
@@ -1063,7 +1058,7 @@ Item {
         Repeater {
             model: uiState.itemSellButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.itemSellX
                 y: (modelData.y || 0) - uiState.itemSellY
@@ -1086,6 +1081,7 @@ Item {
     Item {
         id: experienceBars
         readonly property var barData: uiState.experienceBarData || ({})
+        readonly property int frameWidth: barData.frameWidth || 2
         x: barData.x || 0
         y: barData.y || 0
         width: barData.width || 0
@@ -1094,11 +1090,11 @@ Item {
 
         Repeater {
             model: [
-                { progress: experienceBars.barData.baseProgress || 0, color: experienceBars.barData.baseColor },
-                { progress: experienceBars.barData.jobProgress || 0, color: experienceBars.barData.jobColor }
+                { progress: experienceBars.barData.baseProgress || 0, label: experienceBars.barData.baseProgressText || "0%", color: experienceBars.barData.baseColor },
+                { progress: experienceBars.barData.jobProgress || 0, label: experienceBars.barData.jobProgressText || "0%", color: experienceBars.barData.jobColor }
             ]
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property int index
                 required property var modelData
                 readonly property int midpoint: Math.floor(experienceBars.width / 2)
@@ -1107,19 +1103,32 @@ Item {
                 height: experienceBars.height
                 color: root.uiTheme.panelBackground
 
-                Rectangle {
-                    x: 1
-                    y: 1
-                    width: Math.round(Math.max(0, parent.width - 2) * modelData.progress)
-                    height: Math.max(0, parent.height - 2)
+                UiRectangle {
+                    x: experienceBars.frameWidth
+                    y: experienceBars.frameWidth
+                    width: Math.round(Math.max(0, parent.width - 2 * experienceBars.frameWidth) * modelData.progress)
+                    height: Math.max(0, parent.height - 2 * experienceBars.frameWidth)
                     color: modelData.color || "transparent"
                 }
 
-                Rectangle {
+                UiRectangle {
                     anchors.fill: parent
                     color: "transparent"
-                    border.width: 1
+                    border.width: experienceBars.frameWidth
                     border.color: root.uiTheme.frame
+                }
+
+                UiText {
+                    anchors.fill: parent
+                    anchors.margins: experienceBars.frameWidth
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData.label
+                    color: root.uiTheme.uiText
+                    font.pixelSize: experienceBars.barData.labelFontSize || 12
+                    font.bold: true
+                    style: Text.Outline
+                    styleColor: "#000000"
                 }
             }
         }
@@ -1135,14 +1144,13 @@ Item {
         Repeater {
             model: uiState.shortCutSlots
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property int index
                 required property var modelData
                 x: modelData.x
                 y: modelData.y
                 width: modelData.width
                 height: modelData.height
-                radius: 4
                 color: modelData.hover ? root.uiTheme.controlHover : root.uiTheme.panelBackground
                 border.width: 1
                 border.color: modelData.hover ? root.uiTheme.accent : root.uiTheme.frame
@@ -1194,23 +1202,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.basicInfoX
         y: uiState.basicInfoY
         width: uiState.basicInfoWidth
         height: uiState.basicInfoHeight
-        radius: 4
         color: uiState.basicInfoMini ? "#ece7d8" : "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.basicInfoVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -1228,13 +1234,12 @@ Item {
         Repeater {
             model: uiState.basicInfoData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.basicInfoX
                 y: (modelData.y || 0) - uiState.basicInfoY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -1286,7 +1291,7 @@ Item {
             font.pixelSize: 12
         }
 
-        Rectangle {
+        UiRectangle {
             x: 110
             y: 22
             width: 85
@@ -1296,7 +1301,7 @@ Item {
             border.width: 1
             border.color: "#202020"
 
-            Rectangle {
+            UiRectangle {
                 x: 1
                 y: 1
                 width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.maxHp || 0) > 0 ? (uiState.basicInfoData.hp || 0) / uiState.basicInfoData.maxHp : 0))
@@ -1305,7 +1310,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 110
             y: 43
             width: 85
@@ -1315,7 +1320,7 @@ Item {
             border.width: 1
             border.color: "#202020"
 
-            Rectangle {
+            UiRectangle {
                 x: 1
                 y: 1
                 width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.maxSp || 0) > 0 ? (uiState.basicInfoData.sp || 0) / uiState.basicInfoData.maxSp : 0))
@@ -1351,7 +1356,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Rectangle {
+        UiRectangle {
             x: 84
             y: 77
             width: 102
@@ -1361,7 +1366,7 @@ Item {
             border.width: 1
             border.color: "#808080"
 
-            Rectangle {
+            UiRectangle {
                 x: 1
                 y: 1
                 width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.expPercent || 0) / 100.0))
@@ -1379,7 +1384,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Rectangle {
+        UiRectangle {
             x: 84
             y: 87
             width: 102
@@ -1389,7 +1394,7 @@ Item {
             border.width: 1
             border.color: "#808080"
 
-            Rectangle {
+            UiRectangle {
                 x: 1
                 y: 1
                 width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.jobExpPercent || 0) / 100.0))
@@ -1419,13 +1424,12 @@ Item {
         Repeater {
             model: uiState.basicInfoData.menuButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.basicInfoX
                 y: (modelData.y || 0) - uiState.basicInfoY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 3
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -1442,23 +1446,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.statusX
         y: uiState.statusY
         width: uiState.statusWidth
         height: uiState.statusHeight
-        radius: 4
         color: uiState.statusMini ? "#ece7d8" : "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.statusVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: uiState.statusMini ? "#d5d0c2" : "#6e8194"
             border.width: 1
             border.color: uiState.statusMini ? "#8b877b" : "#4e5d6c"
@@ -1476,13 +1478,12 @@ Item {
         Repeater {
             model: uiState.statusData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.statusX
                 y: (modelData.y || 0) - uiState.statusY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -1507,7 +1508,7 @@ Item {
             font.pixelSize: 11
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: parent.width
@@ -1516,7 +1517,7 @@ Item {
             border.width: 0
             visible: !uiState.statusMini
 
-            Rectangle {
+            UiRectangle {
                 x: 0
                 y: 0
                 width: 20
@@ -1527,7 +1528,7 @@ Item {
             Repeater {
                 model: uiState.statusData.pageTabs || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.statusX
                     y: (modelData.y || 0) - uiState.statusY - 17
@@ -1580,12 +1581,11 @@ Item {
                             font.pixelSize: 11
                         }
 
-                        Rectangle {
+                        UiRectangle {
                             x: 64
                             y: 1
                             width: modelData.increaseWidth || 0
                             height: modelData.increaseHeight || 0
-                            radius: 2
                             visible: modelData.canIncrease
                             color: "#d8d8d8"
                             border.width: 1
@@ -1807,6 +1807,7 @@ Item {
 
         readonly property var chatUi: uiState.chatWindowUi || ({})
         readonly property var scrollBar: uiState.chatWindowScrollBar || ({})
+        readonly property string chatFontFamily: "Segoe UI"
         readonly property int chatFontSize: chatUi.fontPixelSize || 14
         readonly property real chromeOpacity: root.chatChromeOpacity(chatUi)
         readonly property color navy: root.uiTheme.panelBackground
@@ -1815,13 +1816,12 @@ Item {
         readonly property int scrollBarWidth: scrollBarVisible ? 8 : 0
         readonly property int scrollBarGap: scrollBarVisible ? 4 : 0
 
-        Rectangle {
+        UiRectangle {
             readonly property var bounds: chatWindowChrome.chatUi.body || ({})
             x: bounds.x || 0
             y: bounds.y || 0
             width: bounds.width || 0
             height: bounds.height || 0
-            radius: 6
             color: chatWindowChrome.background
             border.width: 1
             border.color: root.uiTheme.frame
@@ -1830,13 +1830,12 @@ Item {
         Repeater {
             model: chatWindowChrome.chatUi.tabs || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.bounds.x
                 y: modelData.bounds.y
                 width: modelData.bounds.width
                 height: modelData.bounds.height
-                radius: 5
                 color: chatWindowChrome.background
                 border.width: 1
                 border.color: modelData.active ? root.uiTheme.accent : root.uiTheme.frame
@@ -1878,26 +1877,25 @@ Item {
                         text: modelData.styledText
                         textFormat: Text.StyledText
                         color: modelData.color
-                        font.family: "Segoe UI"
+                        font.family: chatWindowChrome.chatFontFamily
                         font.pixelSize: chatWindowChrome.chatFontSize
                         wrapMode: Text.WordWrap
                     }
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 id: chatScrollTrack
                 x: parent.width - 4 - width
                 y: 4
                 width: 8
                 height: Math.max(0, parent.height - 8)
                 visible: chatWindowChrome.scrollBarVisible
-                radius: 3
                 color: "transparent"
                 border.width: 1
                 border.color: root.uiTheme.frame
 
-                Rectangle {
+                UiRectangle {
                     readonly property int totalLines: Math.max(1, chatWindowChrome.scrollBar.totalLines || 0)
                     readonly property int visibleLines: Math.max(1, chatWindowChrome.scrollBar.visibleLineCount || 0)
                     readonly property int firstLine: Math.max(0, chatWindowChrome.scrollBar.firstVisibleLine || 0)
@@ -1907,13 +1905,12 @@ Item {
                     y: Math.round(maxTravel * firstLine / Math.max(1, totalLines - visibleLines))
                     width: parent.width - 2
                     height: thumbHeight
-                    radius: 2
                     color: root.uiTheme.frame
                 }
             }
         }
 
-        Rectangle {
+        UiRectangle {
             readonly property var bounds: chatWindowChrome.chatUi.whisperInput || ({})
             x: bounds.x || 0
             y: bounds.y || 0
@@ -1933,14 +1930,14 @@ Item {
                     return value.length > 0 || active ? value + (active ? "_" : "") : "Whisper..."
                 }
                 color: "#ffffff"
-                font.family: root.uiTheme.uiFontFamily
-                font.pixelSize: 12
-                font.bold: true
+                font.family: chatWindowChrome.chatFontFamily
+                font.pixelSize: chatWindowChrome.chatFontSize
+                font.bold: false
                 elide: Text.ElideLeft
             }
         }
 
-        Rectangle {
+        UiRectangle {
             readonly property var bounds: chatWindowChrome.chatUi.messageInput || ({})
             x: bounds.x || 0
             y: bounds.y || 0
@@ -1957,18 +1954,18 @@ Item {
                 text: {
                     const active = uiState.chatWindowMessageInputActive
                     const value = uiState.chatWindowInputText
-                    return value.length > 0 || active ? value + (active ? "_" : "") : "Type a message..."
+                    return value.length > 0 || active ? value + (active ? "_" : "") : "Mssage..."
                 }
                 color: "#ffffff"
-                font.family: root.uiTheme.uiFontFamily
+                font.family: chatWindowChrome.chatFontFamily
                 font.pixelSize: chatWindowChrome.chatFontSize
-                font.bold: true
+                font.bold: false
                 elide: Text.ElideLeft
             }
         }
     }
 
-    Rectangle {
+    UiRectangle {
         id: chatSettings
         readonly property var chatUi: uiState.chatWindowUi || ({})
         visible: uiState.chatWindowVisible && (chatUi.configVisible || false)
@@ -1976,7 +1973,6 @@ Item {
         y: chatUi.configY || 0
         width: chatUi.configWidth || 0
         height: chatUi.configHeight || 0
-        radius: 6
         color: chatWindowChrome.background
         border.width: 1
         border.color: root.uiTheme.frame
@@ -2016,13 +2012,12 @@ Item {
                 { label: "+", bounds: chatSettings.chatUi.fontPlusButton || ({}) }
             ]
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.bounds.x || 0
                 y: modelData.bounds.y || 0
                 width: modelData.bounds.width || 0
                 height: modelData.bounds.height || 0
-                radius: 3
                 color: "transparent"
                 border.width: 1
                 border.color: root.uiTheme.frame
@@ -2049,29 +2044,27 @@ Item {
             font.pixelSize: 13
         }
 
-        Rectangle {
+        UiRectangle {
             readonly property var bounds: chatSettings.chatUi.opacityTrack || ({})
             x: bounds.x || 0
             y: bounds.y || 0
             width: bounds.width || 0
             height: bounds.height || 0
-            radius: 4
             color: "transparent"
             border.width: 1
             border.color: root.uiTheme.frame
 
-            Rectangle {
+            UiRectangle {
                 x: Math.max(0, Math.min(parent.width - 14, parent.width * (((chatSettings.chatUi.windowOpacityPercent || 50) - 20) / 80) - 7))
                 y: -5
                 width: 14
                 height: parent.height + 10
-                radius: 3
                 color: root.uiTheme.frame
             }
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.rechargeGaugeX
         y: uiState.rechargeGaugeY
         width: uiState.rechargeGaugeWidth
@@ -2081,7 +2074,7 @@ Item {
         border.color: "#523f2d"
         visible: uiState.rechargeGaugeVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
@@ -2089,7 +2082,7 @@ Item {
             color: "#f4efe4"
         }
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: Math.max(0, (parent.width - 2) * ((uiState.rechargeGaugeTotal || 0) > 0
@@ -2099,27 +2092,25 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.minimapX
         y: uiState.minimapY
         width: uiState.minimapWidth
         height: uiState.minimapHeight
-        radius: 9
         color: "#d1d8e4"
         border.width: 1
         border.color: "#394256"
         visible: uiState.minimapVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 8
             color: "#62729e"
         }
 
-        Rectangle {
+        UiRectangle {
             id: minimapMapFrame
             x: (uiState.minimapData.mapX || 0) - parent.x
             y: (uiState.minimapData.mapY || 0) - parent.y
@@ -2141,7 +2132,7 @@ Item {
             Repeater {
                 model: uiState.minimapData.markers || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: modelData.x - (uiState.minimapData.mapX || 0) - modelData.radius
                     y: modelData.y - (uiState.minimapData.mapY || 0) - modelData.radius
@@ -2210,12 +2201,11 @@ Item {
             elide: Text.ElideRight
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.minimapData.closeX || 0) - parent.x
             y: (uiState.minimapData.closeY || 0) - parent.y
             width: Math.max(10, uiState.minimapData.closeWidth || 0)
             height: Math.max(10, uiState.minimapData.closeHeight || 0)
-            radius: 2
             color: uiState.minimapData.closePressed ? "#b8c7da" : "#dde4ef"
             border.width: 1
             border.color: "#4d5662"
@@ -2268,11 +2258,10 @@ Item {
                             cache: false
                         }
 
-                        Rectangle {
+                        UiRectangle {
                             anchors.fill: parent
                             visible: !statusIconImage.visible
                             color: "#556574"
-                            radius: 8
                         }
 
                         UiText {
@@ -2284,7 +2273,7 @@ Item {
                             font.bold: true
                         }
 
-                        Rectangle {
+                        UiRectangle {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
@@ -2299,23 +2288,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.inventoryX
         y: uiState.inventoryY
         width: uiState.inventoryWidth
         height: uiState.inventoryHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.inventoryVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -2333,13 +2320,12 @@ Item {
         Repeater {
             model: uiState.inventoryData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.inventoryX
                 y: (modelData.y || 0) - uiState.inventoryY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -2355,7 +2341,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: parent.width
@@ -2366,7 +2352,7 @@ Item {
             Repeater {
                 model: uiState.inventoryData.tabs || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.inventoryX
                     y: (modelData.y || 0) - uiState.inventoryY - 17
@@ -2390,7 +2376,7 @@ Item {
             Repeater {
                 model: uiState.inventoryData.slots || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: modelData.x - uiState.inventoryX
                     y: modelData.y - uiState.inventoryY - 17
@@ -2436,7 +2422,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.inventoryData.scrollTrackX || 0) - uiState.inventoryX
                 y: (uiState.inventoryData.scrollTrackY || 0) - uiState.inventoryY - 17
                 width: uiState.inventoryData.scrollTrackWidth || 0
@@ -2446,7 +2432,7 @@ Item {
                 border.width: 1
                 border.color: "#a4adbd"
 
-                Rectangle {
+                UiRectangle {
                     x: (uiState.inventoryData.scrollThumbX || 0) - (uiState.inventoryData.scrollTrackX || 0)
                     y: (uiState.inventoryData.scrollThumbY || 0) - (uiState.inventoryData.scrollTrackY || 0)
                     width: uiState.inventoryData.scrollThumbWidth || 0
@@ -2457,7 +2443,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 0
                 y: parent.height - height
                 width: parent.width
@@ -2478,23 +2464,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.storageX
         y: uiState.storageY
         width: uiState.storageWidth
         height: uiState.storageHeight
-        radius: 4
         color: "#ede7dc"
         border.width: 1
         border.color: "#7a6d57"
         visible: uiState.storageVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#8c7551"
             border.width: 1
             border.color: "#655238"
@@ -2512,13 +2496,12 @@ Item {
         Repeater {
             model: uiState.storageData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.storageX
                 y: (modelData.y || 0) - uiState.storageY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#ddd0b8"
                 border.width: 1
                 border.color: "#8a775a"
@@ -2534,7 +2517,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: parent.width
@@ -2545,7 +2528,7 @@ Item {
             Repeater {
                 model: uiState.storageData.tabs || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.storageX
                     y: (modelData.y || 0) - uiState.storageY - 17
@@ -2566,7 +2549,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 36
                 y: 0
                 width: parent.width - 56
@@ -2598,7 +2581,7 @@ Item {
             Repeater {
                 model: uiState.storageData.slots || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: modelData.x - uiState.storageX
                     y: modelData.y - uiState.storageY - 17
@@ -2621,7 +2604,7 @@ Item {
                         visible: source !== "" && status === Image.Ready
                     }
 
-                    Rectangle {
+                    UiRectangle {
                         x: 4
                         y: 3
                         width: 22
@@ -2670,7 +2653,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.storageData.scrollTrackX || 0) - uiState.storageX
                 y: (uiState.storageData.scrollTrackY || 0) - uiState.storageY - 17
                 width: uiState.storageData.scrollTrackWidth || 0
@@ -2680,7 +2663,7 @@ Item {
                 border.width: 1
                 border.color: "#aea08b"
 
-                Rectangle {
+                UiRectangle {
                     x: (uiState.storageData.scrollThumbX || 0) - (uiState.storageData.scrollTrackX || 0)
                     y: (uiState.storageData.scrollThumbY || 0) - (uiState.storageData.scrollTrackY || 0)
                     width: uiState.storageData.scrollThumbWidth || 0
@@ -2691,7 +2674,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 0
                 y: parent.height - height
                 width: parent.width
@@ -2712,23 +2695,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.equipX
         y: uiState.equipY
         width: uiState.equipWidth
         height: uiState.equipHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.equipVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -2746,13 +2727,12 @@ Item {
         Repeater {
             model: uiState.equipData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.equipX
                 y: (modelData.y || 0) - uiState.equipY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -2768,7 +2748,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: parent.width
@@ -2776,7 +2756,7 @@ Item {
             color: "#e7e2d6"
             visible: !uiState.equipMini
 
-            Rectangle {
+            UiRectangle {
                 x: 98
                 y: 15
                 width: Math.max(1, 182 - 98)
@@ -2812,7 +2792,7 @@ Item {
                     width: modelData.leftColumn ? (modelData.width + 90) : (modelData.width + 60)
                     height: modelData.height
 
-                    Rectangle {
+                    UiRectangle {
                         x: modelData.leftColumn ? 0 : width - modelData.width
                         y: 0
                         width: modelData.width
@@ -2853,23 +2833,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.friendPartyX
         y: uiState.friendPartyY
         width: uiState.friendPartyWidth
         height: uiState.friendPartyHeight
-        radius: 4
         color: "#e9e1d2"
         border.width: 1
         border.color: "#5c5243"
         visible: uiState.friendPartyVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#5c6f60"
             border.width: 1
             border.color: "#3c4a3e"
@@ -2887,13 +2865,12 @@ Item {
         Repeater {
             model: uiState.friendPartyData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.friendPartyX
                 y: (modelData.y || 0) - uiState.friendPartyY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d2c6b4"
                 border.width: 1
                 border.color: "#6e604a"
@@ -2909,7 +2886,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: parent.width
@@ -2919,13 +2896,12 @@ Item {
             Repeater {
                 model: uiState.friendPartyData.tabs || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.friendPartyX
                     y: (modelData.y || 0) - uiState.friendPartyY - 17
                     width: modelData.width || 0
                     height: modelData.height || 0
-                    radius: 3
                     color: modelData.active ? "#fff7e9" : "#d6ccb8"
                     border.width: 1
                     border.color: modelData.active ? "#7a623e" : "#978972"
@@ -2940,7 +2916,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 10
                 y: 23
                 width: parent.width - 26
@@ -2977,7 +2953,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 10
                 y: 41
                 width: parent.width - 26
@@ -2989,7 +2965,7 @@ Item {
                 Repeater {
                     model: uiState.friendPartyData.rows || []
 
-                    delegate: Rectangle {
+                    delegate: UiRectangle {
                         required property var modelData
                         x: (modelData.x || 0) - uiState.friendPartyX - 10
                         y: (modelData.y || 0) - uiState.friendPartyY - 58
@@ -2997,7 +2973,7 @@ Item {
                         height: modelData.height || 0
                         color: modelData.selected ? "#ebe2cd" : "#faf7ef"
 
-                        Rectangle {
+                        UiRectangle {
                             x: 3
                             y: 3
                             width: 6
@@ -3040,7 +3016,7 @@ Item {
                     }
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: width - 12
                     y: 1
                     width: 11
@@ -3050,7 +3026,7 @@ Item {
                     border.color: "#a8997e"
                     visible: uiState.friendPartyData.scrollBarVisible || false
 
-                    Rectangle {
+                    UiRectangle {
                         x: 1
                         y: (uiState.friendPartyData.scrollThumbY || 0) - (uiState.friendPartyData.scrollTrackY || 0)
                         width: parent.width - 2
@@ -3065,13 +3041,12 @@ Item {
             Repeater {
                 model: uiState.friendPartyData.actionButtons || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.friendPartyX
                     y: (modelData.y || 0) - uiState.friendPartyY - 17
                     width: modelData.width || 0
                     height: modelData.height || 0
-                    radius: 3
                     color: (modelData.active || false) ? "#d4e2ef" : "#ebe5d6"
                     border.width: 1
                     border.color: "#796a4f"
@@ -3087,7 +3062,7 @@ Item {
                 }
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 10
                 y: parent.height - 43
                 width: parent.width - 20
@@ -3128,23 +3103,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.partySetupX
         y: uiState.partySetupY
         width: uiState.partySetupWidth
         height: uiState.partySetupHeight
-        radius: 4
         color: "#e9e1d2"
         border.width: 1
         border.color: "#5c5243"
         visible: uiState.partySetupVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#5c6f60"
             border.width: 1
             border.color: "#3c4a3e"
@@ -3180,7 +3153,7 @@ Item {
         Repeater {
             model: uiState.partySetupData.helpIcons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.partySetupX
                 y: (modelData.y || 0) - uiState.partySetupY
@@ -3201,7 +3174,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.partySetupData.nameFieldX || 0) - uiState.partySetupX
             y: (uiState.partySetupData.nameFieldY || 0) - uiState.partySetupY
             width: uiState.partySetupData.nameFieldWidth || 0
@@ -3234,7 +3207,7 @@ Item {
                 width: modelData.width || 0
                 height: modelData.height || 0
 
-                Rectangle {
+                UiRectangle {
                     x: 0
                     y: 2
                     width: 14
@@ -3243,7 +3216,7 @@ Item {
                     border.width: 1
                     border.color: "#7e6f55"
 
-                    Rectangle {
+                    UiRectangle {
                         x: 3
                         y: 3
                         width: 8
@@ -3268,13 +3241,12 @@ Item {
         Repeater {
             model: uiState.partySetupData.buttons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.partySetupX
                 y: (modelData.y || 0) - uiState.partySetupY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 3
                 color: (modelData.active || false) ? "#d4e2ef" : "#ebe5d6"
                 border.width: 1
                 border.color: "#796a4f"
@@ -3290,7 +3262,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             visible: !!(uiState.partySetupData.tooltipText || "")
             x: Math.max(4, Math.min(parent.width - width - 4, ((uiState.partySetupData.tooltipX || 0) - uiState.partySetupX) - Math.floor(width / 2)))
             y: Math.max(4, Math.min(parent.height - height - 4, ((uiState.partySetupData.tooltipY || 0) - uiState.partySetupY) - height - 14))
@@ -3314,34 +3286,31 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.partyInviteX
         y: uiState.partyInviteY
         width: uiState.partyInviteWidth
         height: uiState.partyInviteHeight
-        radius: 4
         color: "#e9e1d2"
         border.width: 1
         border.color: "#5c5243"
         visible: uiState.partyInviteVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#5c6f60"
             border.width: 1
             border.color: "#3c4a3e"
         }
 
-        Rectangle {
+        UiRectangle {
             x: 14
             y: 28
             width: parent.width - 28
             height: 52
-            radius: 2
             color: "#efe8db"
             border.width: 1
             border.color: "#a5967d"
@@ -3372,13 +3341,12 @@ Item {
         Repeater {
             model: uiState.partyInviteData.buttons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.partyInviteX
                 y: (modelData.y || 0) - uiState.partyInviteY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 3
                 color: (modelData.active || false) ? "#d4e2ef" : "#ebe5d6"
                 border.width: 1
                 border.color: "#796a4f"
@@ -3394,23 +3362,21 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.skillListX
         y: uiState.skillListY
         width: uiState.skillListWidth
         height: uiState.skillListHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.skillListVisible
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -3428,13 +3394,12 @@ Item {
         Repeater {
             model: uiState.skillListData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.skillListX
                 y: (modelData.y || 0) - uiState.skillListY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 2
                 color: "#d7d2c5"
                 border.width: 1
                 border.color: "#7f7a70"
@@ -3450,7 +3415,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 41
             y: 17
             width: parent.width - 41
@@ -3460,7 +3425,7 @@ Item {
             border.color: "#c4c0b5"
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 17
             width: 41
@@ -3478,14 +3443,14 @@ Item {
                 width: modelData.width
                 height: modelData.height
 
-                Rectangle {
+                UiRectangle {
                     anchors.fill: parent
                     color: modelData.selected ? "#d7dff0" : (modelData.hovered ? "#ece8de" : "transparent")
                     border.width: 1
                     border.color: modelData.selected ? "#7e95bf" : (modelData.hovered ? "#b8b1a3" : "transparent")
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: 4
                     y: 1
                     width: 32
@@ -3533,7 +3498,7 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: modelData.upgradeX - modelData.x
                     y: modelData.upgradeY - modelData.y
                     width: modelData.upgradeWidth
@@ -3554,7 +3519,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.skillListData.scrollTrackX || 0) - uiState.skillListX
             y: (uiState.skillListData.scrollTrackY || 0) - uiState.skillListY
             width: uiState.skillListData.scrollTrackWidth || 0
@@ -3564,7 +3529,7 @@ Item {
             border.width: 1
             border.color: "#a4adbd"
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.skillListData.scrollThumbX || 0) - (uiState.skillListData.scrollTrackX || 0)
                 y: (uiState.skillListData.scrollThumbY || 0) - (uiState.skillListData.scrollTrackY || 0)
                 width: uiState.skillListData.scrollThumbWidth || 0
@@ -3575,7 +3540,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: parent.height - 50
             width: parent.width
@@ -3597,13 +3562,12 @@ Item {
         Repeater {
             model: uiState.skillListData.bottomButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.x - uiState.skillListX
                 y: modelData.y - uiState.skillListY
                 width: modelData.width
                 height: modelData.height
-                radius: 3
                 color: modelData.pressed ? "#b9c7de" : (modelData.hovered ? "#d7dff0" : "#e9e4d8")
                 border.width: 1
                 border.color: "#8c8578"
@@ -3618,24 +3582,22 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemInfoX
         y: uiState.itemInfoY
         width: uiState.itemInfoWidth
         height: uiState.itemInfoHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.itemInfoVisible
         z: 40
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -3650,12 +3612,11 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemInfoData.closeButton.x || 0) - uiState.itemInfoX
             y: (uiState.itemInfoData.closeButton.y || 0) - uiState.itemInfoY
             width: uiState.itemInfoData.closeButton.width || 0
             height: uiState.itemInfoData.closeButton.height || 0
-            radius: 2
             color: (uiState.itemInfoData.closeButton.pressed || false) ? "#b9c7de" : ((uiState.itemInfoData.closeButton.hovered || false) ? "#d7dff0" : "#e7e2d6")
             border.width: 1
             border.color: "#7f7a70"
@@ -3669,7 +3630,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 25
             width: 96
@@ -3689,12 +3650,11 @@ Item {
                     : root.itemIconSource(uiState.itemInfoData.itemId || 0, uiState.itemInfoData.identified)
             }
 
-            Rectangle {
+            UiRectangle {
                 x: 4
                 y: 4
                 width: (uiState.itemInfoData.graphicsButton.width || 0)
                 height: (uiState.itemInfoData.graphicsButton.height || 0)
-                radius: 2
                 visible: uiState.itemInfoData.graphicsButton.visible || false
                 color: (uiState.itemInfoData.graphicsButton.pressed || false) ? "#b9c7de" : ((uiState.itemInfoData.graphicsButton.hovered || false) ? "#d7dff0" : "#e9e4d8")
                 border.width: 1
@@ -3757,7 +3717,7 @@ Item {
         Repeater {
             model: uiState.itemInfoData.slots || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.itemInfoX
                 y: (modelData.y || 0) - uiState.itemInfoY
@@ -3779,7 +3739,7 @@ Item {
                     source: root.itemIconSource(modelData.itemId || 0)
                 }
 
-                Rectangle {
+                UiRectangle {
                     visible: (modelData.hovered || false) && (modelData.occupied || false) && !!modelData.tooltip
                     x: (parent.width - width) / 2
                     y: -24
@@ -3801,24 +3761,22 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.skillDescribeX
         y: uiState.skillDescribeY
         width: uiState.skillDescribeWidth
         height: uiState.skillDescribeHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.skillDescribeVisible
         z: 41
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -3833,12 +3791,11 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.skillDescribeData.closeButton.x || 0) - uiState.skillDescribeX
             y: (uiState.skillDescribeData.closeButton.y || 0) - uiState.skillDescribeY
             width: uiState.skillDescribeData.closeButton.width || 0
             height: uiState.skillDescribeData.closeButton.height || 0
-            radius: 2
             color: (uiState.skillDescribeData.closeButton.pressed || false) ? "#b9c7de" : ((uiState.skillDescribeData.closeButton.hovered || false) ? "#d7dff0" : "#e7e2d6")
             border.width: 1
             border.color: "#7f7a70"
@@ -3852,7 +3809,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 25
             width: 52
@@ -3902,7 +3859,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.skillDescribeData.descriptionX || 0) - uiState.skillDescribeX
             y: (uiState.skillDescribeData.descriptionY || 0) - uiState.skillDescribeY
             width: uiState.skillDescribeData.descriptionWidth || 0
@@ -3923,7 +3880,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.skillDescribeData.descriptionScrollBar.trackX || 0) - uiState.skillDescribeX
             y: (uiState.skillDescribeData.descriptionScrollBar.trackY || 0) - uiState.skillDescribeY
             width: uiState.skillDescribeData.descriptionScrollBar.trackWidth || 0
@@ -3933,7 +3890,7 @@ Item {
             border.width: 1
             border.color: "#a4adbd"
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.skillDescribeData.descriptionScrollBar.thumbX || 0) - (uiState.skillDescribeData.descriptionScrollBar.trackX || 0)
                 y: (uiState.skillDescribeData.descriptionScrollBar.thumbY || 0) - (uiState.skillDescribeData.descriptionScrollBar.trackY || 0)
                 width: uiState.skillDescribeData.descriptionScrollBar.thumbWidth || 0
@@ -3945,24 +3902,22 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemCollectionX
         y: uiState.itemCollectionY
         width: uiState.itemCollectionWidth
         height: uiState.itemCollectionHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.itemCollectionVisible
         z: 42
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -3977,12 +3932,11 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemCollectionData.closeButton.x || 0) - uiState.itemCollectionX
             y: (uiState.itemCollectionData.closeButton.y || 0) - uiState.itemCollectionY
             width: uiState.itemCollectionData.closeButton.width || 0
             height: uiState.itemCollectionData.closeButton.height || 0
-            radius: 2
             color: (uiState.itemCollectionData.closeButton.pressed || false) ? "#b9c7de" : ((uiState.itemCollectionData.closeButton.hovered || false) ? "#d7dff0" : "#e7e2d6")
             border.width: 1
             border.color: "#7f7a70"
@@ -3996,7 +3950,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: 8
             y: 25
             width: parent.width - 16
@@ -4020,24 +3974,22 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemIdentifyX
         y: uiState.itemIdentifyY
         width: uiState.itemIdentifyWidth
         height: uiState.itemIdentifyHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.itemIdentifyVisible
         z: 43
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -4052,12 +4004,11 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemIdentifyData.closeButton.x || 0) - uiState.itemIdentifyX
             y: (uiState.itemIdentifyData.closeButton.y || 0) - uiState.itemIdentifyY
             width: uiState.itemIdentifyData.closeButton.width || 0
             height: uiState.itemIdentifyData.closeButton.height || 0
-            radius: 2
             color: (uiState.itemIdentifyData.closeButton.pressed || false) ? "#b9c7de" : ((uiState.itemIdentifyData.closeButton.hovered || false) ? "#d7dff0" : "#e7e2d6")
             border.width: 1
             border.color: "#7f7a70"
@@ -4071,7 +4022,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             id: itemIdentifyList
             x: 8
             y: 27
@@ -4093,7 +4044,7 @@ Item {
             Repeater {
                 model: uiState.itemIdentifyData.rows || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.itemIdentifyX - itemIdentifyList.x
                     y: (modelData.y || 0) - uiState.itemIdentifyY - itemIdentifyList.y
@@ -4103,7 +4054,7 @@ Item {
                     border.width: 1
                     border.color: (modelData.selected || false) ? "#7e95bf" : "#bcb4a7"
 
-                    Rectangle {
+                    UiRectangle {
                         x: 4
                         y: 4
                         width: 24
@@ -4146,7 +4097,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemIdentifyData.scrollBar.trackX || 0) - uiState.itemIdentifyX
             y: (uiState.itemIdentifyData.scrollBar.trackY || 0) - uiState.itemIdentifyY
             width: uiState.itemIdentifyData.scrollBar.trackWidth || 0
@@ -4156,7 +4107,7 @@ Item {
             border.width: 1
             border.color: "#a4adbd"
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.itemIdentifyData.scrollBar.thumbX || 0) - (uiState.itemIdentifyData.scrollBar.trackX || 0)
                 y: (uiState.itemIdentifyData.scrollBar.thumbY || 0) - (uiState.itemIdentifyData.scrollBar.trackY || 0)
                 width: uiState.itemIdentifyData.scrollBar.thumbWidth || 0
@@ -4167,12 +4118,11 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemIdentifyData.okButton.x || 0) - uiState.itemIdentifyX
             y: (uiState.itemIdentifyData.okButton.y || 0) - uiState.itemIdentifyY
             width: uiState.itemIdentifyData.okButton.width || 0
             height: uiState.itemIdentifyData.okButton.height || 0
-            radius: 3
             color: !(uiState.itemIdentifyData.okButton.enabled || false)
                 ? "#d0d0d0"
                 : ((uiState.itemIdentifyData.okButton.pressed || false) ? "#b9c7de" : ((uiState.itemIdentifyData.okButton.hovered || false) ? "#d7dff0" : "#e9e4d8"))
@@ -4187,12 +4137,11 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemIdentifyData.cancelButton.x || 0) - uiState.itemIdentifyX
             y: (uiState.itemIdentifyData.cancelButton.y || 0) - uiState.itemIdentifyY
             width: uiState.itemIdentifyData.cancelButton.width || 0
             height: uiState.itemIdentifyData.cancelButton.height || 0
-            radius: 3
             color: (uiState.itemIdentifyData.cancelButton.pressed || false) ? "#b9c7de" : ((uiState.itemIdentifyData.cancelButton.hovered || false) ? "#d7dff0" : "#e9e4d8")
             border.width: 1
             border.color: "#8c8578"
@@ -4206,24 +4155,22 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.itemCompositionX
         y: uiState.itemCompositionY
         width: uiState.itemCompositionWidth
         height: uiState.itemCompositionHeight
-        radius: 4
         color: "#ede9df"
         border.width: 1
         border.color: "#6b675f"
         visible: uiState.itemCompositionVisible
         z: 43
 
-        Rectangle {
+        UiRectangle {
             x: 1
             y: 1
             width: parent.width - 2
             height: 16
-            radius: 3
             color: "#6e8194"
             border.width: 1
             border.color: "#4e5d6c"
@@ -4238,12 +4185,11 @@ Item {
             font.bold: true
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemCompositionData.closeButton.x || 0) - uiState.itemCompositionX
             y: (uiState.itemCompositionData.closeButton.y || 0) - uiState.itemCompositionY
             width: uiState.itemCompositionData.closeButton.width || 0
             height: uiState.itemCompositionData.closeButton.height || 0
-            radius: 2
             color: (uiState.itemCompositionData.closeButton.pressed || false) ? "#b9c7de" : ((uiState.itemCompositionData.closeButton.hovered || false) ? "#d7dff0" : "#e7e2d6")
             border.width: 1
             border.color: "#7f7a70"
@@ -4257,7 +4203,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             id: itemCompositionList
             x: 8
             y: 27
@@ -4279,7 +4225,7 @@ Item {
             Repeater {
                 model: uiState.itemCompositionData.rows || []
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     required property var modelData
                     x: (modelData.x || 0) - uiState.itemCompositionX - itemCompositionList.x
                     y: (modelData.y || 0) - uiState.itemCompositionY - itemCompositionList.y
@@ -4289,7 +4235,7 @@ Item {
                     border.width: 1
                     border.color: (modelData.selected || false) ? "#7e95bf" : "#bcb4a7"
 
-                    Rectangle {
+                    UiRectangle {
                         x: 4
                         y: 4
                         width: 24
@@ -4332,7 +4278,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemCompositionData.scrollBar.trackX || 0) - uiState.itemCompositionX
             y: (uiState.itemCompositionData.scrollBar.trackY || 0) - uiState.itemCompositionY
             width: uiState.itemCompositionData.scrollBar.trackWidth || 0
@@ -4342,7 +4288,7 @@ Item {
             border.width: 1
             border.color: "#a4adbd"
 
-            Rectangle {
+            UiRectangle {
                 x: (uiState.itemCompositionData.scrollBar.thumbX || 0) - (uiState.itemCompositionData.scrollBar.trackX || 0)
                 y: (uiState.itemCompositionData.scrollBar.thumbY || 0) - (uiState.itemCompositionData.scrollBar.trackY || 0)
                 width: uiState.itemCompositionData.scrollBar.thumbWidth || 0
@@ -4353,12 +4299,11 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemCompositionData.okButton.x || 0) - uiState.itemCompositionX
             y: (uiState.itemCompositionData.okButton.y || 0) - uiState.itemCompositionY
             width: uiState.itemCompositionData.okButton.width || 0
             height: uiState.itemCompositionData.okButton.height || 0
-            radius: 3
             color: !(uiState.itemCompositionData.okButton.enabled || false)
                 ? "#d0d0d0"
                 : ((uiState.itemCompositionData.okButton.pressed || false) ? "#b9c7de" : ((uiState.itemCompositionData.okButton.hovered || false) ? "#d7dff0" : "#e9e4d8"))
@@ -4373,12 +4318,11 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.itemCompositionData.cancelButton.x || 0) - uiState.itemCompositionX
             y: (uiState.itemCompositionData.cancelButton.y || 0) - uiState.itemCompositionY
             width: uiState.itemCompositionData.cancelButton.width || 0
             height: uiState.itemCompositionData.cancelButton.height || 0
-            radius: 3
             color: (uiState.itemCompositionData.cancelButton.pressed || false) ? "#b9c7de" : ((uiState.itemCompositionData.cancelButton.hovered || false) ? "#d7dff0" : "#e9e4d8")
             border.width: 1
             border.color: "#8c8578"
@@ -4392,28 +4336,26 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.optionX
         y: uiState.optionY
         width: uiState.optionWidth
         height: uiState.optionHeight
-        radius: 8
         color: "#f4f7fc"
         border.width: 1
         border.color: "#394256"
         visible: uiState.optionVisible
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 0
             width: parent.width
             height: 17
-            radius: 8
             color: "#62729e"
             border.width: 0
         }
 
-        Rectangle {
+        UiRectangle {
             x: 0
             y: 8
             width: parent.width
@@ -4433,13 +4375,12 @@ Item {
         Repeater {
             model: uiState.optionData.systemButtons || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.optionX
                 y: (modelData.y || 0) - uiState.optionY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 4
                 color: "#f8faff"
                 border.width: 1
                 border.color: "#607096"
@@ -4455,7 +4396,7 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             x: (uiState.optionData.contentX || 0) - uiState.optionX
             y: (uiState.optionData.contentY || 0) - uiState.optionY
             width: uiState.optionData.contentWidth || 0
@@ -4469,13 +4410,12 @@ Item {
         Repeater {
             model: uiState.optionData.tabs || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.x - uiState.optionX
                 y: modelData.y - uiState.optionY
                 width: modelData.width
                 height: modelData.height
-                radius: 6
                 visible: !(uiState.optionData.collapsed || false)
                 color: modelData.active ? "#ffffff" : "#dce4f1"
                 border.width: 1
@@ -4501,7 +4441,7 @@ Item {
                 height: Math.max(modelData.height, 16)
                 visible: !(uiState.optionData.collapsed || false)
 
-                Rectangle {
+                UiRectangle {
                     id: optionToggleBox
                     x: 0
                     y: 0
@@ -4555,7 +4495,7 @@ Item {
                     horizontalAlignment: Text.AlignRight
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: 0
                     y: 4
                     width: parent.width
@@ -4565,12 +4505,11 @@ Item {
                     border.color: "#6f7da0"
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: 4 + ((Math.max(0, parent.width - 8) * ((modelData.value || 0) - parent.sliderMin)) / parent.sliderRange) - 4
                     y: -2
                     width: 8
                     height: parent.height + 4
-                    radius: 4
                     color: "#ffffff"
                     border.width: 1
                     border.color: "#576588"
@@ -4590,13 +4529,12 @@ Item {
         Repeater {
             model: uiState.optionData.graphicsRows || []
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.x - uiState.optionX
                 y: modelData.y - uiState.optionY
                 width: modelData.width
                 height: modelData.height
-                radius: 6
                 visible: !(uiState.optionData.collapsed || false)
                 color: "#f7faff"
                 border.width: 1
@@ -4620,12 +4558,11 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: modelData.prevX - modelData.x
                     y: modelData.prevY - modelData.y
                     width: modelData.prevWidth
                     height: modelData.prevHeight
-                    radius: 4
                     color: "#f8faff"
                     border.width: 1
                     border.color: "#607096"
@@ -4639,12 +4576,11 @@ Item {
                     }
                 }
 
-                Rectangle {
+                UiRectangle {
                     x: modelData.nextX - modelData.x
                     y: modelData.nextY - modelData.y
                     width: modelData.nextWidth
                     height: modelData.nextHeight
-                    radius: 4
                     color: "#f8faff"
                     border.width: 1
                     border.color: "#607096"
@@ -4660,14 +4596,13 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             id: optionRestartButton
             readonly property var restartButtonData: uiState.optionData.restartButton || ({})
             x: (restartButtonData.x || 0) - uiState.optionX
             y: (restartButtonData.y || 0) - uiState.optionY
             width: restartButtonData.width || 0
             height: restartButtonData.height || 0
-            radius: 4
             visible: restartButtonData.visible || false
             color: "#f8faff"
             border.width: 1
@@ -4681,14 +4616,13 @@ Item {
             }
         }
 
-        Rectangle {
+        UiRectangle {
             id: optionApplyButton
             readonly property var applyButtonData: uiState.optionData.applyButton || ({})
             x: (applyButtonData.x || 0) - uiState.optionX
             y: (applyButtonData.y || 0) - uiState.optionY
             width: applyButtonData.width || 0
             height: applyButtonData.height || 0
-            radius: 4
             visible: applyButtonData.visible || false
             color: "#f8faff"
             border.width: 1
@@ -4703,12 +4637,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.shopChoiceX
         y: uiState.shopChoiceY
         width: uiState.shopChoiceWidth
         height: uiState.shopChoiceHeight
-        radius: 8
         color: "#f4f1ea"
         border.width: 1
         border.color: "#7f7a70"
@@ -4736,13 +4669,12 @@ Item {
         Repeater {
             model: uiState.shopChoiceButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: modelData.x - uiState.shopChoiceX
                 y: modelData.y - uiState.shopChoiceY
                 width: modelData.width
                 height: modelData.height
-                radius: 4
                 color: modelData.pressed ? "#aab9cd" : (modelData.hot ? "#c4d2e4" : "#dcdcdc")
                 border.width: 1
                 border.color: "#585858"
@@ -4757,12 +4689,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.serverPanelX
         y: uiState.serverPanelY
         width: uiState.serverPanelWidth
         height: uiState.serverPanelHeight
-        radius: 8
         color: "#f3f0e7"
         border.width: 1
         border.color: "#787060"
@@ -4783,7 +4714,7 @@ Item {
             Repeater {
                 model: uiState.serverEntryLabels.length
 
-                delegate: Rectangle {
+                delegate: UiRectangle {
                     readonly property bool isSelected: index === uiState.serverSelectedIndex
                     readonly property bool isHovered: index === uiState.serverHoverIndex
                     readonly property int statusWidth: 64
@@ -4808,7 +4739,6 @@ Item {
 
                     width: parent ? parent.width : 0
                     height: 24
-                    radius: 2
                     color: isSelected
                         ? "#d6e7b8"
                         : (isHovered ? "#ecefe5" : "#faf8f2")
@@ -4816,7 +4746,7 @@ Item {
                     border.color: isSelected ? "#5e7f2b" : "#a0a0a0"
                     clip: true
 
-                    Rectangle {
+                    UiRectangle {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
@@ -4858,12 +4788,11 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.loginPanelX
         y: uiState.loginPanelY
         width: uiState.loginPanelWidth
         height: uiState.loginPanelHeight
-        radius: 8
         color: root.uiTheme.panelBackground
         border.width: 1
         border.color: root.uiTheme.frame
@@ -4891,12 +4820,11 @@ Item {
         }
 
         // Field bounds match UILoginWnd's input hit areas.
-        Rectangle {
+        UiRectangle {
             x: 24
             y: 76
             width: 272
             height: 30
-            radius: 4
             color: root.uiTheme.controlBackgroundText
             border.width: 1
             border.color: uiState.loginPasswordFocused ? root.uiTheme.frame : root.uiTheme.accent
@@ -4925,12 +4853,11 @@ Item {
             verticalAlignment: Text.AlignVCenter
         }
 
-        Rectangle {
+        UiRectangle {
             x: 24
             y: 140
             width: 272
             height: 30
-            radius: 4
             color: root.uiTheme.controlBackgroundText
             border.width: 1
             border.color: uiState.loginPasswordFocused ? root.uiTheme.accent : root.uiTheme.frame
@@ -4952,13 +4879,12 @@ Item {
         Repeater {
             model: uiState.loginButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.loginPanelX
                 y: (modelData.y || 0) - uiState.loginPanelY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 4
                 color: modelData.id === 120 ? root.uiTheme.accent : root.uiTheme.controlBackground
                 border.width: 1
                 border.color: root.uiTheme.frame
@@ -4974,7 +4900,7 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.charSelectPanelX
         y: uiState.charSelectPanelY
         width: uiState.charSelectPanelWidth
@@ -5033,7 +4959,7 @@ Item {
         Repeater {
             model: uiState.charSelectPageButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.charSelectPanelX
                 y: (modelData.y || 0) - uiState.charSelectPanelY
@@ -5056,13 +4982,12 @@ Item {
         Repeater {
             model: uiState.charSelectActionButtons
 
-            delegate: Rectangle {
+            delegate: UiRectangle {
                 required property var modelData
                 x: (modelData.x || 0) - uiState.charSelectPanelX
                 y: (modelData.y || 0) - uiState.charSelectPanelY
                 width: modelData.width || 0
                 height: modelData.height || 0
-                radius: 3
                 color: "#d8d0c4"
                 border.width: 1
                 border.color: "#6f6558"
@@ -5079,7 +5004,7 @@ Item {
         }
     }
 
-    Rectangle {
+    UiRectangle {
         x: uiState.makeCharPanelX
         y: uiState.makeCharPanelY
         width: uiState.makeCharPanelWidth
@@ -5100,7 +5025,7 @@ Item {
                 : ""
         }
 
-        Rectangle {
+        UiRectangle {
             x: 62
             y: 244
             width: 100

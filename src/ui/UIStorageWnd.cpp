@@ -203,16 +203,12 @@ void DrawBitmapPixelsStretched(HDC target, const shopui::BitmapPixels& bitmap, c
 
 void FillRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 void FrameRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rect, color);
 }
 
 void FillRectAlpha(HDC target, const RECT& rect, COLORREF color, BYTE alpha)
@@ -236,6 +232,21 @@ void FillRectAlpha(HDC target, const RECT& rect, COLORREF color, BYTE alpha)
         | ((green * alpha / 255u) << 8)
         | (blue * alpha / 255u);
     std::vector<unsigned int> pixels(static_cast<size_t>(width) * static_cast<size_t>(height), premultipliedPixel);
+    // Keep the translucent tooltip fill inside its rounded outline.
+    const int radius = (std::min)(uitheme::kCornerRadius, (std::min)(width, height) / 2);
+    for (int y = 0; y < radius; ++y) {
+        for (int x = 0; x < radius; ++x) {
+            const float dx = radius - x - 0.5f;
+            const float dy = radius - y - 0.5f;
+            if (dx * dx + dy * dy > radius * radius) {
+                pixels[static_cast<size_t>(y) * width + x] = 0;
+                pixels[static_cast<size_t>(y) * width + width - 1 - x] = 0;
+                pixels[static_cast<size_t>(height - 1 - y) * width + x] = 0;
+                pixels[static_cast<size_t>(height - 1 - y) * width + width - 1 - x] = 0;
+            }
+        }
+    }
+
 
     AlphaBlendArgbToHdc(target,
         rect.left,

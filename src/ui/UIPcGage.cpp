@@ -10,9 +10,7 @@ namespace {
 
 void FillRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 void DrawBar(HDC hdc, const RECT& rect, int amount, int totalAmount, COLORREF fillColor)

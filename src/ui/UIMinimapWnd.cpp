@@ -46,7 +46,7 @@ constexpr int kCoordsTop = kMapTop + kMapSize + 4;
 constexpr int kCoordsHeight = 16;
 constexpr int kDefaultScreenMargin = 20;
 constexpr int kButtonIdClose = 135;
-constexpr int kWindowCornerRadius = 10;
+constexpr int kWindowCornerRadius = uitheme::kCornerRadius;
 constexpr int kFallbackCloseButtonSize = 11;
 constexpr u32 kDynamicRefreshIntervalMs = 100;
 constexpr float kMinZoom = 1.0f;
@@ -738,8 +738,8 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
         windowRect.top,
         windowRect.right + 1,
         windowRect.bottom + 1,
-        kWindowCornerRadius,
-        kWindowCornerRadius);
+        kWindowCornerRadius * 2,
+        kWindowCornerRadius * 2);
     if (clipRgn) {
         SelectClipRgn(hdc, clipRgn);
     }
@@ -886,8 +886,8 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
         windowRect.top,
         windowRect.right,
         windowRect.bottom,
-        kWindowCornerRadius,
-        kWindowCornerRadius);
+        kWindowCornerRadius * 2,
+        kWindowCornerRadius * 2);
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
     DeleteObject(borderPen);

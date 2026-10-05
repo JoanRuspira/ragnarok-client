@@ -15,32 +15,30 @@ return {
             motion_type = 2,
             server_notified = true, -- The server owns the impact effects on the target.
             source_server_notified = false, -- It does not send the caster presentation.
-            source = {
-                {
-                    effect_id = 399, -- EF_BASH3D3, an effect ID independent of skill IDs.
-                    renderer = "body_burst", -- This effect is procedural; it has no STR.
-                    texture = [[data\texture\effect\alpha_center.tga]],
-                    -- Head Crush WAV: CP949 filename bytes, independent of Lua file encoding.
-                    wav = "data\\wav\\effect\\\199\236\181\229 \197\169\183\175\189\172.wav",
-                    flash_start_color = 0xFFFFCD,
-                    flash_peak_color = 0xFFFF05,
-                    flash_peak_ms = 200,
-                    flash_end_ms = 500,
-                    halo_alpha = 0.6,
-                    halo_radius = 2,
-                    burst_delay_ms = 500,
-                    burst_duration_ms = 175,
-                    burst_count = 6,
-                    burst_arc_degrees = 12,
-                    burst_height = 7.5, -- Above the actor; reference cell units converted to world units (x5).
-                    burst_alpha = 0.6,
-                    burst_radii = { 22.5, 36 },
-                },
-            },
             target = {
                 { effect_id = 677, str = [[data\texture\effect\cwound.str]] },
                 -- EF_MADNESS_RED (626) is also server-sent; its renderer is not implemented yet.
             },
+            -- {
+            --     effect_id = 399, -- EF_BASH3D3, an effect ID independent of skill IDs.
+            --     renderer = "body_burst", -- This effect is procedural; it has no STR.
+            --     texture = [[data\texture\effect\alpha_center.tga]],
+            --     -- Head Crush WAV: CP949 filename bytes, independent of Lua file encoding.
+            --     wav = "data\\wav\\effect\\\199\236\181\229 \197\169\183\175\189\172.wav",
+            --     flash_start_color = 0xFFFFCD,
+            --     flash_peak_color = 0xFFFF05,
+            --     flash_peak_ms = 200,
+            --     flash_end_ms = 500,
+            --     halo_alpha = 0.6,
+            --     halo_radius = 2,
+            --     burst_delay_ms = 500,
+            --     burst_duration_ms = 175,
+            --     burst_count = 6,
+            --     burst_arc_degrees = 12,
+            --     burst_height = 7.5, -- Above the actor; reference cell units converted to world units (x5).
+            --     burst_alpha = 0.6,
+            --     burst_radii = { 22.5, 36 },
+            -- },
         },
         [399] = {
             name = "Arcane Strike", -- SK_SM_LIGHTNING_STRIKE
@@ -49,24 +47,59 @@ return {
             target = {
                 {
                     effect_id = 1537,
-                    str = [[data\texture\effect\mineffect\new_comet\new_comet_sub_explosion\new_comet_sub_explosion.str]],
+                    str = [[data\texture\effect\new_comet\new_comet_sub_explosion\new_comet_sub_explosion.str]],
+                    wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
                     effect_id = 1538,
-                    str = [[data\texture\effect\mineffect\new_comet\new_comet_sub_explosion_bottom\new_comet_sub_explosion_bottom.str]],
+                    str = [[data\texture\effect\new_comet\new_comet_sub_explosion_bottom\new_comet_sub_explosion_bottom.str]],
                 },
                 {
                     effect_id = 1539,
-                    str = [[data\texture\effect\mineffect\new_comet\new_comet_cast\new_comet_cast.str]],
+                    str = [[data\texture\effect\4ig_judge\judge_cast\judge_cast.str]],
+                },
+            },
+        },
+        [5] = {
+            name = "Bash",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2000,
+                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_hit\acidified_zone_ground_hit.str]],
+                    wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
-                    effect_id = 52,
-                    variants = {
-                        { str = [[data\texture\effect\windhit1.str]], wav = [[data\wav\_hit_fist1.wav]] },
-                        { str = [[data\texture\effect\windhit2.str]], wav = [[data\wav\_hit_fist2.wav]] },
-                        { str = [[data\texture\effect\windhit3.str]], wav = [[data\wav\_hit_fist3.wav]] },
-                    },
+                    effect_id = 2001,
+                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_b_bottom\acidified_zone_ground_b_bottom.str]],
                 },
+            },
+        },
+        [819] = {
+            name = "Spirit Growth",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2002,
+                    str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
+                },
+                {
+                    effect_id = 2003,
+                    str = [[data\texture\effect\grand_judgement\grand_judgement_buff\grand_judgement_buff.str]],
+                },
+
+            },
+        },
+        [942] = {
+            name = "Magnum Break",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    wav = [[data\wav\magnumbr.wav]],
+                }
             },
         },
     },

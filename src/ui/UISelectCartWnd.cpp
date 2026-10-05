@@ -38,16 +38,12 @@ bool IsPointInRect(const RECT& rect, int x, int y)
 
 void FillRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 void FrameRectColor(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rect, color);
 }
 
 void DrawCenteredText(HDC hdc, const RECT& rect, const char* text, COLORREF color)

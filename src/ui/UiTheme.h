@@ -2,13 +2,17 @@
 
 #include "platform/WindowsCompat.h"
 
-// Shared UI colors and typography. Native drawing and QML (through
+// Shared UI colors, typography and geometry. Native drawing and QML (through
 // QtUiState.uiTheme) both read these constants.
 namespace uitheme {
 
 inline constexpr char kUiFontFamily[] = "Trajan Pro";
+// Corner radius in logical pixels. Set to zero for square corners.
+inline constexpr int kCornerRadius = 6;
 
 void InitializeFonts();
+void FillRoundedRect(HDC hdc, const RECT& rect, COLORREF color, int radius = kCornerRadius);
+void FrameRoundedRect(HDC hdc, const RECT& rect, COLORREF color, int radius = kCornerRadius);
 
 inline constexpr COLORREF kPanelBackground = RGB(21, 42, 76);
 inline constexpr COLORREF kControlBackground = RGB(32, 32, 32);

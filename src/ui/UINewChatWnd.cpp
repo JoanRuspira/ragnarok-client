@@ -349,11 +349,22 @@ void FillRectStippled(HDC target, const RECT& rect, int opacityPercent)
 
     const shopui::BitmapPixels& pattern = GetHistoryPanelPattern(opacityPercent);
     if (!pattern.IsValid()) {
-        HBRUSH brush = CreateSolidBrush(uitheme::kPanelBackground);
-        FillRect(target, &rect, brush);
-        DeleteObject(brush);
+        uitheme::FillRoundedRect(target, rect, uitheme::kPanelBackground);
         return;
     }
+
+#if RO_PLATFORM_WINDOWS
+    const int savedDc = SaveDC(target);
+    if (savedDc != 0) {
+        const int radius = (std::min)(uitheme::kCornerRadius,
+            static_cast<int>((std::min)(rect.right - rect.left, rect.bottom - rect.top)) / 2);
+        HRGN clip = CreateRoundRectRgn(rect.left, rect.top, rect.right, rect.bottom, radius * 2, radius * 2);
+        if (clip) {
+            ExtSelectClipRgn(target, clip, RGN_AND);
+            DeleteObject(clip);
+        }
+    }
+#endif
 
     constexpr int kPatternSize = 4;
     for (int y = rect.top; y < rect.bottom; y += kPatternSize) {
@@ -363,6 +374,11 @@ void FillRectStippled(HDC target, const RECT& rect, int opacityPercent)
             DrawBitmapPixelsTransparent(target, pattern, x, y, drawWidth, drawHeight);
         }
     }
+#if RO_PLATFORM_WINDOWS
+    if (savedDc != 0) {
+        RestoreDC(target, savedDc);
+    }
+#endif
 }
 
 RECT GetChatLogicalClientRect()
@@ -909,17 +925,15 @@ void UINewChatWnd::OnDraw()
     RECT historyRc = layout.history;
     RECT whisperInputRc = layout.whisperInput;
     RECT messageInputRc = layout.messageInput;
-    HBRUSH frameBrush = CreateSolidBrush(uitheme::kFrame);
-    HBRUSH accentBrush = CreateSolidBrush(uitheme::kAccent);
     FillRectStippled(hdc, layout.body, m_windowOpacityPercent);
-    FrameRect(hdc, &layout.body, frameBrush);
+    uitheme::FrameRoundedRect(hdc, layout.body, uitheme::kFrame);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(255, 255, 255));
     SelectObject(hdc, GetChatUiFont(14, true));
     for (int index = 0; index < kChatTabCount; ++index) {
         const RECT& tab = layout.tabs[static_cast<size_t>(index)];
         FillRectStippled(hdc, tab, m_windowOpacityPercent);
-        FrameRect(hdc, &tab, index == m_activeTab ? accentBrush : frameBrush);
+        uitheme::FrameRoundedRect(hdc, tab, index == m_activeTab ? uitheme::kAccent : uitheme::kFrame);
         RECT label = tab;
         DrawTextA(hdc, kChatTabPresets[static_cast<size_t>(index)].label, -1, &label,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -981,7 +995,7 @@ void UINewChatWnd::OnDraw()
             historyRc.right - textInset,
             historyRc.bottom - textInset
         };
-        FrameRect(hdc, &trackRc, frameBrush);
+        uitheme::FrameRoundedRect(hdc, trackRc, uitheme::kFrame);
 
         const int trackHeight = trackRc.bottom - trackRc.top;
         const int visibleLineCount = (std::max)(1, scrollState.visibleLineCount);
@@ -991,14 +1005,12 @@ void UINewChatWnd::OnDraw()
         const int scrollDenom = (std::max)(1, totalLines - visibleLineCount);
         const int thumbTop = trackRc.top + (maxTravel * scrollState.firstVisibleLine) / scrollDenom;
         RECT thumbRc = { trackRc.left + 1, thumbTop, trackRc.right - 1, thumbTop + thumbHeight };
-        HBRUSH thumbBrush = CreateSolidBrush(uitheme::kFrame);
-        FillRect(hdc, &thumbRc, thumbBrush);
-        DeleteObject(thumbBrush);
+        uitheme::FillRoundedRect(hdc, thumbRc, uitheme::kFrame);
     }
 
     // Inputs share the body's single translucent fill; only their borders differ.
-    FrameRect(hdc, &whisperInputRc, IsWhisperTargetActive() ? accentBrush : frameBrush);
-    FrameRect(hdc, &messageInputRc, IsMessageInputActive() ? accentBrush : frameBrush);
+    uitheme::FrameRoundedRect(hdc, whisperInputRc, IsWhisperTargetActive() ? uitheme::kAccent : uitheme::kFrame);
+    uitheme::FrameRoundedRect(hdc, messageInputRc, IsMessageInputActive() ? uitheme::kAccent : uitheme::kFrame);
 
     std::string whisperDrawText = m_whisperTargetText;
     COLORREF whisperTextColor = RGB(255, 255, 255);
@@ -1016,30 +1028,30 @@ void UINewChatWnd::OnDraw()
     const bool messagePlaceholder = messageDrawText.empty();
     const COLORREF messageTextColor = RGB(255, 255, 255);
     if (messagePlaceholder) {
-        messageDrawText = "Type a message...";
+        messageDrawText = "Message...";
     }
 
     RECT whisperTextRc = { whisperInputRc.left + 10, whisperInputRc.top + 2, whisperInputRc.right - 2, whisperInputRc.bottom - 2 };
-    SelectObject(hdc, GetChatUiFont(12, true));
+    SelectObject(hdc, GetChatUiFont(m_fontPixelSize));
     SetTextColor(hdc, whisperTextColor);
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, 12, true);
+    DrawChatTextQt(hdc, whisperTextRc, whisperDrawText, whisperTextColor, false, m_fontPixelSize);
 #else
     DrawTextA(hdc, whisperDrawText.c_str(), -1, &whisperTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
 
     RECT messageTextRc = { messageInputRc.left + 10, messageInputRc.top + 2, messageInputRc.right - 2, messageInputRc.bottom - 2 };
-    SelectObject(hdc, GetChatUiFont(m_fontPixelSize, true));
+    SelectObject(hdc, GetChatUiFont(m_fontPixelSize));
     SetTextColor(hdc, messageTextColor);
 #if RO_ENABLE_QT6_UI
-    DrawChatTextQt(hdc, messageTextRc, messageDrawText, messageTextColor, false, m_fontPixelSize, true);
+    DrawChatTextQt(hdc, messageTextRc, messageDrawText, messageTextColor, false, m_fontPixelSize);
 #else
     DrawTextA(hdc, messageDrawText.c_str(), -1, &messageTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
 
     if (m_configVisible != 0) {
         FillRectStippled(hdc, layout.configPanel, m_windowOpacityPercent);
-        FrameRect(hdc, &layout.configPanel, frameBrush);
+        uitheme::FrameRoundedRect(hdc, layout.configPanel, uitheme::kFrame);
         SetTextColor(hdc, RGB(255, 255, 255));
         RECT title = { layout.configPanel.left + 12, layout.configPanel.top + 14,
             layout.configPanel.right - 12, layout.configPanel.top + 36 };
@@ -1047,8 +1059,8 @@ void UINewChatWnd::OnDraw()
         RECT fontLabel = layout.fontValue;
         const std::string fontText = "Font size: " + std::to_string(m_fontPixelSize);
         DrawTextA(hdc, fontText.c_str(), -1, &fontLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        FrameRect(hdc, &layout.fontMinusButton, frameBrush);
-        FrameRect(hdc, &layout.fontPlusButton, frameBrush);
+        uitheme::FrameRoundedRect(hdc, layout.fontMinusButton, uitheme::kFrame);
+        uitheme::FrameRoundedRect(hdc, layout.fontPlusButton, uitheme::kFrame);
         RECT minusLabel = layout.fontMinusButton;
         RECT plusLabel = layout.fontPlusButton;
         DrawTextA(hdc, "-", -1, &minusLabel, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -1056,17 +1068,15 @@ void UINewChatWnd::OnDraw()
         RECT opacityLabel = layout.transparencyValue;
         const std::string opacityText = "Background opacity: " + std::to_string(m_windowOpacityPercent) + "%";
         DrawTextA(hdc, opacityText.c_str(), -1, &opacityLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        FrameRect(hdc, &layout.transparencyTrack, frameBrush);
+        uitheme::FrameRoundedRect(hdc, layout.transparencyTrack, uitheme::kFrame);
         RECT thumb = layout.transparencyThumb;
         const int travel = layout.transparencyTrack.right - layout.transparencyTrack.left;
         const int offset = std::clamp(travel * (m_windowOpacityPercent - kChatWindowOpacityMin)
             / (kChatWindowOpacityMax - kChatWindowOpacityMin) - kChatSliderThumbWidth / 2,
             0, (std::max)(0, travel - kChatSliderThumbWidth));
         OffsetRect(&thumb, offset, 0);
-        FillRect(hdc, &thumb, frameBrush);
+        uitheme::FillRoundedRect(hdc, thumb, uitheme::kFrame);
     }
-    DeleteObject(accentBrush);
-    DeleteObject(frameBrush);
 
     RestoreDC(hdc, savedDc);
     ReleaseDrawTarget(hdc);

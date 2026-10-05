@@ -29,7 +29,7 @@ constexpr int kMenuBorder = 1;
 constexpr int kMenuPaddingX = 8;
 constexpr int kMenuPaddingY = 6;
 constexpr int kMenuRowHeight = 20;
-constexpr int kMenuCornerRadius = 8;
+constexpr int kMenuCornerRadius = uitheme::kCornerRadius;
 
 int GetMenuHeightForOptionCount(int optionCount)
 {
@@ -50,29 +50,18 @@ HFONT GetPlayerContextMenuFont()
 
 void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, color);
 }
 
 void DrawRectOutline(HDC hdc, const RECT& rect, COLORREF color)
 {
-    HBRUSH brush = CreateSolidBrush(color);
-    FrameRect(hdc, &rect, brush);
-    DeleteObject(brush);
+    uitheme::FrameRoundedRect(hdc, rect, color);
 }
 
 void FillRoundedRect(HDC hdc, const RECT& rect, COLORREF fillColor, COLORREF borderColor, int radius)
 {
-    HBRUSH brush = CreateSolidBrush(fillColor);
-    HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(pen);
-    DeleteObject(brush);
+    uitheme::FillRoundedRect(hdc, rect, fillColor, radius);
+    uitheme::FrameRoundedRect(hdc, rect, borderColor, radius);
 }
 
 RECT MakeRect(int left, int top, int width, int height)
@@ -260,7 +249,7 @@ void UIPlayerContextMenuWnd::OnDraw()
     RECT outer = MakeRect(m_x, m_y, m_w, m_h);
     RECT inner = MakeRect(m_x + kMenuBorder, m_y + kMenuBorder, m_w - 2 * kMenuBorder, m_h - 2 * kMenuBorder);
     FillRoundedRect(hdc, outer, RGB(130, 130, 130), RGB(130, 130, 130), kMenuCornerRadius);
-    FillRoundedRect(hdc, inner, RGB(248, 248, 248), RGB(224, 224, 224), kMenuCornerRadius - 2);
+    FillRoundedRect(hdc, inner, RGB(248, 248, 248), RGB(224, 224, 224), (std::max)(0, kMenuCornerRadius - 1));
 
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, GetPlayerContextMenuFont()));
     SetBkMode(hdc, TRANSPARENT);

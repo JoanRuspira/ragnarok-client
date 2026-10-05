@@ -49,6 +49,7 @@
 #include <QQmlError>
 #include <QImage>
 #include <QPainter>
+#include <QPainterPath>
 #include <QQuickImageProvider>
 #include <QQuickGraphicsDevice>
 #include <QQuickItem>
@@ -878,6 +879,23 @@ public:
                 image = QImage(fallbackWidth, fallbackHeight, QImage::Format_ARGB32_Premultiplied);
                 image.fill(QColor(22, 26, 34));
             }
+        }
+
+        if (!image.isNull() && uitheme::kCornerRadius > 0
+            && (baseId == QStringLiteral("charselectpanel") || baseId == QStringLiteral("makecharpanel")
+                || baseId == QStringLiteral("minimap"))) {
+            // These panels are bitmap-backed, so QML's Rectangle radius cannot trim their corners.
+            QImage rounded(image.size(), QImage::Format_ARGB32_Premultiplied);
+            rounded.fill(Qt::transparent);
+            QPainter painter(&rounded);
+            painter.setRenderHint(QPainter::Antialiasing);
+            QPainterPath clip;
+            const int radius = (std::min)(uitheme::kCornerRadius, (std::min)(image.width(), image.height()) / 2);
+            clip.addRoundedRect(QRectF(image.rect()), radius, radius);
+            painter.setClipPath(clip);
+            painter.drawImage(0, 0, image);
+            painter.end();
+            image = rounded;
         }
 
         if (!image.isNull() && requestedSize.isValid() && requestedSize.width() > 0 && requestedSize.height() > 0) {

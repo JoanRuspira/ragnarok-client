@@ -24,6 +24,8 @@ inline constexpr COLORREF kWritableText = RGB(32, 32, 32);
 inline constexpr COLORREF kShadow = RGB(8, 12, 16);
 inline constexpr COLORREF kControlHover = RGB(65, 75, 88);
 inline constexpr COLORREF kAccentHover = RGB(245, 214, 108);
+inline constexpr COLORREF kHpBar = RGB(48, 192, 48);
+inline constexpr COLORREF kSpBar = RGB(48, 96, 220);
 inline constexpr int kPanelAlpha = 230;
 
 } // namespace uitheme

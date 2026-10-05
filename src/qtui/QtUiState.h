@@ -152,7 +152,6 @@ class QtUiState : public QObject {
     Q_PROPERTY(int basicInfoY READ basicInfoY NOTIFY basicInfoGeometryChanged)
     Q_PROPERTY(int basicInfoWidth READ basicInfoWidth NOTIFY basicInfoGeometryChanged)
     Q_PROPERTY(int basicInfoHeight READ basicInfoHeight NOTIFY basicInfoGeometryChanged)
-    Q_PROPERTY(bool basicInfoMini READ basicInfoMini NOTIFY basicInfoMiniChanged)
     Q_PROPERTY(QVariantMap basicInfoData READ basicInfoData NOTIFY basicInfoDataChanged)
     Q_PROPERTY(bool statusVisible READ statusVisible NOTIFY statusVisibleChanged)
     Q_PROPERTY(int statusX READ statusX NOTIFY statusGeometryChanged)
@@ -301,6 +300,8 @@ public:
             { QStringLiteral("shadow"), color(uitheme::kShadow) },
             { QStringLiteral("controlHover"), color(uitheme::kControlHover) },
             { QStringLiteral("accentHover"), color(uitheme::kAccentHover) },
+            { QStringLiteral("hpBar"), color(uitheme::kHpBar) },
+            { QStringLiteral("spBar"), color(uitheme::kSpBar) },
         };
         return palette;
     }
@@ -449,7 +450,6 @@ public:
     int basicInfoY() const { return m_basicInfoY; }
     int basicInfoWidth() const { return m_basicInfoWidth; }
     int basicInfoHeight() const { return m_basicInfoHeight; }
-    bool basicInfoMini() const { return m_basicInfoMini; }
     const QVariantMap& basicInfoData() const { return m_basicInfoData; }
     bool statusVisible() const { return m_statusVisible; }
     int statusX() const { return m_statusX; }
@@ -1323,14 +1323,6 @@ public:
         emit basicInfoGeometryChanged();
     }
 
-    void setBasicInfoMini(bool value) {
-        if (m_basicInfoMini == value) {
-            return;
-        }
-        m_basicInfoMini = value;
-        emit basicInfoMiniChanged();
-    }
-
     void setBasicInfoData(const QVariantMap& value) {
         m_basicInfoData = value;
         emit basicInfoDataChanged();
@@ -2038,7 +2030,6 @@ signals:
     void experienceBarDataChanged();
     void basicInfoVisibleChanged();
     void basicInfoGeometryChanged();
-    void basicInfoMiniChanged();
     void basicInfoDataChanged();
     void statusVisibleChanged();
     void statusGeometryChanged();
@@ -2253,7 +2244,6 @@ private:
     int m_basicInfoY = 0;
     int m_basicInfoWidth = 0;
     int m_basicInfoHeight = 0;
-    bool m_basicInfoMini = false;
     QVariantMap m_basicInfoData;
     bool m_statusVisible = false;
     int m_statusX = 0;

@@ -2,6 +2,7 @@
 #include "ui/UiTheme.h"
 
 #include "UIWindowMgr.h"
+#include "UiScale.h"
 #include "core/File.h"
 #include "gamemode/GameMode.h"
 #include "gamemode/Mode.h"
@@ -25,6 +26,7 @@
 
 #if RO_ENABLE_QT6_UI
 #include <QFont>
+#include <QFontMetrics>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -36,31 +38,24 @@
 
 namespace {
 
-constexpr int kWindowWidth = 184;
-constexpr int kWindowHeight = 212;
-constexpr int kTitleBarHeight = 17;
-constexpr int kBodyInset = 10;
-constexpr int kMapTop = 20;
-constexpr int kMapSize = 164;
-constexpr int kCoordsTop = kMapTop + kMapSize + 4;
-constexpr int kCoordsHeight = 16;
-constexpr int kDefaultScreenMargin = 20;
-constexpr int kButtonIdClose = 135;
+constexpr int kWindowHeight = 240;
+constexpr int kTitleBarHeight = 32;
+constexpr int kBodyInset = 5;
+constexpr int kDefaultScreenMargin = 10;
+constexpr int kZoomButtonSize = 22;
+constexpr int kZoomButtonGap = 6;
+constexpr int kZoomButtonTop = kWindowHeight - kBodyInset - kZoomButtonSize;
+constexpr int kMapTop = kTitleBarHeight;
+constexpr int kMapHeight = kZoomButtonTop - kMapTop - 5;
+constexpr int kMapWidth = kMapHeight;
+constexpr int kWindowWidth = kMapWidth + 2 * kBodyInset;
 constexpr int kWindowCornerRadius = uitheme::kCornerRadius;
-constexpr int kFallbackCloseButtonSize = 11;
+// Start the narrower panel at the corner without inheriting the wider layout's position.
+constexpr char kPlacementKey[] = "RoMapWndFitted";
 constexpr u32 kDynamicRefreshIntervalMs = 100;
 constexpr float kMinZoom = 1.0f;
 constexpr float kMaxZoom = 4.0f;
 constexpr float kZoomStep = 0.25f;
-
-const char* UiKorPrefix()
-{
-    static const char* kUiKor =
-        "texture\\"
-        "\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA"
-        "\\";
-    return kUiKor;
-}
 
 std::string ToLowerAscii(std::string value)
 {
@@ -93,55 +88,6 @@ void AddUniqueCandidate(std::vector<std::string>& out, const std::string& raw)
         }
     }
     out.push_back(normalized);
-}
-
-std::vector<std::string> BuildUiAssetCandidates(const char* fileName)
-{
-    std::vector<std::string> out;
-    if (!fileName || !*fileName) {
-        return out;
-    }
-
-    const char* prefixes[] = {
-        "",
-        "skin\\default\\",
-        "skin\\default\\basic_interface\\",
-        "texture\\",
-        "texture\\interface\\",
-        "texture\\interface\\basic_interface\\",
-        "data\\",
-        "data\\texture\\",
-        "data\\texture\\interface\\",
-        "data\\texture\\interface\\basic_interface\\",
-        UiKorPrefix(),
-        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
-        nullptr
-    };
-
-    std::string base = NormalizeSlash(fileName);
-    AddUniqueCandidate(out, base);
-
-    std::string filenameOnly = base;
-    const size_t slashPos = filenameOnly.find_last_of('\\');
-    if (slashPos != std::string::npos && slashPos + 1 < filenameOnly.size()) {
-        filenameOnly = filenameOnly.substr(slashPos + 1);
-    }
-
-    for (int index = 0; prefixes[index]; ++index) {
-        AddUniqueCandidate(out, std::string(prefixes[index]) + filenameOnly);
-    }
-
-    return out;
-}
-
-std::string ResolveUiAssetPath(const char* fileName)
-{
-    for (const std::string& candidate : BuildUiAssetCandidates(fileName)) {
-        if (g_fileMgr.IsDataExist(candidate.c_str())) {
-            return candidate;
-        }
-    }
-    return NormalizeSlash(fileName ? fileName : "");
 }
 
 std::vector<std::string> BuildMinimapCandidates(const std::string& bitmapName)
@@ -220,26 +166,6 @@ int ResolveDisplayedPlayerDir()
 
     // Match the actor-facing convention used by PacketDirToRotationDegrees.
     return ((g_session.m_playerDir & 7) + 4) & 7;
-}
-
-shopui::BitmapPixels LoadBitmapPixelsFromGameData(const std::string& path)
-{
-    return shopui::LoadBitmapPixelsFromGameData(path, true);
-}
-
-void DrawBitmapPixelsAlphaBlended(HDC target, const shopui::BitmapPixels& bitmap, const RECT& dst)
-{
-    if (!target || !bitmap.IsValid() || dst.right <= dst.left || dst.bottom <= dst.top) {
-        return;
-    }
-    AlphaBlendArgbToHdc(target,
-                        dst.left,
-                        dst.top,
-                        dst.right - dst.left,
-                        dst.bottom - dst.top,
-                        bitmap.pixels.data(),
-                        bitmap.width,
-                        bitmap.height);
 }
 
 void DrawBgraPixelsStretched(HDC target,
@@ -362,6 +288,15 @@ void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color)
     DeleteObject(brush);
 }
 
+std::array<RECT, 2> GetZoomSignRects(const RECT& buttonRect)
+{
+    const LONG centerX = (buttonRect.left + buttonRect.right) / 2;
+    const LONG centerY = (buttonRect.top + buttonRect.bottom) / 2;
+    const RECT horizontal{ centerX - 5, centerY - 1, centerX + 5, centerY + 1 };
+    const RECT vertical{ centerX - 1, centerY - 5, centerX + 1, centerY + 5 };
+    return { horizontal, vertical };
+}
+
 void FrameSolidRect(HDC hdc, const RECT& rect, COLORREF color)
 {
     HBRUSH brush = CreateSolidBrush(color);
@@ -440,18 +375,29 @@ void DrawWindowTextQt(HDC hdc, const RECT& rect, const char* text, COLORREF colo
 }
 #endif
 
-void DrawWindowText(HDC hdc, int windowRight, int x, int y, const char* text, COLORREF color, UINT format, int height = 16)
+void DrawMinimapText(HDC hdc, RECT rect, const char* text, COLORREF color,
+    UINT format = DT_LEFT | DT_VCENTER)
 {
-    RECT rect = { x, y, windowRight - 4, y + height };
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, color);
-    HGDIOBJ oldFont = SelectObject(hdc, shopui::GetUiFont());
+#if RO_PLATFORM_WINDOWS
+    static HFONT titleFont = CreateFontA(-14, 0, 0, 0, FW_NORMAL,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
+    HFONT font = titleFont;
+#else
+    HFONT font = shopui::GetUiFont();
+#endif
+    const int oldBkMode = SetBkMode(hdc, TRANSPARENT);
+    const COLORREF oldColor = SetTextColor(hdc, color);
+    HGDIOBJ oldFont = SelectObject(hdc, font ? font : shopui::GetUiFont());
+    format |= DT_SINGLELINE | DT_NOPREFIX;
 #if RO_ENABLE_QT6_UI
     DrawWindowTextQt(hdc, rect, text ? text : "", color, format);
 #else
     DrawTextA(hdc, text ? text : "", -1, &rect, format);
 #endif
     SelectObject(hdc, oldFont);
+    SetTextColor(hdc, oldColor);
+    SetBkMode(hdc, oldBkMode);
 }
 
 void DrawSmallMarker(HDC hdc, const POINT& pt, COLORREF fillColor, COLORREF outlineColor, int radius)
@@ -480,23 +426,6 @@ std::string StripExtension(const std::string& value)
     }
     return out;
 }
-
-#if RO_ENABLE_QT6_UI
-QImage BitmapPixelsToQImage(const shopui::BitmapPixels& bitmap)
-{
-    if (!bitmap.IsValid()) {
-        return QImage();
-    }
-
-    QImage image(
-        reinterpret_cast<const uchar*>(bitmap.pixels.data()),
-        bitmap.width,
-        bitmap.height,
-        bitmap.width * static_cast<int>(sizeof(unsigned int)),
-        QImage::Format_ARGB32);
-    return image.copy();
-}
-#endif
 
 bool BlitArgbCacheToHdc(HDC target, int x, int y, int width, int height, const void* bits)
 {
@@ -532,9 +461,6 @@ bool BlitArgbCacheToHdc(HDC target, int x, int y, int width, int height, const v
 
 UIRoMapWnd::UIRoMapWnd()
     : m_controlsCreated(false),
-      m_closeButton(nullptr),
-      m_titleBarBitmap(),
-      m_bodyBitmap(),
       m_renderCacheSurface(),
       m_renderCacheDirty(true),
       m_mapBitmapWidth(0),
@@ -545,7 +471,7 @@ UIRoMapWnd::UIRoMapWnd()
       m_lastPlayerY(std::numeric_limits<int>::min()),
       m_lastPlayerDir(std::numeric_limits<int>::min()),
       m_lastDynamicInvalidateTick(0),
-      m_qtCloseButtonPressed(false)
+      m_pressedZoomDirection(0)
 {
     Create(kWindowWidth, kWindowHeight);
 
@@ -554,14 +480,17 @@ UIRoMapWnd::UIRoMapWnd()
         GetClientRect(g_hMainWnd, &clientRect);
     }
 
-    int defaultX = clientRect.right - kWindowWidth - kDefaultScreenMargin;
+    const int clientWidth = IsQtUiRuntimeEnabled()
+        ? UiScaleRawToLogicalCoordinate(clientRect.right - clientRect.left)
+        : static_cast<int>(clientRect.right - clientRect.left);
+    int defaultX = clientRect.left + clientWidth - kWindowWidth - kDefaultScreenMargin;
     int defaultY = clientRect.top + kDefaultScreenMargin;
     g_windowMgr.ClampWindowToClient(&defaultX, &defaultY, m_w, m_h);
     Move(defaultX, defaultY);
 
     int savedX = m_x;
     int savedY = m_y;
-    if (LoadUiWindowPlacement("RoMapWnd", &savedX, &savedY)) {
+    if (LoadUiWindowPlacement(kPlacementKey, &savedX, &savedY)) {
         g_windowMgr.ClampWindowToClient(&savedX, &savedY, m_w, m_h);
         Move(savedX, savedY);
     }
@@ -575,12 +504,12 @@ UIRoMapWnd::~UIRoMapWnd()
 void UIRoMapWnd::SetShow(int show)
 {
     if (show == 0) {
+        m_pressedZoomDirection = 0;
         UIWindow::SetShow(0);
         return;
     }
 
     EnsureCreated();
-    LayoutChildren();
     UpdateMinimapBitmap();
     if (m_mapPixels.empty() || m_mapBitmapWidth <= 0 || m_mapBitmapHeight <= 0) {
         UIWindow::SetShow(0);
@@ -589,14 +518,6 @@ void UIRoMapWnd::SetShow(int show)
 
     UIWindow::SetShow(1);
     InvalidateRenderCache();
-}
-
-void UIRoMapWnd::Move(int x, int y)
-{
-    UIWindow::Move(x, y);
-    if (m_controlsCreated) {
-        LayoutChildren();
-    }
 }
 
 bool UIRoMapWnd::IsUpdateNeed()
@@ -610,24 +531,6 @@ bool UIRoMapWnd::IsUpdateNeed()
     return BuildVisualStateToken() != m_lastVisualStateToken;
 }
 
-msgresult_t UIRoMapWnd::SendMsg(UIWindow* sender, int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra)
-{
-    (void)sender;
-    (void)lparam;
-    (void)extra;
-
-    if (msg != 6) {
-        return 0;
-    }
-
-    if (wparam == kButtonIdClose) {
-        SetShow(0);
-        StoreInfo();
-        return 1;
-    }
-    return 1;
-}
-
 void UIRoMapWnd::OnCreate(int x, int y)
 {
     (void)x;
@@ -635,41 +538,34 @@ void UIRoMapWnd::OnCreate(int x, int y)
     if (m_controlsCreated) {
         return;
     }
-
     m_controlsCreated = true;
-    LoadAssets();
-
-    if (IsQtUiRuntimeEnabled()) {
-        LayoutChildren();
-        UpdateMinimapBitmap();
-        return;
-    }
-
-    m_closeButton = new UIBitmapButton();
-    m_closeButton->SetBitmapName(ResolveUiAssetPath("sys_close_off.bmp").c_str(), 0);
-    m_closeButton->SetBitmapName(ResolveUiAssetPath("sys_close_on.bmp").c_str(), 1);
-    m_closeButton->SetBitmapName(ResolveUiAssetPath("sys_close_on.bmp").c_str(), 2);
-    m_closeButton->Create(m_closeButton->m_bitmapWidth, m_closeButton->m_bitmapHeight);
-    m_closeButton->m_id = kButtonIdClose;
-    m_closeButton->SetToolTip("Close");
-    AddChild(m_closeButton);
-
-    LayoutChildren();
     UpdateMinimapBitmap();
 }
 
 void UIRoMapWnd::OnLBtnDown(int x, int y)
 {
-    const RECT closeRect = GetCloseButtonRect();
-    const bool insideClose = x >= closeRect.left && x < closeRect.right
-        && y >= closeRect.top && y < closeRect.bottom;
-    if (IsQtUiRuntimeEnabled() && insideClose) {
-        m_qtCloseButtonPressed = true;
+    if (m_show == 0) {
         return;
     }
-
-    m_qtCloseButtonPressed = false;
-    UIFrameWnd::OnLBtnDown(x, y);
+    for (int direction : { -1, 1 }) {
+        const RECT rect = GetZoomButtonRect(direction);
+        if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom) {
+            if (CanZoom(direction)) {
+                m_pressedZoomDirection = direction;
+                InvalidateRenderCache();
+                Invalidate();
+            }
+            return;
+        }
+    }
+    if (x < m_x || x >= m_x + m_w || y < m_y || y >= m_y + kTitleBarHeight) {
+        return;
+    }
+    m_isDragging = 1;
+    m_startGlobalX = x;
+    m_startGlobalY = y;
+    m_orgX = m_x;
+    m_orgY = m_y;
 }
 
 void UIRoMapWnd::OnLBtnDblClk(int x, int y)
@@ -679,18 +575,17 @@ void UIRoMapWnd::OnLBtnDblClk(int x, int y)
 
 void UIRoMapWnd::OnLBtnUp(int x, int y)
 {
-    if (m_qtCloseButtonPressed) {
-        const RECT closeRect = GetCloseButtonRect();
-        const bool shouldClose = x >= closeRect.left && x < closeRect.right
-            && y >= closeRect.top && y < closeRect.bottom;
-        m_qtCloseButtonPressed = false;
-        if (shouldClose) {
-            SetShow(0);
-            StoreInfo();
+    if (m_pressedZoomDirection != 0) {
+        const int direction = m_pressedZoomDirection;
+        const RECT rect = GetZoomButtonRect(direction);
+        m_pressedZoomDirection = 0;
+        if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom) {
+            OnWheel(direction * 120);
         }
+        InvalidateRenderCache();
+        Invalidate();
         return;
     }
-
     UIFrameWnd::OnLBtnUp(x, y);
 }
 
@@ -728,10 +623,7 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
     }
 
     RECT windowRect{ baseX, baseY, baseX + m_w, baseY + m_h };
-    RECT titleRect{ baseX, baseY, baseX + m_w, baseY + kTitleBarHeight };
-    RECT bodyRect{ baseX, baseY + kTitleBarHeight, baseX + m_w, baseY + m_h };
-    RECT mapRect{ baseX + kBodyInset, baseY + kMapTop, baseX + kBodyInset + kMapSize, baseY + kMapTop + kMapSize };
-    RECT coordsRect{ baseX + 8, baseY + kCoordsTop, baseX + m_w - 8, baseY + kCoordsTop + kCoordsHeight };
+    RECT mapRect{ baseX + kBodyInset, baseY + kMapTop, baseX + kBodyInset + kMapWidth, baseY + kMapTop + kMapHeight };
     const int savedDc = SaveDC(hdc);
     HRGN clipRgn = CreateRoundRectRgn(
         windowRect.left,
@@ -744,19 +636,9 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
         SelectClipRgn(hdc, clipRgn);
     }
 
-    if (m_bodyBitmap.IsValid()) {
-        DrawBitmapPixelsAlphaBlended(hdc, m_bodyBitmap, bodyRect);
-    } else {
-        FillSolidRect(hdc, bodyRect, RGB(209, 216, 228));
-    }
-
-    if (m_titleBarBitmap.IsValid()) {
-        DrawBitmapPixelsAlphaBlended(hdc, m_titleBarBitmap, titleRect);
-    } else {
-        FillSolidRect(hdc, titleRect, RGB(98, 114, 158));
-    }
-
-    FillSolidRect(hdc, mapRect, RGB(18, 22, 29));
+    FillSolidRect(hdc, windowRect, uitheme::kPanelBackground);
+    FillSolidRect(hdc, RECT{ baseX + kBodyInset, baseY + 28, baseX + m_w - kBodyInset, baseY + 29 }, uitheme::kFrame);
+    FillSolidRect(hdc, mapRect, uitheme::kShadow);
 
     RECT drawRect = mapRect;
     RECT srcRect{ 0, 0, m_mapBitmapWidth, m_mapBitmapHeight };
@@ -830,13 +712,13 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
         DeleteObject(gridPen);
     }
 
-    FrameSolidRect(hdc, mapRect, RGB(72, 80, 96));
+    const std::string mapName = StripExtension(GetCurrentMinimapBitmapName());
+    const std::string title = mapName.empty() ? "Map" : mapName;
+    DrawMinimapText(hdc, RECT{ baseX + kBodyInset, baseY + 4, baseX + m_w - kBodyInset, baseY + 28 },
+        title.c_str(), uitheme::kUiText, DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
 
-    DrawWindowText(hdc, baseX + m_w, baseX + 18, baseY + 3, "Mini Map", RGB(255, 255, 255), DT_LEFT | DT_TOP | DT_SINGLELINE);
-    DrawWindowText(hdc, baseX + m_w, baseX + 17, baseY + 2, "Mini Map", RGB(0, 0, 0), DT_LEFT | DT_TOP | DT_SINGLELINE);
-
-    std::string mapName = StripExtension(GetCurrentMinimapBitmapName());
-
+    const int mapSavedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, mapRect.left + 1, mapRect.top + 1, mapRect.right - 1, mapRect.bottom - 1);
     auto drawWorldPoint = [&](int cellX, int cellY, COLORREF fillColor, COLORREF outlineColor, int radius) {
         POINT pt{};
         if (BuildMarkerPoint(attrArea, drawRect, zoomedView, srcRect, m_mapBitmapWidth, m_mapBitmapHeight, cellX, cellY, &pt)) {
@@ -864,33 +746,17 @@ void UIRoMapWnd::DrawWindowContents(HDC hdc, int baseX, int baseY)
         DrawSmallMarker(hdc, playerPoint, RGB(245, 224, 126), RGB(0, 0, 0), 4);
     }
 
-    char coordsText[64] = {};
-    std::snprintf(coordsText, sizeof(coordsText), "X : %d    Y : %d", g_session.m_playerPosX, g_session.m_playerPosY);
-    if (!mapName.empty()) {
-        DrawWindowText(hdc, coordsRect.right, coordsRect.left, coordsRect.top, mapName.c_str(),
-            RGB(0, 0, 0), DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-    }
-    DrawWindowText(hdc, coordsRect.right, coordsRect.left + 78, coordsRect.top, coordsText,
-        RGB(0, 0, 0), DT_RIGHT | DT_TOP | DT_SINGLELINE);
+    RestoreDC(hdc, mapSavedDc);
+    FrameSolidRect(hdc, mapRect, uitheme::kFrame);
+    DrawZoomButtons(hdc, baseX, baseY);
 
     RestoreDC(hdc, savedDc);
     if (clipRgn) {
         DeleteObject(clipRgn);
     }
-
-    HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(57, 66, 86));
-    HGDIOBJ oldPen = SelectObject(hdc, borderPen);
-    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    RoundRect(hdc,
-        windowRect.left,
-        windowRect.top,
-        windowRect.right,
-        windowRect.bottom,
-        kWindowCornerRadius * 2,
-        kWindowCornerRadius * 2);
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(borderPen);
+    uitheme::FrameRoundedRect(hdc, windowRect, uitheme::kFrame);
+    const RECT innerFrame{ windowRect.left + 3, windowRect.top + 3, windowRect.right - 3, windowRect.bottom - 3 };
+    uitheme::FrameRoundedRect(hdc, innerFrame, uitheme::kFrame, (std::max)(0, kWindowCornerRadius - 2));
 }
 
 void UIRoMapWnd::OnDraw()
@@ -943,8 +809,6 @@ void UIRoMapWnd::DrawToHdc(HDC hdc, int drawX, int drawY)
         DrawWindowContents(hdc, drawX, drawY);
     }
 
-    DrawCloseButton(hdc, drawX, drawY);
-
     m_lastVisualStateToken = visualStateToken;
     m_hasVisualStateToken = true;
     m_isDirty = 0;
@@ -952,6 +816,9 @@ void UIRoMapWnd::DrawToHdc(HDC hdc, int drawX, int drawY)
 
 void UIRoMapWnd::OnWheel(int delta)
 {
+    if (delta == 0) {
+        return;
+    }
     const float direction = delta > 0 ? 1.0f : -1.0f;
     const float nextZoom = g_windowMgr.m_miniMapZoomFactor + direction * kZoomStep;
     g_windowMgr.m_miniMapZoomFactor = (std::max)(kMinZoom, (std::min)(kMaxZoom, nextZoom));
@@ -961,7 +828,7 @@ void UIRoMapWnd::OnWheel(int delta)
 
 void UIRoMapWnd::StoreInfo()
 {
-    SaveUiWindowPlacement("RoMapWnd", m_x, m_y);
+    SaveUiWindowPlacement(kPlacementKey, m_x, m_y);
 }
 
 bool UIRoMapWnd::GetDisplayDataForQt(DisplayData* outData) const
@@ -977,29 +844,25 @@ bool UIRoMapWnd::GetDisplayDataForQt(DisplayData* outData) const
     DisplayData data{};
     data.imageRevision = static_cast<int>(BuildVisualStateToken() & 0x7fffffff);
 
-    const RECT mapRect{ m_x + kBodyInset, m_y + kMapTop, m_x + kBodyInset + kMapSize, m_y + kMapTop + kMapSize };
+    const RECT mapRect{ m_x + kBodyInset, m_y + kMapTop, m_x + kBodyInset + kMapWidth, m_y + kMapTop + kMapHeight };
     data.mapX = mapRect.left;
     data.mapY = mapRect.top;
     data.mapWidth = mapRect.right - mapRect.left;
     data.mapHeight = mapRect.bottom - mapRect.top;
 
-    const RECT coordsRect{ m_x + 8, m_y + kCoordsTop, m_x + m_w - 8, m_y + kCoordsTop + kCoordsHeight };
-    data.coordsX = coordsRect.left;
-    data.coordsY = coordsRect.top;
-    data.coordsWidth = coordsRect.right - coordsRect.left;
-    data.coordsHeight = coordsRect.bottom - coordsRect.top;
-
-    const RECT closeRect = GetCloseButtonRect();
-    data.closeX = closeRect.left;
-    data.closeY = closeRect.top;
-    data.closeWidth = closeRect.right - closeRect.left;
-    data.closeHeight = closeRect.bottom - closeRect.top;
-    data.closePressed = m_qtCloseButtonPressed;
+    for (size_t index = 0; index < data.zoomButtons.size(); ++index) {
+        DisplayZoomButton& button = data.zoomButtons[index];
+        button.direction = index == 0 ? -1 : 1;
+        const RECT rect = GetZoomButtonRect(button.direction);
+        button.x = rect.left;
+        button.y = rect.top;
+        button.width = rect.right - rect.left;
+        button.height = rect.bottom - rect.top;
+        button.enabled = CanZoom(button.direction);
+        button.pressed = m_pressedZoomDirection == button.direction;
+    }
 
     data.mapName = StripExtension(GetCurrentMinimapBitmapName());
-    char coordsText[64] = {};
-    std::snprintf(coordsText, sizeof(coordsText), "X : %d    Y : %d", g_session.m_playerPosX, g_session.m_playerPosY);
-    data.coordsText = coordsText;
 
     RECT drawRect = mapRect;
     RECT srcRect{ 0, 0, m_mapBitmapWidth, m_mapBitmapHeight };
@@ -1131,10 +994,10 @@ bool UIRoMapWnd::BuildQtMinimapImage(QImage* outImage) const
         return false;
     }
 
-    QImage composed(kMapSize, kMapSize, QImage::Format_ARGB32_Premultiplied);
-    composed.fill(qRgba(18, 22, 29, 255));
+    QImage composed(kMapWidth, kMapHeight, QImage::Format_ARGB32_Premultiplied);
+    composed.fill(QColor(GetRValue(uitheme::kShadow), GetGValue(uitheme::kShadow), GetBValue(uitheme::kShadow)));
 
-    QRect targetRect(0, 0, kMapSize, kMapSize);
+    QRect targetRect(0, 0, kMapWidth, kMapHeight);
     QRect sourceRect(0, 0, sourceImage.width(), sourceImage.height());
     const float zoom = (std::max)(kMinZoom, (std::min)(kMaxZoom, g_windowMgr.m_miniMapZoomFactor));
     const CGameMode* gameMode = g_modeMgr.GetCurrentGameMode();
@@ -1144,7 +1007,7 @@ bool UIRoMapWnd::BuildQtMinimapImage(QImage* outImage) const
     }
 
     if (zoom > kMinZoom + 0.001f) {
-        const float viewAspect = static_cast<float>(kMapSize) / static_cast<float>(kMapSize);
+        const float viewAspect = static_cast<float>(kMapWidth) / static_cast<float>(kMapHeight);
         const float bitmapAspect = static_cast<float>(sourceImage.width()) / static_cast<float>(sourceImage.height());
         int srcWidth = 0;
         int srcHeight = 0;
@@ -1178,7 +1041,7 @@ bool UIRoMapWnd::BuildQtMinimapImage(QImage* outImage) const
         srcTop = (std::max)(0, (std::min)(srcTop, sourceImage.height() - srcHeight));
         sourceRect = QRect(srcLeft, srcTop, srcWidth, srcHeight);
     } else {
-        RECT fitted = FitRectPreservingAspect(RECT{ 0, 0, kMapSize, kMapSize }, sourceImage.width(), sourceImage.height());
+        RECT fitted = FitRectPreservingAspect(RECT{ 0, 0, kMapWidth, kMapHeight }, sourceImage.width(), sourceImage.height());
         targetRect = QRect(fitted.left, fitted.top, fitted.right - fitted.left, fitted.bottom - fitted.top);
     }
 
@@ -1202,100 +1065,75 @@ bool UIRoMapWnd::BuildOverlayImageForRenderer(QImage* outImage) const
     if (!outImage) {
         return false;
     }
-
-    UIRoMapWnd* mutableThis = const_cast<UIRoMapWnd*>(this);
-    mutableThis->EnsureCreated();
-    mutableThis->UpdateMinimapBitmap();
-    mutableThis->LayoutChildren();
-
+    DisplayData display{};
     QImage minimapImage;
-    if (!BuildQtMinimapImage(&minimapImage)) {
+    if (!GetDisplayDataForQt(&display) || !BuildQtMinimapImage(&minimapImage)) {
         return false;
     }
-
-    QImage composed(m_w, m_h, QImage::Format_ARGB32);
+    const auto themeColor = [](COLORREF color) {
+        return QColor(GetRValue(color), GetGValue(color), GetBValue(color));
+    };
+    QImage composed(m_w, m_h, QImage::Format_ARGB32_Premultiplied);
     composed.fill(Qt::transparent);
-
     QPainter painter(&composed);
-    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter.setRenderHint(QPainter::TextAntialiasing, false);
-
-    const QRect windowRect(0, 0, m_w, m_h);
-    const QRect titleRect(0, 0, m_w, kTitleBarHeight);
-    const QRect bodyRect(0, kTitleBarHeight, m_w, m_h - kTitleBarHeight);
-    const QRect mapRect(kBodyInset, kMapTop, kMapSize, kMapSize);
-    const QRect coordsRect(8, kCoordsTop, m_w - 16, kCoordsHeight);
-
-    QPainterPath clipPath;
-    clipPath.addRoundedRect(QRectF(windowRect), static_cast<qreal>(kWindowCornerRadius), static_cast<qreal>(kWindowCornerRadius));
-    painter.setClipPath(clipPath);
-
-    const QImage bodyImage = BitmapPixelsToQImage(m_bodyBitmap);
-    if (!bodyImage.isNull()) {
-        painter.drawImage(bodyRect, bodyImage);
-    } else {
-        painter.fillRect(bodyRect, QColor(209, 216, 228));
-    }
-
-    const QImage titleImage = BitmapPixelsToQImage(m_titleBarBitmap);
-    if (!titleImage.isNull()) {
-        painter.drawImage(titleRect, titleImage);
-    } else {
-        painter.fillRect(titleRect, QColor(98, 114, 158));
-    }
-
-    painter.drawImage(mapRect, minimapImage);
-    painter.setClipping(false);
-
-    QPen borderPen(QColor(57, 66, 86));
-    painter.setPen(borderPen);
+    painter.setPen(QPen(themeColor(uitheme::kFrame), 1));
+    painter.setBrush(themeColor(uitheme::kPanelBackground));
+    painter.drawRoundedRect(QRectF(0.5, 0.5, m_w - 1, m_h - 1), kWindowCornerRadius, kWindowCornerRadius);
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(QRectF(0.5, 0.5, static_cast<qreal>(m_w - 1), static_cast<qreal>(m_h - 1)),
-        static_cast<qreal>(kWindowCornerRadius),
-        static_cast<qreal>(kWindowCornerRadius));
-    painter.drawRect(QRectF(mapRect.x() + 0.5, mapRect.y() + 0.5, static_cast<qreal>(mapRect.width() - 1), static_cast<qreal>(mapRect.height() - 1)));
+    painter.drawRoundedRect(QRectF(3.5, 3.5, m_w - 7, m_h - 7),
+        (std::max)(0, kWindowCornerRadius - 2), (std::max)(0, kWindowCornerRadius - 2));
+    painter.drawLine(kBodyInset, 28, m_w - kBodyInset, 28);
+
+    const QRect mapRect(kBodyInset, kMapTop, kMapWidth, kMapHeight);
+    painter.drawImage(mapRect, minimapImage);
+    painter.save();
+    painter.setClipRect(mapRect.adjusted(1, 1, -1, -1));
+    for (const DisplayMarker& marker : display.markers) {
+        painter.setPen(Qt::black);
+        painter.setBrush(themeColor(static_cast<COLORREF>(marker.color)));
+        painter.drawEllipse(QPointF(marker.x - m_x, marker.y - m_y), marker.radius, marker.radius);
+    }
+    if (display.playerVisible) {
+        painter.save();
+        painter.translate(display.playerX - m_x, display.playerY - m_y);
+        painter.rotate(180 - (display.playerDirection & 7) * 45);
+        QPainterPath arrow;
+        arrow.moveTo(0, -9);
+        arrow.lineTo(8, 6);
+        arrow.lineTo(0, 3);
+        arrow.lineTo(-8, 6);
+        arrow.closeSubpath();
+        painter.setPen(Qt::black);
+        painter.setBrush(Qt::white);
+        painter.drawPath(arrow);
+        painter.restore();
+    }
+    painter.restore();
+    painter.setPen(QPen(themeColor(uitheme::kFrame), 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(QRectF(mapRect.x() + 0.5, mapRect.y() + 0.5, mapRect.width() - 1, mapRect.height() - 1));
 
     QFont font(QString::fromLatin1(uitheme::kUiFontFamily));
-    font.setPixelSize(11);
-    font.setStyleStrategy(QFont::NoAntialias);
+    font.setPixelSize(14);
     painter.setFont(font);
-
-    painter.setPen(Qt::black);
-    painter.drawText(QPoint(17, 11), QStringLiteral("Mini Map"));
-    painter.setPen(Qt::white);
-    painter.drawText(QPoint(18, 12), QStringLiteral("Mini Map"));
-
-    painter.setPen(Qt::black);
-    painter.drawText(coordsRect.adjusted(0, 0, -78, 0), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine,
-        QString::fromStdString(StripExtension(GetCurrentMinimapBitmapName())));
-    const QString coordsText = QStringLiteral("X : %1    Y : %2").arg(g_session.m_playerPosX).arg(g_session.m_playerPosY);
-    painter.drawText(coordsRect, Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine, coordsText);
-
-    if (m_closeButton && m_closeButton->m_show != 0) {
-        const shopui::BitmapPixels* drawBmp = nullptr;
-        if (m_closeButton->m_state == 1 && m_closeButton->m_pressedBitmap.IsValid()) {
-            drawBmp = &m_closeButton->m_pressedBitmap;
-        } else if (m_closeButton->m_state == 2 && m_closeButton->m_mouseonBitmap.IsValid()) {
-            drawBmp = &m_closeButton->m_mouseonBitmap;
-        } else if (m_closeButton->m_normalBitmap.IsValid()) {
-            drawBmp = &m_closeButton->m_normalBitmap;
-        } else if (m_closeButton->m_mouseonBitmap.IsValid()) {
-            drawBmp = &m_closeButton->m_mouseonBitmap;
-        } else if (m_closeButton->m_pressedBitmap.IsValid()) {
-            drawBmp = &m_closeButton->m_pressedBitmap;
-        }
-
-        if (drawBmp) {
-            const QImage closeImage = BitmapPixelsToQImage(*drawBmp);
-            if (!closeImage.isNull()) {
-                const int buttonOffsetX = m_closeButton->m_x - m_x;
-                const int buttonOffsetY = m_closeButton->m_y - m_y;
-                painter.drawImage(QRect(buttonOffsetX, buttonOffsetY, drawBmp->width, drawBmp->height), closeImage);
-            }
+    painter.setPen(themeColor(uitheme::kUiText));
+    const QString title = display.mapName.empty() ? QStringLiteral("Map") : QString::fromStdString(display.mapName);
+    painter.drawText(QRect(kBodyInset, 4, m_w - 2 * kBodyInset, 24), Qt::AlignCenter | Qt::TextSingleLine,
+        QFontMetrics(font).elidedText(title, Qt::ElideRight, m_w - 2 * kBodyInset));
+    for (const DisplayZoomButton& button : display.zoomButtons) {
+        const QRect rect(button.x - m_x, button.y - m_y, button.width, button.height);
+        painter.setPen(QPen(themeColor(uitheme::kFrame), 1));
+        painter.setBrush(themeColor(button.pressed ? uitheme::kControlHover : uitheme::kControlBackground));
+        painter.drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), kWindowCornerRadius, kWindowCornerRadius);
+        const QColor signColor = themeColor(button.enabled ? uitheme::kUiText : uitheme::kControlHover);
+        const auto bars = GetZoomSignRects(RECT{ rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height() });
+        for (size_t index = 0; index < (button.direction > 0 ? 2u : 1u); ++index) {
+            const RECT& bar = bars[index];
+            painter.fillRect(QRect(bar.left, bar.top, bar.right - bar.left, bar.bottom - bar.top), signColor);
         }
     }
-
     painter.end();
     *outImage = composed;
     return true;
@@ -1309,81 +1147,40 @@ void UIRoMapWnd::EnsureCreated()
     }
 }
 
-void UIRoMapWnd::LayoutChildren()
+RECT UIRoMapWnd::GetZoomButtonRect(int direction) const
 {
-    if (m_closeButton) {
-        const RECT closeRect = GetCloseButtonRect();
-        m_closeButton->Move(closeRect.left, closeRect.top);
-        m_closeButton->SetShow(1);
-    }
+    const int right = m_x + m_w - kBodyInset;
+    const int left = direction > 0 ? right - kZoomButtonSize
+        : right - 2 * kZoomButtonSize - kZoomButtonGap;
+    return RECT{ left, m_y + kZoomButtonTop, left + kZoomButtonSize, m_y + kZoomButtonTop + kZoomButtonSize };
 }
 
-RECT UIRoMapWnd::GetCloseButtonRect() const
+bool UIRoMapWnd::CanZoom(int direction) const
 {
-    int width = kFallbackCloseButtonSize;
-    int height = kFallbackCloseButtonSize;
-    if (m_closeButton) {
-        width = m_closeButton->m_bitmapWidth > 0 ? m_closeButton->m_bitmapWidth : width;
-        height = m_closeButton->m_bitmapHeight > 0 ? m_closeButton->m_bitmapHeight : height;
-    }
-
-    RECT rc{ m_x + m_w - 19, m_y + 3, m_x + m_w - 19 + width, m_y + 3 + height };
-    return rc;
+    return direction > 0 ? g_windowMgr.m_miniMapZoomFactor < kMaxZoom
+        : g_windowMgr.m_miniMapZoomFactor > kMinZoom;
 }
 
-void UIRoMapWnd::LoadAssets()
+void UIRoMapWnd::DrawZoomButtons(HDC hdc, int drawX, int drawY)
 {
-    if (!m_titleBarBitmap.IsValid()) {
-        m_titleBarBitmap = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("titlebar_fix.bmp"));
+    for (int direction : { -1, 1 }) {
+        RECT rect = GetZoomButtonRect(direction);
+        OffsetRect(&rect, drawX - m_x, drawY - m_y);
+        uitheme::FillRoundedRect(hdc, rect, m_pressedZoomDirection == direction
+            ? uitheme::kControlHover : uitheme::kControlBackground);
+        uitheme::FrameRoundedRect(hdc, rect, uitheme::kFrame);
+        const COLORREF signColor = CanZoom(direction) ? uitheme::kUiText : uitheme::kControlHover;
+        const auto bars = GetZoomSignRects(rect);
+        FillSolidRect(hdc, bars.front(), signColor);
+        if (direction > 0) {
+            FillSolidRect(hdc, bars.back(), signColor);
+        }
     }
-    if (!m_bodyBitmap.IsValid()) {
-        m_bodyBitmap = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("itemwin_mid.bmp"));
-    }
-    InvalidateRenderCache();
-}
-
-void UIRoMapWnd::DrawCloseButton(HDC hdc, int drawX, int drawY)
-{
-    if (!hdc || !m_closeButton || m_closeButton->m_show == 0) {
-        return;
-    }
-
-    const shopui::BitmapPixels* drawBmp = nullptr;
-    if (m_closeButton->m_state == 1 && m_closeButton->m_pressedBitmap.IsValid()) {
-        drawBmp = &m_closeButton->m_pressedBitmap;
-    } else if (m_closeButton->m_state == 2 && m_closeButton->m_mouseonBitmap.IsValid()) {
-        drawBmp = &m_closeButton->m_mouseonBitmap;
-    } else if (m_closeButton->m_normalBitmap.IsValid()) {
-        drawBmp = &m_closeButton->m_normalBitmap;
-    } else if (m_closeButton->m_mouseonBitmap.IsValid()) {
-        drawBmp = &m_closeButton->m_mouseonBitmap;
-    } else {
-        drawBmp = m_closeButton->m_pressedBitmap.IsValid() ? &m_closeButton->m_pressedBitmap : nullptr;
-    }
-
-    if (!drawBmp) {
-        return;
-    }
-
-    const int buttonOffsetX = m_closeButton->m_x - m_x;
-    const int buttonOffsetY = m_closeButton->m_y - m_y;
-    RECT dst{
-        drawX + buttonOffsetX,
-        drawY + buttonOffsetY,
-        drawX + buttonOffsetX + drawBmp->width,
-        drawY + buttonOffsetY + drawBmp->height
-    };
-    shopui::DrawBitmapPixelsTransparent(hdc, *drawBmp, dst);
-    m_closeButton->m_bitmapWidth = drawBmp->width;
-    m_closeButton->m_bitmapHeight = drawBmp->height;
-    m_closeButton->m_isDirty = 0;
 }
 
 void UIRoMapWnd::ReleaseAssets()
 {
     ReleaseRenderCache();
-    m_titleBarBitmap.Clear();
-    m_bodyBitmap.Clear();
     m_mapBitmapWidth = 0;
     m_mapBitmapHeight = 0;
     m_mapPixels.clear();
@@ -1505,6 +1302,10 @@ unsigned long long UIRoMapWnd::BuildVisualStateToken() const
     mixValue(static_cast<unsigned long long>(m_w));
     mixValue(static_cast<unsigned long long>(m_h));
     mixValue(static_cast<unsigned long long>(g_windowMgr.m_isDrawCompass));
+    mixValue(static_cast<unsigned long long>(m_pressedZoomDirection));
+    // The zoomed crop follows the player, so moving must refresh the Qt image.
+    mixValue(static_cast<unsigned long long>(g_session.m_playerPosX));
+    mixValue(static_cast<unsigned long long>(g_session.m_playerPosY));
     mixValue(static_cast<unsigned long long>(g_windowMgr.m_miniMapZoomFactor * 100.0f));
     mixString(GetCurrentMinimapBitmapName());
     mixString(m_loadedBitmapPath);

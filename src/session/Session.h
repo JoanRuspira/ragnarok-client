@@ -133,6 +133,9 @@ public:
     int m_playerAccessory2;
     int m_playerAccessory3;
     char m_playerName[25];
+    // Server weight values are in tenths of a displayed weight unit.
+    u32 m_weight = 0;
+    u32 m_maxWeight = 0;
     int m_plusStr = 0;
     int m_plusAgi = 0;
     int m_plusVit = 0;
@@ -299,6 +302,8 @@ public:
     char* GetHeadSprName(int job, int* head, int sex, char* buf);
     char* GetAccessoryActName(int job, int* head, int sex, int accessory, char* buf);
     char* GetAccessorySprName(int job, int* head, int sex, int accessory, char* buf);
+    char* GetAccessoryActName(int sex, const std::string& resourceName, char* buf);
+    char* GetAccessorySprName(int sex, const std::string& resourceName, char* buf);
     char* GetImfName(int job, int head, int sex, char* buf);
     char* GetBodyPaletteName(int job, int sex, int palNum, char* buf, int bodyStyle = 0);
     char* GetHeadPaletteName(int head, int job, int sex, int palNum, char* buf);

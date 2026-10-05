@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-class UIBitmapButton;
 class QImage;
 
 class UIRoMapWnd : public UIFrameWnd {
@@ -20,6 +19,16 @@ public:
         unsigned int color = 0;
     };
 
+    struct DisplayZoomButton {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        int direction = 0;
+        bool enabled = false;
+        bool pressed = false;
+    };
+
     struct DisplayData {
         int mapX = 0;
         int mapY = 0;
@@ -29,28 +38,17 @@ public:
         int playerX = 0;
         int playerY = 0;
         int playerDirection = 0;
-        int closeX = 0;
-        int closeY = 0;
-        int closeWidth = 0;
-        int closeHeight = 0;
-        bool closePressed = false;
-        int coordsX = 0;
-        int coordsY = 0;
-        int coordsWidth = 0;
-        int coordsHeight = 0;
         int imageRevision = 0;
         std::string mapName;
-        std::string coordsText;
         std::vector<DisplayMarker> markers;
+        std::array<DisplayZoomButton, 2> zoomButtons{};
     };
 
     UIRoMapWnd();
     ~UIRoMapWnd() override;
 
     void SetShow(int show) override;
-    void Move(int x, int y) override;
     bool IsUpdateNeed() override;
-    msgresult_t SendMsg(UIWindow* sender, int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra) override;
     void OnCreate(int x, int y) override;
     void OnProcess() override;
     void OnDraw() override;
@@ -67,23 +65,19 @@ public:
 
 private:
     void EnsureCreated();
-    void LayoutChildren();
-    void LoadAssets();
     void ReleaseAssets();
-    void DrawCloseButton(HDC hdc, int drawX, int drawY);
+    void DrawZoomButtons(HDC hdc, int drawX, int drawY);
     void EnsureRenderCache();
     void ReleaseRenderCache();
     void InvalidateRenderCache();
     void DrawWindowContents(HDC hdc, int baseX, int baseY);
     void UpdateMinimapBitmap();
-    RECT GetCloseButtonRect() const;
+    RECT GetZoomButtonRect(int direction) const;
+    bool CanZoom(int direction) const;
     std::string GetCurrentMinimapBitmapName() const;
     unsigned long long BuildVisualStateToken() const;
 
     bool m_controlsCreated;
-    UIBitmapButton* m_closeButton;
-    shopui::BitmapPixels m_titleBarBitmap;
-    shopui::BitmapPixels m_bodyBitmap;
     ArgbDibSurface m_renderCacheSurface;
     bool m_renderCacheDirty;
     int m_mapBitmapWidth;
@@ -97,5 +91,5 @@ private:
     int m_lastPlayerY;
     int m_lastPlayerDir;
     u32 m_lastDynamicInvalidateTick;
-    bool m_qtCloseButtonPressed;
+    int m_pressedZoomDirection;
 };

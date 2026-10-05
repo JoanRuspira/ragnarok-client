@@ -15,6 +15,7 @@
 #include "ui/UiScale.h"
 #include "ui/StatusIconInfo.h"
 #include "ui/UIEquipWnd.h"
+#include "ui/UIBasicInfoWnd.h"
 #include "ui/UILoginWnd.h"
 #include "ui/UIMakeCharWnd.h"
 #include "ui/UIMinimapWnd.h"
@@ -193,7 +194,7 @@ QtUiImageRequestKind CategorizeQtUiImageRequest(const QString& baseId)
     if (baseId.startsWith(QStringLiteral("status/"))) {
         return QtUiImageRequestKind::Status;
     }
-    if (baseId == QStringLiteral("equippreview")) {
+    if (baseId == QStringLiteral("equippreview") || baseId == QStringLiteral("playerportrait")) {
         return QtUiImageRequestKind::EquipPreview;
     }
     if (baseId == QStringLiteral("makecharpanel")
@@ -814,6 +815,11 @@ public:
             const UIEquipWnd* const equipWnd = g_windowMgr.m_equipWnd;
             if (equipWnd && equipWnd->m_show != 0 && !equipWnd->IsMiniMode()) {
                 equipWnd->BuildQtPreviewImage(&image);
+            }
+        } else if (baseId == QStringLiteral("playerportrait")) {
+            const UIBasicInfoWnd* const basicInfoWnd = g_windowMgr.m_basicInfoWnd;
+            if (basicInfoWnd && basicInfoWnd->m_show != 0) {
+                basicInfoWnd->BuildQtPortraitImage(&image);
             }
         } else if (baseId == QStringLiteral("wallpaper")) {
             if (g_windowMgr.m_wallpaperSurface && g_windowMgr.m_wallpaperSurface->HasSoftwarePixels()) {

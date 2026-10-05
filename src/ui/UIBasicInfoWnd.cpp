@@ -1,626 +1,387 @@
 #include "UIBasicInfoWnd.h"
-#include "ui/UiTheme.h"
 
 #include "UIWindowMgr.h"
-#include "core/File.h"
-#include "render/DC.h"
-#include "res/Bitmap.h"
+#include "UIShopCommon.h"
+#include "UiTheme.h"
+#include "main/WinMain.h"
 #include "qtui/QtUiRuntime.h"
+#include "render/DC.h"
+#include "render3d/Device.h"
+#include "res/ActRes.h"
+#include "res/PaletteRes.h"
+#include "res/Sprite.h"
 #include "session/Session.h"
 #include "world/GameActor.h"
 #include "world/World.h"
 
-#include <windows.h>
-
-#if RO_ENABLE_QT6_UI
-#include <QFont>
-#include <QFontMetrics>
-#include <QImage>
-#include <QPainter>
-#include <QString>
-#endif
-
 #include <algorithm>
 #include <array>
-#include <cctype>
-#include <cstdio>
+#include <cmath>
 #include <cstring>
-#include <string>
+#include <map>
 #include <vector>
+
+#if RO_ENABLE_QT6_UI
+#include <QImage>
+#endif
 
 namespace {
 
-constexpr int kFullWidth = 280;
-constexpr int kFullHeight = 120;
-constexpr int kMiniHeight = 34;
-constexpr int kTitleBarHeight = 17;
-constexpr int kBarWidth = 85;
-constexpr int kBarHeight = 9;
-constexpr int kExpBarWidth = 102;
-constexpr int kExpBarHeight = 6;
-constexpr int kQtMenuButtonWidth = 32;
-constexpr int kQtMenuButtonHeight = 20;
-constexpr int kQtTopButtonWidth = 11;
-constexpr int kQtTopButtonHeight = 11;
-constexpr int kTopButtonY = 3;
-constexpr int kBaseButtonX = 3;
-constexpr int kMiniButtonX = 266;
-constexpr int kButtonIdStatus = 126;
-constexpr int kButtonIdOption = 127;
-constexpr int kButtonIdItems = 128;
-constexpr int kButtonIdEquip = 129;
-constexpr int kButtonIdSkill = 130;
-constexpr int kButtonIdFriend = 133;
-constexpr int kButtonIdBase = 134;
-constexpr int kButtonIdMini = 136;
-constexpr int kButtonIdComm = 148;
-constexpr int kButtonIdMap = 153;
+constexpr int kPanelWidth = 288;
+constexpr int kWidth = UIBasicInfoWnd::kPanelOffsetX + kPanelWidth;
+constexpr int kHeight = 140;
+constexpr int kHeaderHeight = 36;
+constexpr int kScreenMargin = 10;
+// Give the resized layout its own placement so it starts at the new margin.
+constexpr char kPlacementKey[] = "BasicInfoWndCompactPortrait";
+constexpr int kBarX = 8;
+constexpr int kBarWidth = kPanelWidth - 2 * kBarX;
+constexpr int kBarHeight = 22;
+constexpr int kBarLabelWidth = 40;
+constexpr int kPortraitInset = 3;
+constexpr int kPortraitImageSize = UIBasicInfoWnd::kPortraitDiameter - 2 * kPortraitInset;
+constexpr int kHeadgearMask = 1 | 256 | 512 | 0x0400 | 0x0800 | 0x1000;
 
-constexpr std::array<int, 8> kMenuButtonIds = {
-    kButtonIdStatus,
-    kButtonIdOption,
-    kButtonIdItems,
-    kButtonIdEquip,
-    kButtonIdSkill,
-    kButtonIdMap,
-    kButtonIdComm,
-    kButtonIdFriend,
+struct PortraitLayer {
+    CSprRes* sprite = nullptr;
+    const CMotion* motion = nullptr;
+    POINT offset{};
+    unsigned int* palette = nullptr;
+    bool affectsFraming = true;
 };
 
-constexpr std::array<const char*, 8> kMenuButtonNames = {
-    "status",
-    "option",
-    "items",
-    "equip",
-    "skill",
-    "map",
-    "comm",
-    "friend",
-};
-
-constexpr std::array<const char*, 8> kMenuButtonTooltips = {
-    "Alt+A",
-    "Alt+O",
-    "Alt+E",
-    "Alt+Q",
-    "Alt+S",
-    "Ctrl+Tab",
-    "Alt+C",
-    "Alt+Z",
-};
-
-#if RO_ENABLE_QT6_UI
-QFont BuildBasicInfoFontFromHdc(HDC hdc, const char* fallbackFamily = uitheme::kUiFontFamily, int fallbackPixelSize = 13)
+const ITEM_INFO* GetPortraitHeadgear(int normalMask, int costumeMask)
 {
-    LOGFONTA logFont{};
-    if (hdc) {
-        if (HGDIOBJ fontObject = GetCurrentObject(hdc, OBJ_FONT)) {
-            GetObjectA(fontObject, sizeof(logFont), &logFont);
+    const ITEM_INFO* normal = nullptr;
+    for (const ITEM_INFO& item : g_session.GetInventoryItems()) {
+        // Select the costume separately for each slot, even if other slots
+        // contain ordinary headgear or the equipment window hides costumes.
+        if ((item.m_wearLocation & costumeMask) != 0) {
+            return &item;
+        }
+        if (!normal && (item.m_wearLocation & normalMask) != 0) {
+            normal = &item;
         }
     }
-
-    const QString family = logFont.lfFaceName[0] != '\0'
-        ? QString::fromLocal8Bit(logFont.lfFaceName)
-        : QString::fromLocal8Bit(fallbackFamily);
-    QFont font(family);
-    font.setPixelSize(logFont.lfHeight != 0 ? (std::max)(1, static_cast<int>(std::abs(logFont.lfHeight))) : fallbackPixelSize);
-    font.setBold(logFont.lfWeight >= FW_BOLD);
-    font.setStyleStrategy(QFont::NoAntialias);
-    return font;
+    return normal;
 }
 
-Qt::Alignment ToQtBasicInfoAlignment(UINT format)
+POINT GetPortraitAttachmentOffset(const CMotion* head, const CMotion* accessory)
 {
-    Qt::Alignment alignment = Qt::AlignLeft | Qt::AlignTop;
-    if (format & DT_CENTER) {
-        alignment &= ~Qt::AlignLeft;
-        alignment |= Qt::AlignHCenter;
-    } else if (format & DT_RIGHT) {
-        alignment &= ~Qt::AlignLeft;
-        alignment |= Qt::AlignRight;
-    }
-
-    if (format & DT_VCENTER) {
-        alignment &= ~Qt::AlignTop;
-        alignment |= Qt::AlignVCenter;
-    } else if (format & DT_BOTTOM) {
-        alignment &= ~Qt::AlignTop;
-        alignment |= Qt::AlignBottom;
-    }
-
-    return alignment;
-}
-
-void DrawBasicInfoTextQt(HDC hdc, const RECT& rect, const char* text, COLORREF color, UINT format)
-{
-    if (!hdc || !text || rect.right <= rect.left || rect.bottom <= rect.top) {
-        return;
-    }
-
-    QString label = QString::fromLocal8Bit(text);
-    if (label.isEmpty()) {
-        return;
-    }
-
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-    const QFont font = BuildBasicInfoFontFromHdc(hdc);
-    if (format & DT_END_ELLIPSIS) {
-        const QFontMetrics metrics(font);
-        label = metrics.elidedText(label, Qt::ElideRight, width);
-    }
-
-    std::vector<unsigned int> pixels(static_cast<size_t>(width) * static_cast<size_t>(height), 0u);
-    QImage image(reinterpret_cast<uchar*>(pixels.data()), width, height, width * static_cast<int>(sizeof(unsigned int)), QImage::Format_ARGB32);
-    if (image.isNull()) {
-        return;
-    }
-
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing, false);
-    painter.setRenderHint(QPainter::TextAntialiasing, false);
-    painter.setFont(font);
-    painter.setPen(QColor(GetRValue(color), GetGValue(color), GetBValue(color)));
-    painter.drawText(QRect(0, 0, width, height), ToQtBasicInfoAlignment(format) | Qt::TextSingleLine, label);
-    AlphaBlendArgbToHdc(hdc, rect.left, rect.top, width, height, pixels.data(), width, height);
-}
-#endif
-
-RECT MakeBasicInfoRect(int x, int y, int left, int top, int width, int height)
-{
-    RECT rect{ x + left, y + top, x + left + width, y + top + height };
-    return rect;
-}
-
-bool IsPointInRect(const RECT& rect, int x, int y)
-{
-    return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
-}
-
-std::string ToLowerAscii(std::string value)
-{
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
-
-std::string NormalizeSlash(std::string value)
-{
-    std::replace(value.begin(), value.end(), '/', '\\');
-    return value;
-}
-
-std::string NormalizeJobDisplayName(const std::string& raw)
-{
-    std::string out;
-    out.reserve(raw.size());
-
-    bool startOfWord = true;
-    bool previousWasSpace = false;
-    for (unsigned char ch : raw) {
-        if (ch == '_') {
-            if (!out.empty() && !previousWasSpace) {
-                out.push_back(' ');
-            }
-            startOfWord = true;
-            previousWasSpace = true;
-            continue;
-        }
-
-        if (std::isspace(ch)) {
-            if (!out.empty() && !previousWasSpace) {
-                out.push_back(' ');
-            }
-            startOfWord = true;
-            previousWasSpace = true;
-            continue;
-        }
-
-        if (std::isalpha(ch)) {
-            out.push_back(static_cast<char>(startOfWord ? std::toupper(ch) : std::tolower(ch)));
-        } else {
-            out.push_back(static_cast<char>(ch));
-        }
-
-        startOfWord = false;
-        previousWasSpace = false;
-    }
-
-    while (!out.empty() && out.back() == ' ') {
-        out.pop_back();
-    }
-    return out;
-}
-
-HFONT GetBasicInfoSmallFont()
-{
-    static HFONT s_font = nullptr;
-    if (s_font) {
-        return s_font;
-    }
-    s_font = CreateFontA(-10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
-    return s_font;
-}
-
-void AddUniqueCandidate(std::vector<std::string>& out, const std::string& raw)
-{
-    if (raw.empty()) {
-        return;
-    }
-
-    const std::string normalized = NormalizeSlash(raw);
-    const std::string lowered = ToLowerAscii(normalized);
-    for (const std::string& existing : out) {
-        if (ToLowerAscii(existing) == lowered) {
-            return;
+    if (!head->attachInfo.empty() && !accessory->attachInfo.empty()) {
+        const CAttachPointInfo& base = head->attachInfo.front();
+        const CAttachPointInfo& attached = accessory->attachInfo.front();
+        if (base.attr == attached.attr) {
+            return POINT{ base.x - attached.x, base.y - attached.y };
         }
     }
-    out.push_back(normalized);
+    return POINT{};
 }
 
-std::vector<std::string> BuildUiAssetCandidates(const char* fileName)
+bool BuildPlayerPortrait(shopui::BitmapPixels* out)
 {
-    std::vector<std::string> out;
-    if (!fileName || !*fileName) {
-        return out;
+    char path[512]{};
+    const int sex = g_session.GetSex();
+    const int job = g_session.m_playerJob;
+    int head = g_session.m_playerHead;
+    const std::string headAct = g_session.GetHeadActName(job, &head, sex, path);
+    const std::string headSpr = g_session.GetHeadSprName(job, &head, sex, path);
+    CActRes* headAction = g_resMgr.GetAs<CActRes>(headAct.c_str());
+    CSprRes* headSprite = g_resMgr.GetAs<CSprRes>(headSpr.c_str());
+    const CMotion* headMotion = headAction ? headAction->GetMotion(0, 0) : nullptr;
+    if (!headSprite || !headMotion) {
+        return false;
     }
 
-    static const char* kUiKor =
-        "texture\\"
-        "\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA"
-        "\\";
-
-    const char* pathPrefixes[] = {
-        "",
-        "skin\\default\\",
-        "skin\\default\\basic_interface\\",
-        "texture\\",
-        "texture\\interface\\",
-        "texture\\interface\\basic_interface\\",
-        "data\\",
-        "data\\texture\\",
-        "data\\texture\\interface\\",
-        "data\\texture\\interface\\basic_interface\\",
-        kUiKor,
-        "texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
-        "data\\texture\\\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\",
-        nullptr
+    std::array<unsigned int, 256> hairPalette{};
+    unsigned int* palette = headSprite->m_pal;
+    if (g_session.m_playerHeadPalette > 0) {
+        g_session.GetHeadPaletteName(head, job, sex, g_session.m_playerHeadPalette, path);
+        if (CPaletteRes* resource = g_resMgr.GetAs<CPaletteRes>(path)) {
+            g_3dDevice.ConvertPalette(hairPalette.data(), resource->m_pal, 256);
+            palette = hairPalette.data();
+        }
+    }
+    std::vector<PortraitLayer> layers{ { headSprite, headMotion, POINT{}, palette } };
+    const std::array<int, 3> normalMasks{ 1, 512, 256 }; // lower, middle, upper
+    const std::array<int, 3> costumeMasks{ 0x1000, 0x0800, 0x0400 };
+    const std::array<int, 3> visibleViews{
+        g_session.m_playerAccessory, g_session.m_playerAccessory3, g_session.m_playerAccessory2
     };
-
-    std::string base = NormalizeSlash(fileName);
-    AddUniqueCandidate(out, base);
-
-    std::string filenameOnly = base;
-    const size_t slashPos = filenameOnly.find_last_of('\\');
-    if (slashPos != std::string::npos && slashPos + 1 < filenameOnly.size()) {
-        filenameOnly = filenameOnly.substr(slashPos + 1);
-    }
-
-    for (int i = 0; pathPrefixes[i]; ++i) {
-        AddUniqueCandidate(out, std::string(pathPrefixes[i]) + filenameOnly);
-    }
-
-    return out;
-}
-
-std::string ResolveUiAssetPath(const char* fileName)
-{
-    for (const std::string& candidate : BuildUiAssetCandidates(fileName)) {
-        if (g_fileMgr.IsDataExist(candidate.c_str())) {
-            return candidate;
+    std::map<std::string, size_t> drawnAccessories;
+    for (size_t slot = 0; slot < normalMasks.size(); ++slot) {
+        std::string act;
+        std::string spr;
+        const ITEM_INFO* item = GetPortraitHeadgear(normalMasks[slot], costumeMasks[slot]);
+        const std::string resource = item ? g_ttemmgr.GetResourceName(item->GetItemId(), true) : std::string();
+        if (!resource.empty()) {
+            // Resolve directly from the equipped item, avoiding ambiguous
+            // reverse lookups from item artwork to a server view ID.
+            act = g_session.GetAccessoryActName(sex, resource, path);
+            spr = g_session.GetAccessorySprName(sex, resource, path);
+        } else {
+            act = g_session.GetAccessoryActName(job, &head, sex, visibleViews[slot], path);
+            spr = g_session.GetAccessorySprName(job, &head, sex, visibleViews[slot], path);
+        }
+        if (act.empty() || spr.empty()) {
+            continue;
+        }
+        const auto drawn = drawnAccessories.find(spr);
+        if (drawn != drawnAccessories.end()) {
+            // Shared artwork still frames the portrait if it occupies an
+            // upper or middle slot as well as the lower slot.
+            if (slot != 0) {
+                layers[drawn->second].affectsFraming = true;
+            }
+            continue;
+        }
+        CActRes* action = g_resMgr.GetAs<CActRes>(act.c_str());
+        CSprRes* sprite = g_resMgr.GetAs<CSprRes>(spr.c_str());
+        const CMotion* motion = action ? action->GetMotion(0, 0) : nullptr;
+        if (sprite && motion) {
+            drawnAccessories.emplace(spr, layers.size());
+            layers.push_back({ sprite, motion, GetPortraitAttachmentOffset(headMotion, motion), sprite->m_pal, slot != 0 });
         }
     }
-    return NormalizeSlash(fileName ? fileName : "");
-}
 
-shopui::BitmapPixels LoadBitmapPixelsFromGameData(const std::string& path)
-{
-    return shopui::LoadBitmapPixelsFromGameData(path, true);
-}
-
-void DrawBitmapPixelsTransparent(HDC target, const shopui::BitmapPixels& bitmap, int x, int y, int width = -1, int height = -1)
-{
-    if (!target || !bitmap.IsValid()) {
-        return;
-    }
-
-    const int drawWidth = width > 0 ? width : bitmap.width;
-    const int drawHeight = height > 0 ? height : bitmap.height;
-    AlphaBlendArgbToHdc(target,
-                        x,
-                        y,
-                        drawWidth,
-                        drawHeight,
-                        bitmap.pixels.data(),
-                        bitmap.width,
-                        bitmap.height);
-}
-
-std::string CopyCharacterName(const CHARACTER_INFO& info)
-{
-    char buffer[25] = {};
-    std::memcpy(buffer, info.name, sizeof(info.name));
-    buffer[sizeof(info.name)] = '\0';
-    return buffer;
-}
-
-std::string FormatNumber(int value)
-{
-    char source[32] = {};
-    std::snprintf(source, sizeof(source), "%d", value);
-
-    std::string out;
-    const bool negative = value < 0;
-    const char* digits = negative ? source + 1 : source;
-    const size_t digitCount = std::strlen(digits);
-    for (size_t index = 0; index < digitCount; ++index) {
-        if (index != 0 && (digitCount - index) % 3 == 0) {
-            out += ',';
+    RECT bounds{};
+    bool hasBounds = false;
+    for (const PortraitLayer& layer : layers) {
+        RECT layerBounds{};
+        if (!ComputeMotionClipBounds(layer.sprite, layer.motion, &layerBounds)) {
+            continue;
         }
-        out += digits[index];
+        OffsetRect(&layerBounds, layer.offset.x, layer.offset.y);
+        if (!hasBounds) {
+            bounds = layerBounds;
+            hasBounds = true;
+        } else {
+            bounds.left = (std::min)(bounds.left, layerBounds.left);
+            bounds.top = (std::min)(bounds.top, layerBounds.top);
+            bounds.right = (std::max)(bounds.right, layerBounds.right);
+            bounds.bottom = (std::max)(bounds.bottom, layerBounds.bottom);
+        }
     }
-    if (negative) {
-        out.insert(out.begin(), '-');
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    if (!hasBounds || width <= 0 || height <= 0 || width > 2048 || height > 2048) {
+        return false;
     }
-    return out;
+    std::vector<unsigned int> composed(static_cast<size_t>(width) * height, 0u);
+    std::vector<unsigned int> framingPixels(composed.size(), 0u);
+    for (const PortraitLayer& layer : layers) {
+        DrawActMotionToArgb(composed.data(), width, height,
+            layer.offset.x - bounds.left, layer.offset.y - bounds.top,
+            layer.sprite, layer.motion, layer.palette);
+        if (layer.affectsFraming) {
+            DrawActMotionToArgb(framingPixels.data(), width, height,
+                layer.offset.x - bounds.left, layer.offset.y - bounds.top,
+                layer.sprite, layer.motion, layer.palette);
+        }
+    }
+
+    // Fit the head and upper/middle gear. Lower gear remains visible without
+    // changing the face's scale or position, including costume lower gear.
+    RECT opaque{ width, height, 0, 0 };
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if ((framingPixels[static_cast<size_t>(y) * width + x] >> 24) != 0) {
+                opaque.left = (std::min)(opaque.left, static_cast<LONG>(x));
+                opaque.top = (std::min)(opaque.top, static_cast<LONG>(y));
+                opaque.right = (std::max)(opaque.right, static_cast<LONG>(x + 1));
+                opaque.bottom = (std::max)(opaque.bottom, static_cast<LONG>(y + 1));
+            }
+        }
+    }
+    const int faceWidth = opaque.right - opaque.left;
+    const int faceHeight = opaque.bottom - opaque.top;
+    if (faceWidth <= 0 || faceHeight <= 0) {
+        return false;
+    }
+    const double scale = (std::min)(1.8, (kPortraitImageSize - 4.0)
+        / std::hypot(static_cast<double>(faceWidth), static_cast<double>(faceHeight)));
+    const double center = kPortraitImageSize / 2.0;
+    out->width = kPortraitImageSize;
+    out->height = kPortraitImageSize;
+    out->pixels.assign(static_cast<size_t>(kPortraitImageSize) * kPortraitImageSize, 0u);
+    for (int y = 0; y < kPortraitImageSize; ++y) {
+        for (int x = 0; x < kPortraitImageSize; ++x) {
+            const double dx = x + 0.5 - center;
+            const double dy = y + 0.5 - center;
+            if (dx * dx + dy * dy > center * center) {
+                continue;
+            }
+            const int srcX = static_cast<int>(std::floor(opaque.left + faceWidth / 2.0 + dx / scale));
+            const int srcY = static_cast<int>(std::floor(opaque.top + faceHeight / 2.0 + dy / scale));
+            if (srcX >= 0 && srcX < width && srcY >= 0 && srcY < height) {
+                out->pixels[static_cast<size_t>(y) * kPortraitImageSize + x] = composed[static_cast<size_t>(srcY) * width + srcX];
+            }
+        }
+    }
+    return true;
 }
 
-int ClampPercent(int value)
+std::string FormatNumber(u32 value)
 {
-    return (std::max)(0, (std::min)(100, value));
+    std::string text = std::to_string(value);
+    for (size_t separator = text.size(); separator > 3; separator -= 3) {
+        text.insert(separator - 3, ",");
+    }
+    return text;
+}
+
+std::string FormatWeight(u32 value)
+{
+    std::string text = FormatNumber(value / 10);
+    if (value % 10 != 0) {
+        text += "." + std::to_string(value % 10);
+    }
+    return text;
+}
+
+HFONT GetBasicInfoFont(int pixelSize)
+{
+#if RO_PLATFORM_WINDOWS
+    static HFONT titleFont = CreateFontA(-16, 0, 0, 0, FW_NORMAL,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
+    static HFONT barFont = CreateFontA(-14, 0, 0, 0, FW_BOLD,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
+    static HFONT footerFont = CreateFontA(-12, 0, 0, 0, FW_NORMAL,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uitheme::kUiFontFamily);
+    const HFONT font = pixelSize == 16 ? titleFont : (pixelSize == 12 ? footerFont : barFont);
+    return font ? font : shopui::GetUiFont();
+#else
+    (void)pixelSize;
+    return shopui::GetUiFont();
+#endif
+}
+
+void DrawBasicInfoText(HDC hdc, RECT rect, const std::string& text, COLORREF color, UINT flags, int pixelSize = 14)
+{
+    const int oldBkMode = SetBkMode(hdc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(hdc, color);
+    HGDIOBJ oldFont = SelectObject(hdc, GetBasicInfoFont(pixelSize));
+    const UINT format = flags | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX;
+#if RO_ENABLE_QT6_UI
+    shopui::DrawWindowTextRectQt(hdc, rect, text, color, format);
+#else
+    DrawTextA(hdc, text.c_str(), -1, &rect, format);
+#endif
+    SelectObject(hdc, oldFont);
+    SetTextColor(hdc, oldTextColor);
+    SetBkMode(hdc, oldBkMode);
+}
+
+void DrawBasicInfoBar(HDC hdc, int x, int y, const char* label, int current, int maximum, COLORREF color)
+{
+    const RECT track{ x, y, x + kBarWidth, y + kBarHeight };
+    uitheme::FillRoundedRect(hdc, track, uitheme::kShadow);
+
+    const int fillLeft = x + kBarLabelWidth + 2;
+    const int availableWidth = kBarWidth - kBarLabelWidth - 4;
+    const int total = (std::max)(1, maximum);
+    const int amount = std::clamp(current, 0, total);
+    const int fillWidth = static_cast<int>(static_cast<long long>(availableWidth) * amount / total);
+    if (fillWidth > 0) {
+        const RECT fill{ fillLeft, y + 2, fillLeft + fillWidth, y + kBarHeight - 2 };
+        uitheme::FillRoundedRect(hdc, fill, color);
+    }
+    uitheme::FrameRoundedRect(hdc, track, uitheme::kFrame);
+
+    const RECT labelRect{ x + 2, y, x + kBarLabelWidth, y + kBarHeight };
+    DrawBasicInfoText(hdc, labelRect, label, uitheme::kUiText, DT_CENTER);
+
+    const std::string value = std::to_string(current) + " / " + std::to_string(maximum);
+    const RECT valueRect{ fillLeft, y, x + kBarWidth - 2, y + kBarHeight };
+    // Keep the numbers readable over both the bright fill and the empty track.
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            RECT outline = valueRect;
+            OffsetRect(&outline, dx, dy);
+            DrawBasicInfoText(hdc, outline, value, uitheme::kShadow, DT_CENTER);
+        }
+    }
+    DrawBasicInfoText(hdc, valueRect, value, RGB(255, 255, 255), DT_CENTER);
 }
 
 } // namespace
 
 UIBasicInfoWnd::UIBasicInfoWnd()
-    : m_controlsCreated(false),
-      m_menuButtons{ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-      m_baseButton(nullptr),
-      m_miniButton(nullptr),
-      m_backgroundFull(),
-      m_backgroundMini(),
-    m_titleBarBitmap(),
-      m_barBackground(),
-      m_redLeft(),
-      m_redMid(),
-      m_redRight(),
-      m_blueLeft(),
-      m_blueMid(),
-      m_blueRight(),
-      m_lastDrawStateToken(0ull),
-      m_hasDrawStateToken(false)
 {
-    Create(kFullWidth, kFullHeight);
-    Move(0, 0);
-    int savedX = m_x;
-    int savedY = m_y;
-    if (LoadUiWindowPlacement("BasicInfoWnd", &savedX, &savedY)) {
+    Create(kWidth, kHeight);
+    int savedX = kScreenMargin;
+    int savedY = kScreenMargin;
+    if (LoadUiWindowPlacement(kPlacementKey, &savedX, &savedY)) {
         g_windowMgr.ClampWindowToClient(&savedX, &savedY, m_w, m_h);
-        Move(savedX, savedY);
     }
-}
-
-UIBasicInfoWnd::~UIBasicInfoWnd()
-{
-    ReleaseAssets();
-}
-
-void UIBasicInfoWnd::SetShow(int show)
-{
-    UIWindow::SetShow(show);
-    if (show != 0) {
-        EnsureCreated();
-        LayoutChildren();
-    }
-}
-
-void UIBasicInfoWnd::Move(int x, int y)
-{
-    UIWindow::Move(x, y);
-    if (m_controlsCreated) {
-        LayoutChildren();
-    }
+    Move(savedX, savedY);
 }
 
 bool UIBasicInfoWnd::IsUpdateNeed()
 {
-    if (m_show == 0) {
-        return false;
-    }
-    if (m_isDirty != 0 || !m_hasDrawStateToken) {
-        return true;
-    }
-    return BuildDisplayStateToken() != m_lastDrawStateToken;
-}
-
-msgresult_t UIBasicInfoWnd::SendMsg(UIWindow* sender, int msg, msgparam_t wparam, msgparam_t lparam, msgparam_t extra)
-{
-    (void)sender;
-    (void)lparam;
-    (void)extra;
-
-    if (msg != 6) {
-        return 0;
-    }
-
-    switch (wparam) {
-    case kButtonIdStatus:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_STATUSWND);
-        return 1;
-    case kButtonIdBase:
-        SetMiniMode(false);
-        return 1;
-    case kButtonIdMini:
-        SetMiniMode(true);
-        return 1;
-    case kButtonIdItems:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_ITEMWND);
-        return 1;
-    case kButtonIdEquip:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_EQUIPWND);
-        return 1;
-    case kButtonIdSkill:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_SKILLLISTWND);
-        return 1;
-    case kButtonIdOption:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_OPTIONWND);
-        return 1;
-    case kButtonIdMap:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_ROMAPWND);
-        return 1;
-    case kButtonIdFriend:
-        g_windowMgr.ToggleWindow(UIWindowMgr::WID_MESSENGERGROUPWND);
-        return 1;
-    default:
-        return 1;
-    }
-}
-
-void UIBasicInfoWnd::OnCreate(int x, int y)
-{
-    (void)x;
-    (void)y;
-    if (m_controlsCreated) {
-        return;
-    }
-
-    m_controlsCreated = true;
-    LoadAssets();
-
-    if (IsQtUiRuntimeEnabled()) {
-        SetMiniMode(false);
-        return;
-    }
-
-    for (size_t index = 0; index < kMenuButtonNames.size(); ++index) {
-        auto* button = new UIBitmapButton();
-        const std::string offName = std::string("btn_") + kMenuButtonNames[index] + "_off.bmp";
-        const std::string onName = std::string("btn_") + kMenuButtonNames[index] + "_on.bmp";
-        const std::string offPath = ResolveUiAssetPath(offName.c_str());
-        const std::string onPath = ResolveUiAssetPath(onName.c_str());
-        button->SetBitmapName(offPath.c_str(), 0);
-        button->SetBitmapName(onPath.c_str(), 1);
-        button->SetBitmapName(onPath.c_str(), 2);
-        button->Create(button->m_bitmapWidth, button->m_bitmapHeight);
-        button->m_id = kMenuButtonIds[index];
-        button->SetToolTip(kMenuButtonTooltips[index]);
-        AddChild(button);
-        m_menuButtons[index] = button;
-    }
-
-    m_baseButton = new UIBitmapButton();
-    m_baseButton->SetBitmapName(ResolveUiAssetPath("sys_base_off.bmp").c_str(), 0);
-    m_baseButton->SetBitmapName(ResolveUiAssetPath("sys_base_on.bmp").c_str(), 1);
-    m_baseButton->SetBitmapName(ResolveUiAssetPath("sys_base_on.bmp").c_str(), 2);
-    m_baseButton->Create(m_baseButton->m_bitmapWidth, m_baseButton->m_bitmapHeight);
-    m_baseButton->m_id = kButtonIdBase;
-    m_baseButton->SetToolTip("Base");
-    AddChild(m_baseButton);
-
-    m_miniButton = new UIBitmapButton();
-    m_miniButton->SetBitmapName(ResolveUiAssetPath("sys_mini_off.bmp").c_str(), 0);
-    m_miniButton->SetBitmapName(ResolveUiAssetPath("sys_mini_on.bmp").c_str(), 1);
-    m_miniButton->SetBitmapName(ResolveUiAssetPath("sys_mini_on.bmp").c_str(), 2);
-    m_miniButton->Create(m_miniButton->m_bitmapWidth, m_miniButton->m_bitmapHeight);
-    m_miniButton->m_id = kButtonIdMini;
-    m_miniButton->SetToolTip("Mini");
-    AddChild(m_miniButton);
-
-    SetMiniMode(false);
+    return m_show != 0 && (m_isDirty != 0 || !m_hasDrawStateToken
+        || BuildDisplayStateToken() != m_lastDrawStateToken);
 }
 
 void UIBasicInfoWnd::OnDraw()
 {
-    if (IsQtUiRuntimeEnabled()) {
-        m_lastDrawStateToken = BuildDisplayStateToken();
-        m_hasDrawStateToken = true;
-        m_isDirty = 0;
-        return;
-    }
-
-    if (!g_hMainWnd || m_show == 0) {
-        return;
-    }
-
-    EnsureCreated();
-
-    HDC hdc = AcquireDrawTarget();
-    if (!hdc) {
-        return;
-    }
-
-    const DisplayData data = BuildDisplayData();
-    if (m_h == kMiniHeight) {
-        DrawCachedBitmap(hdc, m_backgroundMini, m_x, m_y);
-
-        if (m_titleBarBitmap.IsValid()) {
-            DrawBitmapPixelsTransparent(hdc, m_titleBarBitmap, m_x, m_y, m_w, kTitleBarHeight);
+    if (!IsQtUiRuntimeEnabled()) {
+        if (!g_hMainWnd || m_show == 0) {
+            return;
+        }
+        HDC hdc = AcquireDrawTarget();
+        if (!hdc) {
+            return;
         }
 
-        DrawWindowText(hdc, m_x + 18, m_y + 3, data.name.c_str(), RGB(255, 255, 255));
-        DrawWindowText(hdc, m_x + 17, m_y + 2, data.name.c_str(), RGB(0, 0, 0));
+        const int panelX = m_x + kPanelOffsetX;
+        const DisplayData data = BuildDisplayData();
+        const RECT panel{ panelX, m_y, panelX + kPanelWidth, m_y + m_h };
+        uitheme::FillRoundedRect(hdc, panel, uitheme::kPanelBackground);
+        uitheme::FrameRoundedRect(hdc, panel, uitheme::kFrame);
+        const RECT innerFrame{ panelX + 3, m_y + 3, panelX + kPanelWidth - 3, m_y + m_h - 3 };
+        uitheme::FrameRoundedRect(hdc, innerFrame, uitheme::kFrame, (std::max)(0, uitheme::kCornerRadius - 2));
 
-        char topLine[128] = {};
-        std::snprintf(topLine, sizeof(topLine), "Lv. %2d / %s / Exp. %d %%", data.level, data.jobName.c_str(), data.expPercent);
-        DrawWindowText(hdc, m_x + 265, m_y + 3, topLine, RGB(255, 255, 255), DT_RIGHT | DT_TOP | DT_SINGLELINE);
-        DrawWindowText(hdc, m_x + 264, m_y + 2, topLine, RGB(0, 0, 0), DT_RIGHT | DT_TOP | DT_SINGLELINE);
+        const RECT nameRect{ panelX + 18, m_y + 6, panelX + kPanelWidth - 100, m_y + 32 };
+        DrawBasicInfoText(hdc, nameRect, data.name, uitheme::kAccent, DT_LEFT | DT_END_ELLIPSIS, 16);
+        const RECT levelRect{ panelX + kPanelWidth - 90, m_y + 6, panelX + kPanelWidth - 18, m_y + 32 };
+        DrawBasicInfoText(hdc, levelRect, "Lv. " + std::to_string(data.level), uitheme::kAccent, DT_RIGHT);
+        const RECT divider{ panelX + 8, m_y + 35, panelX + kPanelWidth - 8, m_y + 36 };
+        uitheme::FillRoundedRect(hdc, divider, uitheme::kFrame, 0);
 
-        const std::string zenyText = FormatNumber(data.money);
-        char bottomLine[160] = {};
-        std::snprintf(bottomLine,
-            sizeof(bottomLine),
-            "HP %3d / %3d  |  SP %3d / %3d  |  %s Z",
-            data.hp,
-            data.maxHp,
-            data.sp,
-            data.maxSp,
-            zenyText.c_str());
-        DrawWindowText(hdc, m_x + 275, m_y + 18, bottomLine, RGB(0, 0, 0), DT_RIGHT | DT_TOP | DT_SINGLELINE);
-    } else {
-        DrawCachedBitmap(hdc, m_backgroundFull, m_x, m_y);
+        DrawBasicInfoBar(hdc, panelX + kBarX, m_y + 40, "HP", data.hp, data.maxHp, uitheme::kHpBar);
+        DrawBasicInfoBar(hdc, panelX + kBarX, m_y + 66, "SP", data.sp, data.maxSp, uitheme::kSpBar);
+        const RECT footerDivider{ panelX + 8, m_y + 94, panelX + kPanelWidth - 8, m_y + 95 };
+        uitheme::FillRoundedRect(hdc, footerDivider, uitheme::kFrame, 0);
+        const RECT weightLabelRect{ panelX + 18, m_y + 98, panelX + 88, m_y + 114 };
+        const RECT weightValueRect{ panelX + 92, m_y + 98, panelX + kPanelWidth - 18, m_y + 114 };
+        const RECT zenyLabelRect{ panelX + 18, m_y + 117, panelX + 88, m_y + 133 };
+        const RECT zenyValueRect{ panelX + 92, m_y + 117, panelX + kPanelWidth - 18, m_y + 133 };
+        DrawBasicInfoText(hdc, weightLabelRect, "Weight", uitheme::kUiText, DT_LEFT, 12);
+        DrawBasicInfoText(hdc, weightValueRect, data.weightText, uitheme::kUiText, DT_RIGHT | DT_END_ELLIPSIS, 12);
+        DrawBasicInfoText(hdc, zenyLabelRect, "Zeny", uitheme::kUiText, DT_LEFT, 12);
+        DrawBasicInfoText(hdc, zenyValueRect, data.zenyText, uitheme::kUiText, DT_RIGHT | DT_END_ELLIPSIS, 12);
 
-        if (m_titleBarBitmap.IsValid()) {
-            DrawBitmapPixelsTransparent(hdc, m_titleBarBitmap, m_x, m_y, m_w, kTitleBarHeight);
+        const RECT portrait{ m_x, m_y + kPortraitY, m_x + kPortraitDiameter, m_y + kPortraitY + kPortraitDiameter };
+        uitheme::FillRoundedRect(hdc, portrait, uitheme::kPanelBackground, kPortraitDiameter / 2);
+        for (int inset : { 0, 3 }) {
+            const RECT ring{ portrait.left + inset, portrait.top + inset, portrait.right - inset, portrait.bottom - inset };
+            uitheme::FrameRoundedRect(hdc, ring, uitheme::kFrame, kPortraitDiameter / 2 - inset);
         }
-
-        DrawWindowText(hdc, m_x + 18, m_y + 3, "Basic Info", RGB(255, 255, 255));
-        DrawWindowText(hdc, m_x + 17, m_y + 2, "Basic Info", RGB(0, 0, 0));
-        DrawWindowText(hdc, m_x + 9, m_y + 23, data.name.c_str(), RGB(0, 0, 0));
-        DrawWindowText(hdc, m_x + 9, m_y + 36, data.jobName.c_str(), RGB(0, 0, 0));
-
-        const int hpPercent = data.maxHp > 0 ? (data.hp * 100) / data.maxHp : 0;
-        DrawBar(hdc, m_x + 110, m_y + 22, hpPercent, hpPercent < 25);
-        DrawBar(hdc, m_x + 110, m_y + 43, data.maxSp > 0 ? (data.sp * 100) / data.maxSp : 0, false);
-
-        char text[128] = {};
-        std::snprintf(text, sizeof(text), "HP      %3d  /  %3d", data.hp, data.maxHp);
-        DrawWindowText(hdc, m_x + 95, m_y + 30, text, RGB(0, 0, 0), DT_LEFT | DT_TOP | DT_SINGLELINE, GetBasicInfoSmallFont(), 15);
-
-        std::snprintf(text, sizeof(text), "SP      %3d  /  %3d", data.sp, data.maxSp);
-        DrawWindowText(hdc, m_x + 95, m_y + 51, text, RGB(0, 0, 0), DT_LEFT | DT_TOP | DT_SINGLELINE, GetBasicInfoSmallFont(), 15);
-
-        std::snprintf(text, sizeof(text), "Base Lv. %d", data.level);
-        DrawWindowText(hdc, m_x + 17, m_y + 72, text, RGB(0, 0, 0));
-        DrawExpBar(hdc, m_x + 84, m_y + 77, data.expPercent);
-
-        std::snprintf(text, sizeof(text), "Job Lv. %d", data.jobLevel);
-        DrawWindowText(hdc, m_x + 17, m_y + 82, text, RGB(0, 0, 0));
-        DrawExpBar(hdc, m_x + 84, m_y + 87, data.jobExpPercent);
-
-        std::snprintf(text, sizeof(text), "Weight : %3d / %3d", data.weight, data.maxWeight);
-        const COLORREF weightColor = (data.maxWeight > 0 && data.weight * 100 >= data.maxWeight * 50) ? RGB(255, 0, 0) : RGB(0, 0, 0);
-        DrawWindowText(hdc, m_x + 5, m_y + 103, text, weightColor);
-
-        const std::string zenyText = FormatNumber(data.money);
-        std::snprintf(text, sizeof(text), "Zeny : %s", zenyText.c_str());
-        DrawWindowText(hdc, m_x + 107, m_y + 103, text, RGB(0, 0, 0));
+        const shopui::BitmapPixels& bitmap = GetPortraitPixels();
+        if (bitmap.IsValid()) {
+            AlphaBlendArgbToHdc(hdc, m_x + kPortraitInset, m_y + kPortraitY + kPortraitInset,
+                bitmap.width, bitmap.height, bitmap.pixels.data(), bitmap.width, bitmap.height);
+        }
+        ReleaseDrawTarget(hdc);
     }
 
-    DrawChildrenToHdc(hdc);
-    ReleaseDrawTarget(hdc);
     m_lastDrawStateToken = BuildDisplayStateToken();
     m_hasDrawStateToken = true;
     m_isDirty = 0;
@@ -628,88 +389,24 @@ void UIBasicInfoWnd::OnDraw()
 
 void UIBasicInfoWnd::OnLBtnDown(int x, int y)
 {
-    if (IsQtUiRuntimeEnabled()) {
-        const RECT baseRect = MakeBasicInfoRect(m_x, m_y, kBaseButtonX, kTopButtonY, kQtTopButtonWidth, kQtTopButtonHeight);
-        const RECT miniRect = MakeBasicInfoRect(m_x, m_y, kMiniButtonX, kTopButtonY, kQtTopButtonWidth, kQtTopButtonHeight);
-        if (IsPointInRect(baseRect, x, y) || IsPointInRect(miniRect, x, y)) {
-            UIWindow::OnLBtnDown(x, y);
-            return;
-        }
-    }
-
-    UIFrameWnd::OnLBtnDown(x, y);
-}
-
-void UIBasicInfoWnd::OnLBtnUp(int x, int y)
-{
-    if (IsQtUiRuntimeEnabled()) {
-        const bool wasDragging = m_isDragging != 0;
-        UIFrameWnd::OnLBtnUp(x, y);
-        if (wasDragging) {
-            return;
-        }
-
-        if (m_h == kMiniHeight) {
-            const RECT baseRect = MakeBasicInfoRect(m_x, m_y, kBaseButtonX, kTopButtonY, kQtTopButtonWidth, kQtTopButtonHeight);
-            if (IsPointInRect(baseRect, x, y)) {
-                SendMsg(this, 6, kButtonIdBase, 0, 0);
-            }
-            return;
-        }
-
-        const RECT miniRect = MakeBasicInfoRect(m_x, m_y, kMiniButtonX, kTopButtonY, kQtTopButtonWidth, kQtTopButtonHeight);
-        if (IsPointInRect(miniRect, x, y)) {
-            SendMsg(this, 6, kButtonIdMini, 0, 0);
-            return;
-        }
-
-        for (size_t index = 0; index < kMenuButtonIds.size(); ++index) {
-            const RECT buttonRect = MakeBasicInfoRect(
-                m_x,
-                m_y,
-                207 + static_cast<int>(36 * (index % 2)),
-                22 + static_cast<int>(24 * (index / 2)),
-                kQtMenuButtonWidth,
-                kQtMenuButtonHeight);
-            if (IsPointInRect(buttonRect, x, y)) {
-                SendMsg(this, 6, kMenuButtonIds[index], 0, 0);
-                return;
-            }
-        }
+    const int dx = x - (m_x + kPortraitDiameter / 2);
+    const int dy = y - (m_y + kPortraitY + kPortraitDiameter / 2);
+    const bool portraitHit = dx * dx + dy * dy <= (kPortraitDiameter / 2) * (kPortraitDiameter / 2);
+    const bool headerHit = x >= m_x + kPanelOffsetX && x < m_x + m_w
+        && y >= m_y && y < m_y + kHeaderHeight;
+    if (m_show == 0 || (!portraitHit && !headerHit)) {
         return;
     }
-
-    UIFrameWnd::OnLBtnUp(x, y);
-}
-
-void UIBasicInfoWnd::OnLBtnDblClk(int x, int y)
-{
-    if (y >= m_y && y < m_y + kTitleBarHeight) {
-        SetMiniMode(m_h != kMiniHeight);
-        return;
-    }
-    UIFrameWnd::OnLBtnDblClk(x, y);
-}
-
-void UIBasicInfoWnd::OnMouseHover(int x, int y)
-{
-    UIFrameWnd::OnMouseHover(x, y);
+    m_isDragging = 1;
+    m_startGlobalX = x;
+    m_startGlobalY = y;
+    m_orgX = m_x;
+    m_orgY = m_y;
 }
 
 void UIBasicInfoWnd::StoreInfo()
 {
-    SaveUiWindowPlacement("BasicInfoWnd", m_x, m_y);
-}
-
-void UIBasicInfoWnd::NewHeight(int height)
-{
-    Resize(kFullWidth, height == kMiniHeight ? kMiniHeight : kFullHeight);
-    LayoutChildren();
-}
-
-bool UIBasicInfoWnd::IsMiniMode() const
-{
-    return m_h == kMiniHeight;
+    SaveUiWindowPlacement(kPlacementKey, m_x, m_y);
 }
 
 bool UIBasicInfoWnd::GetDisplayDataForQt(DisplayData* outData) const
@@ -717,129 +414,79 @@ bool UIBasicInfoWnd::GetDisplayDataForQt(DisplayData* outData) const
     if (!outData) {
         return false;
     }
-
     *outData = BuildDisplayData();
     return true;
 }
 
-int UIBasicInfoWnd::GetQtSystemButtonCount() const
+unsigned long long UIBasicInfoWnd::GetPortraitRevision() const
 {
-    return 2;
-}
-
-bool UIBasicInfoWnd::GetQtSystemButtonDisplayForQt(int index, QtButtonDisplay* out) const
-{
-    if (!out || index < 0 || index >= GetQtSystemButtonCount()) {
-        return false;
+    unsigned long long hash = 1469598103934665603ull;
+    for (int value : { g_session.GetSex(), g_session.m_playerJob, g_session.m_playerHead,
+        g_session.m_playerHeadPalette, g_session.m_playerAccessory,
+        g_session.m_playerAccessory3, g_session.m_playerAccessory2 }) {
+        shopui::HashTokenValue(&hash, static_cast<unsigned long long>(value));
     }
-
-    switch (index) {
-    case 0:
-        out->id = kButtonIdBase;
-        out->x = m_x + kBaseButtonX;
-        out->y = m_y + kTopButtonY;
-        out->width = kQtTopButtonWidth;
-        out->height = kQtTopButtonHeight;
-        out->label = "B";
-        out->visible = IsMiniMode();
-        return true;
-    case 1:
-        out->id = kButtonIdMini;
-        out->x = m_x + kMiniButtonX;
-        out->y = m_y + kTopButtonY;
-        out->width = kQtTopButtonWidth;
-        out->height = kQtTopButtonHeight;
-        out->label = "_";
-        out->visible = !IsMiniMode();
-        return true;
-    default:
-        return false;
-    }
-}
-
-int UIBasicInfoWnd::GetQtMenuButtonCount() const
-{
-    return static_cast<int>(kMenuButtonIds.size());
-}
-
-bool UIBasicInfoWnd::GetQtMenuButtonDisplayForQt(int index, QtButtonDisplay* out) const
-{
-    if (!out || index < 0 || index >= GetQtMenuButtonCount()) {
-        return false;
-    }
-
-    static const std::array<const char*, 8> kMenuLabels = {
-        "ST", "OP", "IT", "EQ", "SK", "MP", "CM", "FR"
-    };
-
-    out->id = kMenuButtonIds[static_cast<size_t>(index)];
-    out->x = m_x + 207 + 36 * (index % 2);
-    out->y = m_y + 22 + 24 * (index / 2);
-    out->width = kQtMenuButtonWidth;
-    out->height = kQtMenuButtonHeight;
-    out->label = kMenuLabels[static_cast<size_t>(index)];
-    out->visible = !IsMiniMode();
-    return true;
-}
-
-void UIBasicInfoWnd::EnsureCreated()
-{
-    if (!m_controlsCreated) {
-        OnCreate(0, 0);
-    }
-}
-
-void UIBasicInfoWnd::LayoutChildren()
-{
-    if (!m_controlsCreated) {
-        return;
-    }
-
-    for (size_t index = 0; index < m_menuButtons.size(); ++index) {
-        if (!m_menuButtons[index]) {
-            continue;
+    for (const ITEM_INFO& item : g_session.GetInventoryItems()) {
+        if ((item.m_wearLocation & kHeadgearMask) != 0) {
+            shopui::HashTokenValue(&hash, item.GetItemId());
+            shopui::HashTokenValue(&hash, static_cast<unsigned long long>(item.m_wearLocation & kHeadgearMask));
         }
-        m_menuButtons[index]->Move(m_x + 207 + static_cast<int>(36 * (index % 2)), m_y + 22 + static_cast<int>(24 * (index / 2)));
-        m_menuButtons[index]->SetShow(m_h == kFullHeight ? 1 : 0);
     }
-
-    if (m_baseButton) {
-        m_baseButton->Move(m_x + kBaseButtonX, m_y + kTopButtonY);
-        m_baseButton->SetShow(m_h == kMiniHeight ? 1 : 0);
-    }
-    if (m_miniButton) {
-        m_miniButton->Move(m_x + kMiniButtonX, m_y + kTopButtonY);
-        m_miniButton->SetShow(m_h == kFullHeight ? 1 : 0);
-    }
+    return hash;
 }
 
-void UIBasicInfoWnd::SetMiniMode(bool miniMode)
+const shopui::BitmapPixels& UIBasicInfoWnd::GetPortraitPixels() const
 {
-    NewHeight(miniMode ? kMiniHeight : kFullHeight);
+    const unsigned long long revision = GetPortraitRevision();
+    if (!m_hasPortraitPixels || revision != m_lastPortraitRevision) {
+        m_portraitPixels.Clear();
+        m_hasPortraitPixels = BuildPlayerPortrait(&m_portraitPixels);
+        m_lastPortraitRevision = revision;
+    }
+    return m_portraitPixels;
+}
+
+bool UIBasicInfoWnd::BuildQtPortraitImage(QImage* outImage) const
+{
+#if RO_ENABLE_QT6_UI
+    if (!outImage) {
+        return false;
+    }
+    const shopui::BitmapPixels& bitmap = GetPortraitPixels();
+    if (!bitmap.IsValid()) {
+        return false;
+    }
+    const QImage image(reinterpret_cast<const uchar*>(bitmap.pixels.data()),
+        bitmap.width, bitmap.height, bitmap.width * static_cast<int>(sizeof(unsigned int)),
+        QImage::Format_ARGB32_Premultiplied);
+    *outImage = image.copy();
+    return !outImage->isNull();
+#else
+    (void)outImage;
+    return false;
+#endif
 }
 
 UIBasicInfoWnd::DisplayData UIBasicInfoWnd::BuildDisplayData() const
 {
-    DisplayData data{};
+    DisplayData data;
     data.name = g_session.GetPlayerName() ? g_session.GetPlayerName() : "";
-    data.jobName = g_session.GetJobDisplayName(g_session.m_playerJob) ? g_session.GetJobDisplayName(g_session.m_playerJob) : "";
+    data.weightText = FormatWeight(g_session.m_weight) + " / " + FormatWeight(g_session.m_maxWeight);
+    data.zenyText = "0";
 
     if (const CHARACTER_INFO* info = g_session.GetSelectedCharacterInfo()) {
         if (data.name.empty()) {
-            data.name = CopyCharacterName(*info);
+            char name[sizeof(info->name) + 1]{};
+            std::memcpy(name, info->name, sizeof(info->name));
+            data.name = name;
         }
-        data.jobName = g_session.GetJobDisplayName(info->job) ? g_session.GetJobDisplayName(info->job) : data.jobName;
         data.level = info->level;
-        data.jobLevel = info->joblevel;
         data.hp = info->hp;
         data.maxHp = info->maxhp;
         data.sp = info->sp;
         data.maxSp = info->maxsp;
-        data.money = info->money;
-        data.expPercent = ClampPercent(info->exp);
-        data.jobExpPercent = ClampPercent(info->jobexp);
+        data.zenyText = FormatNumber(static_cast<u32>((std::max)(0, info->money)));
     }
-
     if (g_world.m_player) {
         data.hp = static_cast<int>(g_world.m_player->m_Hp);
         data.maxHp = static_cast<int>(g_world.m_player->m_MaxHp);
@@ -848,185 +495,25 @@ UIBasicInfoWnd::DisplayData UIBasicInfoWnd::BuildDisplayData() const
         if (data.level <= 0) {
             data.level = static_cast<int>(g_world.m_player->m_clevel);
         }
-        if (data.jobName.empty()) {
-            data.jobName = g_session.GetJobDisplayName(g_world.m_player->m_job) ? g_session.GetJobDisplayName(g_world.m_player->m_job) : "";
-        }
     }
-
-    int liveBaseExpPercent = 0;
-    if (g_session.TryGetBaseExpPercent(&liveBaseExpPercent)) {
-        data.expPercent = liveBaseExpPercent;
-    }
-
-    int liveJobExpPercent = 0;
-    if (g_session.TryGetJobExpPercent(&liveJobExpPercent)) {
-        data.jobExpPercent = liveJobExpPercent;
-    }
-
     data.level = (std::max)(data.level, 0);
-    data.jobLevel = (std::max)(data.jobLevel, 0);
     data.hp = (std::max)(data.hp, 0);
     data.maxHp = (std::max)(data.maxHp, data.hp);
     data.sp = (std::max)(data.sp, 0);
     data.maxSp = (std::max)(data.maxSp, data.sp);
-    data.jobName = NormalizeJobDisplayName(data.jobName);
-    data.weight = 0;
-    data.maxWeight = 0;
     return data;
 }
 
 unsigned long long UIBasicInfoWnd::BuildDisplayStateToken() const
 {
     const DisplayData data = BuildDisplayData();
-
     unsigned long long hash = 1469598103934665603ull;
-    const auto mixValue = [&hash](unsigned long long value) {
-        hash ^= value;
-        hash *= 1099511628211ull;
-    };
-    const auto mixString = [&mixValue](const std::string& value) {
-        for (unsigned char ch : value) {
-            mixValue(static_cast<unsigned long long>(ch));
-        }
-        mixValue(0xFFull);
-    };
-
-    mixValue(static_cast<unsigned long long>(m_show));
-    mixValue(static_cast<unsigned long long>(m_x));
-    mixValue(static_cast<unsigned long long>(m_y));
-    mixValue(static_cast<unsigned long long>(m_w));
-    mixValue(static_cast<unsigned long long>(m_h));
-    mixString(data.name);
-    mixString(data.jobName);
-    mixValue(static_cast<unsigned long long>(data.level));
-    mixValue(static_cast<unsigned long long>(data.jobLevel));
-    mixValue(static_cast<unsigned long long>(data.hp));
-    mixValue(static_cast<unsigned long long>(data.maxHp));
-    mixValue(static_cast<unsigned long long>(data.sp));
-    mixValue(static_cast<unsigned long long>(data.maxSp));
-    mixValue(static_cast<unsigned long long>(data.money));
-    mixValue(static_cast<unsigned long long>(data.weight));
-    mixValue(static_cast<unsigned long long>(data.maxWeight));
-    mixValue(static_cast<unsigned long long>(data.expPercent));
-    mixValue(static_cast<unsigned long long>(data.jobExpPercent));
+    for (int value : { m_show, m_x, m_y, m_w, m_h, data.level, data.hp, data.maxHp, data.sp, data.maxSp }) {
+        shopui::HashTokenValue(&hash, static_cast<unsigned long long>(value));
+    }
+    shopui::HashTokenString(&hash, data.name);
+    shopui::HashTokenString(&hash, data.weightText);
+    shopui::HashTokenString(&hash, data.zenyText);
+    shopui::HashTokenValue(&hash, GetPortraitRevision());
     return hash;
-}
-
-void UIBasicInfoWnd::DrawCachedBitmap(HDC hdc, const shopui::BitmapPixels& bitmap, int x, int y) const
-{
-    DrawBitmapPixelsTransparent(hdc, bitmap, x, y);
-}
-
-void UIBasicInfoWnd::DrawBar(HDC hdc, int x, int y, int percent, bool redBar) const
-{
-    DrawBitmapPixelsTransparent(hdc, m_barBackground, x, y, kBarWidth, kBarHeight);
-
-    const shopui::BitmapPixels& left = redBar ? m_redLeft : m_blueLeft;
-    const shopui::BitmapPixels& mid = redBar ? m_redMid : m_blueMid;
-    const shopui::BitmapPixels& right = redBar ? m_redRight : m_blueRight;
-    if (!left.IsValid() || !mid.IsValid() || !right.IsValid()) {
-        return;
-    }
-
-    const int fillWidth = kBarWidth * ClampPercent(percent) / 100;
-    if (fillWidth <= 0) {
-        return;
-    }
-
-    if (fillWidth <= left.width) {
-        DrawBitmapPixelsTransparent(hdc, left, x, y, fillWidth, left.height);
-        return;
-    }
-
-    DrawBitmapPixelsTransparent(hdc, left, x, y, left.width, left.height);
-    int remainingWidth = fillWidth - left.width;
-    int cursorX = x + left.width;
-
-    const int rightWidth = remainingWidth > right.width ? right.width : 0;
-    const int midWidth = (std::max)(0, remainingWidth - rightWidth);
-    if (midWidth > 0) {
-        DrawBitmapPixelsTransparent(hdc, mid, cursorX, y, midWidth, mid.height);
-        cursorX += midWidth;
-    }
-    if (rightWidth > 0) {
-        DrawBitmapPixelsTransparent(hdc, right, cursorX, y, rightWidth, right.height);
-    }
-}
-
-void UIBasicInfoWnd::DrawExpBar(HDC hdc, int x, int y, int percent) const
-{
-    RECT outerRect = { x, y, x + kExpBarWidth, y + kExpBarHeight };
-    uitheme::FillRoundedRect(hdc, outerRect, RGB(255, 255, 255));
-    uitheme::FrameRoundedRect(hdc, outerRect, RGB(56, 64, 88));
-
-    const int clampedPercent = ClampPercent(percent);
-    const int innerWidth = (outerRect.right - outerRect.left - 2) * clampedPercent / 100;
-    if (innerWidth <= 0) {
-        return;
-    }
-
-    RECT fillRect = { x + 1, y + 1, x + 1 + innerWidth, y + kExpBarHeight - 1 };
-    uitheme::FillRoundedRect(hdc, fillRect, RGB(129, 146, 199));
-}
-
-void UIBasicInfoWnd::DrawWindowText(HDC hdc, int x, int y, const char* text, COLORREF color, UINT format, HFONT font, int height) const
-{
-    RECT rect = { x, y, m_x + m_w - 4, y + height };
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, color);
-    HGDIOBJ oldFont = SelectObject(hdc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
-#if RO_ENABLE_QT6_UI
-    DrawBasicInfoTextQt(hdc, rect, text ? text : "", color, format);
-#else
-    DrawTextA(hdc, text ? text : "", -1, &rect, format);
-#endif
-    SelectObject(hdc, oldFont);
-}
-
-void UIBasicInfoWnd::LoadAssets()
-{
-    if (!m_backgroundFull.IsValid()) {
-        m_backgroundFull = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("basewin_bg.bmp"));
-    }
-    if (!m_backgroundMini.IsValid()) {
-        m_backgroundMini = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("basewin_mini.bmp"));
-    }
-    if (!m_titleBarBitmap.IsValid()) {
-        m_titleBarBitmap = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("titlebar_fix.bmp"));
-    }
-    if (!m_barBackground.IsValid()) {
-        m_barBackground = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("GZE_BG.BMP"));
-    }
-    if (!m_redLeft.IsValid()) {
-        m_redLeft = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzered_left.bmp"));
-    }
-    if (!m_redMid.IsValid()) {
-        m_redMid = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzered_mid.bmp"));
-    }
-    if (!m_redRight.IsValid()) {
-        m_redRight = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzered_right.bmp"));
-    }
-    if (!m_blueLeft.IsValid()) {
-        m_blueLeft = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzeblue_left.bmp"));
-    }
-    if (!m_blueMid.IsValid()) {
-        m_blueMid = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzeblue_mid.bmp"));
-    }
-    if (!m_blueRight.IsValid()) {
-        m_blueRight = LoadBitmapPixelsFromGameData(ResolveUiAssetPath("gzeblue_right.bmp"));
-    }
-}
-
-void UIBasicInfoWnd::ReleaseAssets()
-{
-    m_backgroundFull.Clear();
-    m_backgroundMini.Clear();
-    m_titleBarBitmap.Clear();
-    m_barBackground.Clear();
-    m_redLeft.Clear();
-    m_redMid.Clear();
-    m_redRight.Clear();
-    m_blueLeft.Clear();
-    m_blueMid.Clear();
-    m_blueRight.Clear();
 }

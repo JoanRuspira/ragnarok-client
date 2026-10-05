@@ -1202,246 +1202,217 @@ Item {
         }
     }
 
-    UiRectangle {
+    Item {
+        id: basicInfoControl
         x: uiState.basicInfoX
         y: uiState.basicInfoY
         width: uiState.basicInfoWidth
         height: uiState.basicInfoHeight
-        color: uiState.basicInfoMini ? "#ece7d8" : "#ede9df"
-        border.width: 1
-        border.color: "#6b675f"
         visible: uiState.basicInfoVisible
 
         UiRectangle {
-            x: 1
-            y: 1
-            width: parent.width - 2
-            height: 16
-            color: "#6e8194"
+            id: basicInfoPanel
+            x: uiState.basicInfoData.panelOffsetX || 61
+            y: 0
+            width: parent.width - x
+            height: parent.height
+            color: root.uiTheme.panelBackground
             border.width: 1
-            border.color: "#4e5d6c"
-        }
+            border.color: root.uiTheme.frame
 
-        UiText {
-            x: uiState.basicInfoMini ? 9 : 17
-            y: 3
-            text: uiState.basicInfoMini ? (uiState.basicInfoData.name || "") : "Basic Info"
-            color: "#ffffff"
-            font.pixelSize: 12
-            font.bold: true
-        }
-
-        Repeater {
-            model: uiState.basicInfoData.systemButtons || []
-
-            delegate: UiRectangle {
-                required property var modelData
-                x: (modelData.x || 0) - uiState.basicInfoX
-                y: (modelData.y || 0) - uiState.basicInfoY
-                width: modelData.width || 0
-                height: modelData.height || 0
-                color: "#d7d2c5"
+            UiRectangle {
+                x: 3
+                y: 3
+                width: parent.width - 6
+                height: parent.height - 6
+                radius: Math.max(0, root.uiTheme.cornerRadius - 2)
+                color: "transparent"
                 border.width: 1
-                border.color: "#7f7a70"
-                visible: modelData.visible || false
+                border.color: root.uiTheme.frame
+            }
 
-                UiText {
-                    anchors.centerIn: parent
-                    text: modelData.label || ""
-                    color: "#000000"
-                    font.pixelSize: 8
-                    font.bold: true
+            UiText {
+                x: 18
+                y: 6
+                width: parent.width - 118
+                height: 26
+                text: uiState.basicInfoData.name || ""
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                color: root.uiTheme.accent
+                font.pixelSize: 16
+            }
+
+            UiText {
+                x: parent.width - 90
+                y: 6
+                width: 72
+                height: 26
+                text: "Lv. " + (uiState.basicInfoData.level || 0)
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                color: root.uiTheme.accent
+                font.pixelSize: 14
+                font.bold: true
+            }
+
+            Rectangle {
+                x: 8
+                y: 35
+                width: parent.width - 16
+                height: 1
+                color: root.uiTheme.frame
+            }
+
+            Repeater {
+                model: [
+                    {
+                        label: "HP",
+                        current: uiState.basicInfoData.hp || 0,
+                        maximum: uiState.basicInfoData.maxHp || 0,
+                        fillColor: root.uiTheme.hpBar
+                    },
+                    {
+                        label: "SP",
+                        current: uiState.basicInfoData.sp || 0,
+                        maximum: uiState.basicInfoData.maxSp || 0,
+                        fillColor: root.uiTheme.spBar
+                    }
+                ]
+
+                delegate: UiRectangle {
+                    id: resourceBar
+                    required property var modelData
+                    required property int index
+                    x: 8
+                    y: 40 + index * 26
+                    width: basicInfoPanel.width - 16
+                    height: 22
+                    color: root.uiTheme.shadow
+                    border.width: 1
+                    border.color: root.uiTheme.frame
+
+                    UiRectangle {
+                        x: 42
+                        y: 2
+                        width: {
+                            const total = Math.max(1, resourceBar.modelData.maximum)
+                            const amount = root.clampValue(resourceBar.modelData.current, 0, total)
+                            return Math.floor((resourceBar.width - 44) * amount / total)
+                        }
+                        height: parent.height - 4
+                        color: resourceBar.modelData.fillColor
+                    }
+
+                    UiText {
+                        x: 2
+                        width: 38
+                        height: parent.height
+                        text: resourceBar.modelData.label
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: root.uiTheme.uiText
+                        font.pixelSize: 14
+                        font.bold: true
+                    }
+
+                    UiText {
+                        x: 42
+                        width: parent.width - 44
+                        height: parent.height
+                        text: resourceBar.modelData.current + " / " + resourceBar.modelData.maximum
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: "#ffffff"
+                        style: Text.Outline
+                        styleColor: root.uiTheme.shadow
+                        font.pixelSize: 14
+                        font.bold: true
+                    }
+                }
+            }
+
+            Rectangle {
+                x: 8
+                y: 94
+                width: parent.width - 16
+                height: 1
+                color: root.uiTheme.frame
+            }
+
+            Repeater {
+                model: [
+                    { label: "Weight", value: uiState.basicInfoData.weightText || "0 / 0" },
+                    { label: "Zeny", value: uiState.basicInfoData.zenyText || "0" }
+                ]
+
+                delegate: Item {
+                    id: footerRow
+                    required property var modelData
+                    required property int index
+                    x: 18
+                    y: 98 + index * 19
+                    width: basicInfoPanel.width - 36
+                    height: 16
+
+                    UiText {
+                        width: 70
+                        height: parent.height
+                        text: footerRow.modelData.label
+                        verticalAlignment: Text.AlignVCenter
+                        color: root.uiTheme.uiText
+                        font.pixelSize: 12
+                    }
+
+                    UiText {
+                        x: 74
+                        width: parent.width - 74
+                        height: parent.height
+                        text: footerRow.modelData.value
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignRight
+                        verticalAlignment: Text.AlignVCenter
+                        color: root.uiTheme.uiText
+                        font.pixelSize: 12
+                    }
                 }
             }
         }
 
-        UiText {
-            x: 17
-            y: 18
-            visible: uiState.basicInfoMini
-            text: uiState.basicInfoData.miniHeaderText || ""
-            color: "#000000"
-            font.pixelSize: 11
-        }
-
-        UiText {
-            x: 17
-            y: 33
-            visible: uiState.basicInfoMini
-            text: uiState.basicInfoData.miniStatusText || ""
-            color: "#000000"
-            font.pixelSize: 11
-        }
-
-        UiText {
-            x: 9
-            y: 24
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.name || ""
-            color: "#000000"
-            font.pixelSize: 12
-        }
-
-        UiText {
-            x: 9
-            y: 38
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.jobName || ""
-            color: "#000000"
-            font.pixelSize: 12
-        }
-
-        UiRectangle {
-            x: 110
-            y: 22
-            width: 85
-            height: 9
-            visible: !uiState.basicInfoMini
-            color: "#403c3c"
+        Rectangle {
+            id: playerPortrait
+            x: 0
+            y: uiState.basicInfoData.portraitY || 0
+            width: uiState.basicInfoData.portraitDiameter || 67
+            height: width
+            radius: width / 2
+            color: root.uiTheme.panelBackground
             border.width: 1
-            border.color: "#202020"
+            border.color: root.uiTheme.frame
 
-            UiRectangle {
-                x: 1
-                y: 1
-                width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.maxHp || 0) > 0 ? (uiState.basicInfoData.hp || 0) / uiState.basicInfoData.maxHp : 0))
-                height: parent.height - 2
-                color: ((uiState.basicInfoData.maxHp || 0) > 0 && (uiState.basicInfoData.hp || 0) * 100 < uiState.basicInfoData.maxHp * 25) ? "#d04848" : "#d06060"
-            }
-        }
-
-        UiRectangle {
-            x: 110
-            y: 43
-            width: 85
-            height: 9
-            visible: !uiState.basicInfoMini
-            color: "#403c3c"
-            border.width: 1
-            border.color: "#202020"
-
-            UiRectangle {
-                x: 1
-                y: 1
-                width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.maxSp || 0) > 0 ? (uiState.basicInfoData.sp || 0) / uiState.basicInfoData.maxSp : 0))
-                height: parent.height - 2
-                color: "#4a78d8"
-            }
-        }
-
-        UiText {
-            x: 95
-            y: 31
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.hpText || ""
-            color: "#000000"
-            font.pixelSize: 10
-        }
-
-        UiText {
-            x: 95
-            y: 52
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.spText || ""
-            color: "#000000"
-            font.pixelSize: 10
-        }
-
-        UiText {
-            x: 17
-            y: 72
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.baseLevelText || ""
-            color: "#000000"
-            font.pixelSize: 11
-        }
-
-        UiRectangle {
-            x: 84
-            y: 77
-            width: 102
-            height: 6
-            visible: !uiState.basicInfoMini
-            color: "#ffffff"
-            border.width: 1
-            border.color: "#808080"
-
-            UiRectangle {
-                x: 1
-                y: 1
-                width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.expPercent || 0) / 100.0))
-                height: parent.height - 2
-                color: "#4fd17f"
-            }
-        }
-
-        UiText {
-            x: 17
-            y: 84
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.jobLevelText || ""
-            color: "#000000"
-            font.pixelSize: 11
-        }
-
-        UiRectangle {
-            x: 84
-            y: 87
-            width: 102
-            height: 6
-            visible: !uiState.basicInfoMini
-            color: "#ffffff"
-            border.width: 1
-            border.color: "#808080"
-
-            UiRectangle {
-                x: 1
-                y: 1
-                width: Math.max(0, (parent.width - 2) * ((uiState.basicInfoData.jobExpPercent || 0) / 100.0))
-                height: parent.height - 2
-                color: "#6aa8ff"
-            }
-        }
-
-        UiText {
-            x: 5
-            y: 103
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.weightText || ""
-            color: ((uiState.basicInfoData.maxWeight || 0) > 0 && (uiState.basicInfoData.weight || 0) * 100 >= uiState.basicInfoData.maxWeight * 50) ? "#ff0000" : "#000000"
-            font.pixelSize: 11
-        }
-
-        UiText {
-            x: 107
-            y: 103
-            visible: !uiState.basicInfoMini
-            text: uiState.basicInfoData.moneyText || ""
-            color: "#000000"
-            font.pixelSize: 11
-        }
-
-        Repeater {
-            model: uiState.basicInfoData.menuButtons || []
-
-            delegate: UiRectangle {
-                required property var modelData
-                x: (modelData.x || 0) - uiState.basicInfoX
-                y: (modelData.y || 0) - uiState.basicInfoY
-                width: modelData.width || 0
-                height: modelData.height || 0
-                color: "#d7d2c5"
+            Rectangle {
+                x: 3
+                y: 3
+                width: parent.width - 6
+                height: parent.height - 6
+                radius: width / 2
+                color: "transparent"
                 border.width: 1
-                border.color: "#7f7a70"
-                visible: modelData.visible || false
+                border.color: root.uiTheme.frame
+            }
 
-                UiText {
-                    anchors.centerIn: parent
-                    text: modelData.label || ""
-                    color: "#000000"
-                    font.pixelSize: 8
-                    font.bold: true
-                }
+            Image {
+                x: 3
+                y: 3
+                width: parent.width - 6
+                height: parent.height - 6
+                source: basicInfoControl.visible
+                    ? "image://openmidgard/playerportrait?rev=" + (uiState.basicInfoData.portraitRevision || "0")
+                    : ""
+                fillMode: Image.PreserveAspectFit
+                smooth: false
+                cache: false
             }
         }
     }
@@ -2097,17 +2068,28 @@ Item {
         y: uiState.minimapY
         width: uiState.minimapWidth
         height: uiState.minimapHeight
-        color: "#d1d8e4"
+        color: root.uiTheme.panelBackground
         border.width: 1
-        border.color: "#394256"
+        border.color: root.uiTheme.frame
         visible: uiState.minimapVisible
 
         UiRectangle {
-            x: 1
-            y: 1
-            width: parent.width - 2
-            height: 16
-            color: "#62729e"
+            x: 3
+            y: 3
+            width: parent.width - 6
+            height: parent.height - 6
+            radius: Math.max(0, root.uiTheme.cornerRadius - 2)
+            color: "transparent"
+            border.width: 1
+            border.color: root.uiTheme.frame
+        }
+
+        Rectangle {
+            x: 5
+            y: 28
+            width: parent.width - 10
+            height: 1
+            color: root.uiTheme.frame
         }
 
         UiRectangle {
@@ -2116,9 +2098,8 @@ Item {
             y: (uiState.minimapData.mapY || 0) - parent.y
             width: uiState.minimapData.mapWidth || 0
             height: uiState.minimapData.mapHeight || 0
-            color: "#12161d"
-            border.width: 1
-            border.color: "#485060"
+            radius: 0
+            color: root.uiTheme.shadow
             clip: true
 
             Image {
@@ -2146,10 +2127,10 @@ Item {
             }
 
             Item {
-                    property real headingDegrees: ((180 - (((uiState.minimapData.playerDirection || 0) % 8) * 45)) + 360) % 360
+                property real headingDegrees: ((180 - (((uiState.minimapData.playerDirection || 0) % 8) * 45)) + 360) % 360
 
-                    width: 19
-                    height: 19
+                width: 19
+                height: 19
                 visible: uiState.minimapData.playerVisible || false
                 x: (uiState.minimapData.playerX || 0) - (uiState.minimapData.mapX || 0) - width / 2
                 y: (uiState.minimapData.playerY || 0) - (uiState.minimapData.mapY || 0) - height / 2
@@ -2177,45 +2158,56 @@ Item {
                     }
                 }
             }
+
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.width: 1
+                border.color: root.uiTheme.frame
+            }
         }
 
         UiText {
-            x: 18
-            y: 2
-            width: Math.max(0, parent.width - 40)
+            x: 5
+            y: 4
+            width: Math.max(0, parent.width - 10)
+            height: 24
             text: uiState.minimapData.title || ""
-            color: "#ffffff"
-            font.pixelSize: 12
-            font.bold: true
+            color: root.uiTheme.uiText
+            font.pixelSize: 14
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
 
-        UiText {
-            x: (uiState.minimapData.coordsX || 0) - parent.x
-            y: (uiState.minimapData.coordsY || 0) - parent.y
-            width: Math.max(0, uiState.minimapData.coordsWidth || 0)
-            horizontalAlignment: Text.AlignRight
-            text: uiState.minimapData.coordsText || ""
-            color: "#101010"
-            font.pixelSize: 11
-            elide: Text.ElideRight
-        }
+        Repeater {
+            model: uiState.minimapData.zoomButtons || []
 
-        UiRectangle {
-            x: (uiState.minimapData.closeX || 0) - parent.x
-            y: (uiState.minimapData.closeY || 0) - parent.y
-            width: Math.max(10, uiState.minimapData.closeWidth || 0)
-            height: Math.max(10, uiState.minimapData.closeHeight || 0)
-            color: uiState.minimapData.closePressed ? "#b8c7da" : "#dde4ef"
-            border.width: 1
-            border.color: "#4d5662"
+            delegate: UiRectangle {
+                required property var modelData
+                readonly property color signColor: modelData.enabled ? root.uiTheme.uiText : root.uiTheme.controlHover
+                x: modelData.x - uiState.minimapX
+                y: modelData.y - uiState.minimapY
+                width: modelData.width
+                height: modelData.height
+                color: modelData.pressed ? root.uiTheme.controlHover : root.uiTheme.controlBackground
+                border.width: 1
+                border.color: root.uiTheme.frame
 
-            UiText {
-                anchors.centerIn: parent
-                text: uiState.minimapData.closeLabel || ""
-                color: "#18202a"
-                font.pixelSize: 10
-                font.bold: true
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 10
+                    height: 2
+                    color: parent.signColor
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 2
+                    height: 10
+                    color: parent.signColor
+                    visible: modelData.direction > 0
+                }
             }
         }
     }

@@ -163,7 +163,6 @@ void ClearGameplayUiState(QtUiState* state)
 
     state->setBasicInfoVisible(false);
     state->setBasicInfoGeometry(0, 0, 0, 0);
-    state->setBasicInfoMini(false);
     state->setBasicInfoData(QVariantMap{});
 
     state->setStatusVisible(false);
@@ -290,39 +289,6 @@ QString FormatBaseStatusText(int baseValue, int plusValue)
         return QStringLiteral("%1+%2").arg(baseValue).arg(plusValue);
     }
     return QString::number(baseValue);
-}
-
-QString FormatBasicGaugeText(const char* label, int current, int maximum)
-{
-    return QStringLiteral("%1      %2  /  %3")
-        .arg(ToQString(label))
-        .arg(current)
-        .arg(maximum);
-}
-
-QString FormatBasicLevelText(const char* label, int value)
-{
-    return QStringLiteral("%1 %2")
-        .arg(ToQString(label))
-        .arg(value);
-}
-
-QString FormatBasicInfoMiniHeaderText(int level, const QString& jobName, int expPercent)
-{
-    return QStringLiteral("Lv. %1 / %2 / Exp. %3 %")
-        .arg(level)
-        .arg(jobName)
-        .arg(expPercent);
-}
-
-QString FormatBasicInfoMiniStatusText(int hp, int maxHp, int sp, int maxSp, int money)
-{
-    return QStringLiteral("HP %1 / %2  |  SP %3 / %4  |  %5 Z")
-        .arg(hp)
-        .arg(maxHp)
-        .arg(sp)
-        .arg(maxSp)
-        .arg(money);
 }
 
 QString FormatCharacterSlotLevelText(int level)
@@ -1641,82 +1607,28 @@ void PopulateBasicInfoState(QtUiState* state)
     state->setBasicInfoVisible(visible);
     if (!visible) {
         state->setBasicInfoGeometry(0, 0, 0, 0);
-        state->setBasicInfoMini(false);
         state->setBasicInfoData(QVariantMap{});
         return;
     }
 
     state->setBasicInfoGeometry(basicInfoWnd->m_x, basicInfoWnd->m_y, basicInfoWnd->m_w, basicInfoWnd->m_h);
-    state->setBasicInfoMini(basicInfoWnd->IsMiniMode());
 
     UIBasicInfoWnd::DisplayData display{};
     QVariantMap data;
     if (basicInfoWnd->GetDisplayDataForQt(&display)) {
-        const QString jobName = ToQString(display.jobName);
         data.insert(QStringLiteral("name"), ToQString(display.name));
-        data.insert(QStringLiteral("jobName"), jobName);
         data.insert(QStringLiteral("level"), display.level);
-        data.insert(QStringLiteral("jobLevel"), display.jobLevel);
         data.insert(QStringLiteral("hp"), display.hp);
         data.insert(QStringLiteral("maxHp"), display.maxHp);
         data.insert(QStringLiteral("sp"), display.sp);
         data.insert(QStringLiteral("maxSp"), display.maxSp);
-        data.insert(QStringLiteral("money"), display.money);
-        data.insert(QStringLiteral("weight"), display.weight);
-        data.insert(QStringLiteral("maxWeight"), display.maxWeight);
-        data.insert(QStringLiteral("expPercent"), display.expPercent);
-        data.insert(QStringLiteral("jobExpPercent"), display.jobExpPercent);
-        data.insert(QStringLiteral("miniHeaderText"), FormatBasicInfoMiniHeaderText(display.level, jobName, display.expPercent));
-        data.insert(QStringLiteral("miniStatusText"),
-            FormatBasicInfoMiniStatusText(display.hp, display.maxHp, display.sp, display.maxSp, display.money));
-        data.insert(QStringLiteral("hpText"), FormatBasicGaugeText("HP", display.hp, display.maxHp));
-        data.insert(QStringLiteral("spText"), FormatBasicGaugeText("SP", display.sp, display.maxSp));
-        data.insert(QStringLiteral("baseLevelText"), FormatBasicLevelText("Base Lv.", display.level));
-        data.insert(QStringLiteral("jobLevelText"), FormatBasicLevelText("Job Lv.", display.jobLevel));
-        data.insert(QStringLiteral("weightText"),
-            QStringLiteral("Weight : %1 / %2").arg(display.weight).arg(display.maxWeight));
-        data.insert(QStringLiteral("moneyText"),
-            QStringLiteral("Zeny : %1").arg(display.money));
-
-        QVariantList systemButtons;
-        systemButtons.reserve(basicInfoWnd->GetQtSystemButtonCount());
-        for (int index = 0; index < basicInfoWnd->GetQtSystemButtonCount(); ++index) {
-            UIBasicInfoWnd::QtButtonDisplay buttonDisplay{};
-            if (!basicInfoWnd->GetQtSystemButtonDisplayForQt(index, &buttonDisplay)) {
-                continue;
-            }
-
-            QVariantMap button;
-            button.insert(QStringLiteral("id"), buttonDisplay.id);
-            button.insert(QStringLiteral("x"), buttonDisplay.x);
-            button.insert(QStringLiteral("y"), buttonDisplay.y);
-            button.insert(QStringLiteral("width"), buttonDisplay.width);
-            button.insert(QStringLiteral("height"), buttonDisplay.height);
-            button.insert(QStringLiteral("label"), ToQString(buttonDisplay.label));
-            button.insert(QStringLiteral("visible"), buttonDisplay.visible);
-            systemButtons.push_back(button);
-        }
-        data.insert(QStringLiteral("systemButtons"), systemButtons);
-
-        QVariantList menuButtons;
-        menuButtons.reserve(basicInfoWnd->GetQtMenuButtonCount());
-        for (int index = 0; index < basicInfoWnd->GetQtMenuButtonCount(); ++index) {
-            UIBasicInfoWnd::QtButtonDisplay buttonDisplay{};
-            if (!basicInfoWnd->GetQtMenuButtonDisplayForQt(index, &buttonDisplay)) {
-                continue;
-            }
-
-            QVariantMap button;
-            button.insert(QStringLiteral("id"), buttonDisplay.id);
-            button.insert(QStringLiteral("x"), buttonDisplay.x);
-            button.insert(QStringLiteral("y"), buttonDisplay.y);
-            button.insert(QStringLiteral("width"), buttonDisplay.width);
-            button.insert(QStringLiteral("height"), buttonDisplay.height);
-            button.insert(QStringLiteral("label"), ToQString(buttonDisplay.label));
-            button.insert(QStringLiteral("visible"), buttonDisplay.visible);
-            menuButtons.push_back(button);
-        }
-        data.insert(QStringLiteral("menuButtons"), menuButtons);
+        data.insert(QStringLiteral("weightText"), ToQString(display.weightText));
+        data.insert(QStringLiteral("zenyText"), ToQString(display.zenyText));
+        data.insert(QStringLiteral("panelOffsetX"), UIBasicInfoWnd::kPanelOffsetX);
+        data.insert(QStringLiteral("portraitDiameter"), UIBasicInfoWnd::kPortraitDiameter);
+        data.insert(QStringLiteral("portraitY"), UIBasicInfoWnd::kPortraitY);
+        data.insert(QStringLiteral("portraitRevision"),
+            QString::number(static_cast<qulonglong>(basicInfoWnd->GetPortraitRevision())));
     }
     state->setBasicInfoData(data);
 }
@@ -3130,9 +3042,7 @@ void PopulateMinimapState(QtUiState* state)
     if (minimapWnd->GetDisplayDataForQt(&display)) {
         const QString mapName = ToQString(display.mapName);
         data.insert(QStringLiteral("title"), mapName.isEmpty()
-            ? QStringLiteral("Mini Map")
-            : QStringLiteral("Mini Map - %1").arg(mapName));
-        data.insert(QStringLiteral("closeLabel"), QStringLiteral("x"));
+            ? QStringLiteral("Map") : mapName);
         data.insert(QStringLiteral("mapX"), display.mapX);
         data.insert(QStringLiteral("mapY"), display.mapY);
         data.insert(QStringLiteral("mapWidth"), display.mapWidth);
@@ -3141,18 +3051,8 @@ void PopulateMinimapState(QtUiState* state)
         data.insert(QStringLiteral("playerX"), display.playerX);
         data.insert(QStringLiteral("playerY"), display.playerY);
         data.insert(QStringLiteral("playerDirection"), display.playerDirection);
-        data.insert(QStringLiteral("closeX"), display.closeX);
-        data.insert(QStringLiteral("closeY"), display.closeY);
-        data.insert(QStringLiteral("closeWidth"), display.closeWidth);
-        data.insert(QStringLiteral("closeHeight"), display.closeHeight);
-        data.insert(QStringLiteral("closePressed"), display.closePressed);
-        data.insert(QStringLiteral("coordsX"), display.coordsX);
-        data.insert(QStringLiteral("coordsY"), display.coordsY);
-        data.insert(QStringLiteral("coordsWidth"), display.coordsWidth);
-        data.insert(QStringLiteral("coordsHeight"), display.coordsHeight);
         data.insert(QStringLiteral("imageRevision"), display.imageRevision);
         data.insert(QStringLiteral("mapName"), mapName);
-        data.insert(QStringLiteral("coordsText"), ToQString(display.coordsText));
 
         QVariantList markers;
         markers.reserve(static_cast<qsizetype>(display.markers.size()));
@@ -3165,6 +3065,20 @@ void PopulateMinimapState(QtUiState* state)
             markers.push_back(entry);
         }
         data.insert(QStringLiteral("markers"), markers);
+
+        QVariantList zoomButtons;
+        for (const UIRoMapWnd::DisplayZoomButton& button : display.zoomButtons) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("x"), button.x);
+            entry.insert(QStringLiteral("y"), button.y);
+            entry.insert(QStringLiteral("width"), button.width);
+            entry.insert(QStringLiteral("height"), button.height);
+            entry.insert(QStringLiteral("direction"), button.direction);
+            entry.insert(QStringLiteral("enabled"), button.enabled);
+            entry.insert(QStringLiteral("pressed"), button.pressed);
+            zoomButtons.push_back(entry);
+        }
+        data.insert(QStringLiteral("zoomButtons"), zoomButtons);
     }
     state->setMinimapData(data);
 }

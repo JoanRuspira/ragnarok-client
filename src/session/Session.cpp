@@ -1478,6 +1478,8 @@ void CSession::SetSelectedCharacterAppearance(const CHARACTER_INFO& info)
     m_playerAccessory = info.accessory;
     m_playerAccessory2 = info.accessory2;
     m_playerAccessory3 = info.accessory3;
+    m_weight = 0;
+    m_maxWeight = 0;
     m_plusStr = 0;
     m_plusAgi = 0;
     m_plusVit = 0;
@@ -2686,10 +2688,7 @@ char* CSession::GetAccessoryActName(int job, int* head, int sex, int accessory, 
         return buf;
     }
 
-    const char* sexToken = GetSexToken(sex);
-    const char* separator = resourceName.front() == '_' ? "" : "_";
-    std::sprintf(buf, "%s%s\\%s%s%s.act", kAccessorySpriteRoot, sexToken, sexToken, separator, resourceName.c_str());
-    return buf;
+    return GetAccessoryActName(sex, resourceName, buf);
 }
 
 char* CSession::GetAccessorySprName(int job, int* head, int sex, int accessory, char* buf)
@@ -2717,6 +2716,33 @@ char* CSession::GetAccessorySprName(int job, int* head, int sex, int accessory, 
         return buf;
     }
 
+    return GetAccessorySprName(sex, resourceName, buf);
+}
+
+char* CSession::GetAccessoryActName(int sex, const std::string& resourceName, char* buf)
+{
+    if (!buf) {
+        return nullptr;
+    }
+    if (resourceName.empty()) {
+        *buf = 0;
+        return buf;
+    }
+    const char* sexToken = GetSexToken(sex);
+    const char* separator = resourceName.front() == '_' ? "" : "_";
+    std::sprintf(buf, "%s%s\\%s%s%s.act", kAccessorySpriteRoot, sexToken, sexToken, separator, resourceName.c_str());
+    return buf;
+}
+
+char* CSession::GetAccessorySprName(int sex, const std::string& resourceName, char* buf)
+{
+    if (!buf) {
+        return nullptr;
+    }
+    if (resourceName.empty()) {
+        *buf = 0;
+        return buf;
+    }
     const char* sexToken = GetSexToken(sex);
     const char* separator = resourceName.front() == '_' ? "" : "_";
     std::sprintf(buf, "%s%s\\%s%s%s.spr", kAccessorySpriteRoot, sexToken, sexToken, separator, resourceName.c_str());

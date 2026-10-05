@@ -1988,7 +1988,7 @@ bool QueuePlayerVitalsOverlayQuad(CGameMode& mode)
                 width,
                 height,
                 hpFillRect,
-                lowHp ? RGB(220, 32, 32) : RGB(48, 192, 48));
+                lowHp ? RGB(220, 32, 32) : uitheme::kHpBar);
         }
     }
 
@@ -1997,7 +1997,7 @@ bool QueuePlayerVitalsOverlayQuad(CGameMode& mode)
         const int spFillWidth = kPlayerVitalsBarWidth * sp / maxSp;
         if (spFillWidth > 0) {
             RECT spFillRect{ spRect.left, spRect.top, spRect.left + spFillWidth, spRect.bottom };
-            FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, spFillRect, RGB(48, 96, 220));
+            FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, spFillRect, uitheme::kSpBar);
         }
     }
 
@@ -3954,7 +3954,7 @@ void DrawPlayerVitalsOverlay(CGameMode& mode, HDC hdc)
         if (hpFillWidth > 0) {
             RECT hpFillRect{ hpRect.left, hpRect.top, hpRect.left + hpFillWidth, hpRect.bottom };
             const bool lowHp = hp * 4 < maxHp;
-            FillSolidRect(hdc, hpFillRect, lowHp ? RGB(220, 32, 32) : RGB(48, 192, 48));
+            FillSolidRect(hdc, hpFillRect, lowHp ? RGB(220, 32, 32) : uitheme::kHpBar);
         }
     }
 
@@ -3963,7 +3963,7 @@ void DrawPlayerVitalsOverlay(CGameMode& mode, HDC hdc)
         const int spFillWidth = kPlayerVitalsBarWidth * sp / maxSp;
         if (spFillWidth > 0) {
             RECT spFillRect{ spRect.left, spRect.top, spRect.left + spFillWidth, spRect.bottom };
-            FillSolidRect(hdc, spFillRect, RGB(48, 96, 220));
+            FillSolidRect(hdc, spFillRect, uitheme::kSpBar);
         }
     }
 

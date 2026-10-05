@@ -152,6 +152,8 @@ constexpr u32 kStatusSkillPoint = 12;
 constexpr u32 kStatusZeny = 20;
 constexpr u32 kStatusNextBaseExp = 22;
 constexpr u32 kStatusNextJobExp = 23;
+constexpr u32 kStatusWeight = 24;
+constexpr u32 kStatusMaxWeight = 25;
 constexpr u32 kStatusCartInfo = 99;
 constexpr u32 kStatusStr = 13;
 constexpr u32 kStatusAgi = 14;
@@ -1518,6 +1520,12 @@ bool ApplySelfStatusUpdateToSession(u32 statusType, u32 value)
         return true;
     case kStatusNextJobExp:
         g_session.SetNextJobExpValue(static_cast<int>(value));
+        return true;
+    case kStatusWeight:
+        g_session.m_weight = value;
+        return true;
+    case kStatusMaxWeight:
+        g_session.m_maxWeight = value;
         return true;
     default:
         break;

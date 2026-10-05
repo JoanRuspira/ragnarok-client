@@ -476,7 +476,7 @@ void UIShortCutWnd::OnDraw()
         const int fontSize = GetSlotLabelFontSize();
         const RECT labelRect{ slotRect.left + 2, slotRect.bottom - labelHeight - 2,
             slotRect.right - 2, slotRect.bottom - 2 };
-        DrawOutlinedText(hdc, labelRect, GetSlotKeyLabel(slotIndex), uitheme::kUiText, fontSize);
+        DrawOutlinedText(hdc, labelRect, GetSlotKeyLabel(slotIndex), RGB(255, 255, 255), fontSize);
         const RECT quantityRect{ slotRect.left + 3, slotRect.top + 3,
             slotRect.right - 4, slotRect.top + 3 + labelHeight };
         DrawOutlinedText(hdc, quantityRect, GetSlotQuantityText(slotIndex), RGB(255, 255, 255), fontSize, true);

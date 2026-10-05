@@ -50,6 +50,14 @@ struct SkillPresentation {
     std::vector<int> groundEffects;
 };
 
+// Audio can be configured without taking ownership of a skill's existing visuals.
+struct SkillSoundPresentation {
+    enum class Trigger { NoDamage, Damage, Ground };
+    std::string wavPath;
+    Trigger trigger = Trigger::NoDamage;
+};
+
 // Returned definitions remain valid for the lifetime of the process.
 const SkillPresentation* FindSkillPresentation(int skillId);
 const SkillEffectPresentation* FindSkillEffectPresentation(int effectId);
+const SkillSoundPresentation* FindSkillSoundPresentation(int skillId);

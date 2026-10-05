@@ -57,6 +57,7 @@ constexpr StatusIconCatalogEntry kStatusIconCatalog[] = {
     {59, 252, "Reflect Shield", kStatusIconReflectShield},
     {68, 258, "Spear Quicken", kStatusIconSpearQuicken},
     {110, 361, "Assumptio", nullptr},
+    {1353, 819, "Spirit Growth", "spiritgrowth.tga"},
 };
 
 inline const StatusIconCatalogEntry* FindStatusIconCatalogEntry(int statusType)

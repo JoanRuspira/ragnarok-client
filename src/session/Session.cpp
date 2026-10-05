@@ -1671,7 +1671,8 @@ void CSession::ClearActiveStatusIcons()
 
 void CSession::SetActiveStatusIcon(int statusType, bool active, u32 remainingMs)
 {
-    if (statusType <= 0) {
+    // EFST_PROVOKE is a valid status with ID zero.
+    if (statusType < 0) {
         return;
     }
 

@@ -60,7 +60,7 @@ void DrawExperienceLabel(HDC hdc, const RECT& rect, const std::string& text)
             DrawExperienceTextPass(hdc, outlineRect, text, RGB(0, 0, 0));
         }
     }
-    DrawExperienceTextPass(hdc, rect, text, uitheme::kUiText);
+    DrawExperienceTextPass(hdc, rect, text, RGB(255, 255, 255));
     SetTextColor(hdc, oldTextColor);
     SetBkMode(hdc, oldBkMode);
     SelectObject(hdc, oldFont);

@@ -33,6 +33,8 @@ constexpr float kPi = 3.14159265f;
 constexpr float kEffectTickMs = 24.0f;
 constexpr float kEffectPixelRatioScale = 0.14285715f;
 constexpr float kEffectSpriteDepthBias = 0.0002f;
+constexpr u32 kRecoverySparkleDurationMs = 500;
+constexpr u32 kRecoverySparkleStaggerMs = 10;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
 constexpr float kMapPillarDurationFrames = 960.0f;
 constexpr float kWaterfallSegmentHeight = 40.0f;
@@ -4127,12 +4129,11 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_duration = effectId == 582 ? 124 : 112;
         break;
     case 331:
-        m_handler = Handler::RecoveryHp;
-        m_duration = 30;
-        break;
     case 332:
-        m_handler = Handler::RecoverySp;
-        m_duration = 30;
+        m_handler = effectId == 331 ? Handler::RecoveryHp : Handler::RecoverySp;
+        m_duration = static_cast<int>(std::ceil(
+            (kRecoverySparkleDurationMs + (m_recoverySparkles.size() - 1) * kRecoverySparkleStaggerMs)
+            / kEffectTickMs));
         break;
     case 12:
         m_handler = Handler::BeginCasting;
@@ -5376,186 +5377,59 @@ void CRagEffect::UpdateSuperAngel()
     }
 }
 
-void CRagEffect::SpawnRecoveryHp()
+void CRagEffect::StartRecoverySparkles()
 {
+    // EF_HPTIME / EF_SPTIME use pok1 sparkles, not Heal/Recovery rings.
+    m_presentationTexture = TryResolveEffectTextureCandidates({ "data\\texture\\effect\\pok1.tga" });
+    if (!m_presentationTexture) {
+        DbgLog("[RagEffect] recovery sparkle texture missing effect=%d\n", m_type);
+    }
+    const auto randomRange = [](float minimum, float maximum) {
+        return minimum + (maximum - minimum) * (static_cast<float>(rand()) / RAND_MAX);
+    };
+    for (RecoverySparkle& sparkle : m_recoverySparkles) {
+        // Reference cell coordinates convert to native world units by five.
+        sparkle.startOffset = { randomRange(-3.0f, 3.0f), -randomRange(2.5f, 17.5f), randomRange(-3.0f, 3.0f) };
+        sparkle.endHeight = -randomRange(20.0f, 30.0f);
+        // SubmitBillboard applies the reference sprite-to-world scale (1/7).
+        sparkle.size = randomRange(10.0f, 50.0f);
+        sparkle.sparkFrequency = randomRange(3.0f, 6.0f);
+    }
     const vector3d base = ResolveBasePosition();
-    CTexture* alphaDown = ResolveEffectTextureCandidates({
-        "effect\\alpha_down.tga",
-        "effect\\alpha_down.bmp",
-        "effect\\alpha_dow.bmp",
-    }, false);
-    CTexture* ringWhite = ResolveEffectTextureCandidates({
-        "effect\\ring_white.tga",
-        "effect\\ring_white.bmp",
-        "effect\\ring_blue.tga",
-    }, false);
-    CTexture* sparkTexture = ResolveEffectTextureCandidates({
-        "effect\\alpha_center.tga",
-        "effect\\torch_green11.bmp",
-        "effect\\torch_green10.bmp",
-        "effect\\ring_white.tga",
-    }, false);
-
-    if (m_stateCnt == 0) {
-        TryPlayEffectWaveAt(base, {
-            "effect\\priest_recovery.wav",
-        });
-
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DCIRCLE, vector3d{})) {
-            prim->m_duration = m_duration;
-            prim->m_deltaPos2.y = -1.0f;
-            prim->m_innerSize = 9.0f;
-            prim->m_latitude = 90.0f;
-            prim->m_numSegments = 3;
-            prim->m_pattern |= 1;
-            prim->m_radius = 0.0f;
-            prim->m_radiusSpeed = 1.1f;
-            prim->m_radiusAccel = prim->m_radiusSpeed / static_cast<float>(prim->m_duration) * -0.45f;
-            prim->m_alpha = 170.0f;
-            prim->m_maxAlpha = 170.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 12;
-            prim->m_texture.push_back(alphaDown);
-            prim->m_tintColor = RGB(120, 255, 150);
-        }
-
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DCYLINDER, vector3d{})) {
-            prim->m_renderFlag = 5u;
-            prim->m_duration = m_duration;
-            prim->m_deltaPos2.y = -4.0f;
-            prim->m_arcAngle = 36.0f;
-            prim->m_innerSize = 1.8f;
-            prim->m_outerSize = 4.4f;
-            prim->m_innerSpeed = 0.03f;
-            prim->m_outerSpeed = 0.09f;
-            prim->m_heightSize = 28.0f;
-            prim->m_alpha = 0.0f;
-            prim->m_maxAlpha = 120.0f;
-            prim->m_alphaSpeed = 18.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 10;
-            prim->m_texture.push_back(ringWhite);
-            prim->m_tintColor = RGB(228, 255, 228);
-        }
+    if (m_handler == Handler::RecoveryHp) {
+        TryPlayEffectWaveAt(base, { "data\\wav\\_heal_effect.wav" });
+    } else {
+        // SP recovery: CP949 filename bytes for the reference's absorption sound.
+        TryPlayEffectWaveAt(base, { "data\\wav\\effect\\\310\355\261\342.wav" });
     }
-
-    if ((m_stateCnt % 2) != 0 || m_stateCnt > 14) {
-        return;
-    }
-
-    for (int index = 0; index < 3; ++index) {
-        const float angleDegrees = static_cast<float>(rand() % 360);
-        const float angleRadians = angleDegrees * (kPi / 180.0f);
-        const float radius = static_cast<float>(rand() % 6 + 2);
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DPARTICLE, vector3d{})) {
-            prim->m_renderFlag = 5u;
-            prim->m_duration = 18 + rand() % 6;
-            prim->m_deltaPos2 = {
-                std::sin(angleRadians) * radius,
-                -16.0f + static_cast<float>(rand() % 6),
-                -std::cos(angleRadians) * radius
-            };
-            prim->m_latitude = -90.0f;
-            prim->m_longitude = angleDegrees;
-            prim->m_speed = 0.26f + static_cast<float>(rand() % 8) * 0.02f;
-            prim->m_accel = -prim->m_speed / static_cast<float>(prim->m_duration) * 0.3f;
-            prim->m_size = 1.2f + static_cast<float>(rand() % 5) * 0.15f;
-            prim->m_sizeSpeed = -0.02f;
-            prim->m_alpha = 220.0f;
-            prim->m_maxAlpha = 220.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 8;
-            prim->m_texture.push_back(sparkTexture);
-            prim->m_tintColor = RGB(220, 255, 220);
-        }
-    }
+    m_presentationStartTick = timeGetTime();
+    m_presentationStarted = true;
 }
 
-void CRagEffect::SpawnRecoverySp()
+void CRagEffect::RenderRecoverySparkles(const matrix& viewMatrix)
 {
+    if (!m_presentationStarted || !m_presentationTexture) return;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
     const vector3d base = ResolveBasePosition();
-    CTexture* alphaDown = ResolveEffectTextureCandidates({
-        "effect\\alpha_down.tga",
-        "effect\\alpha_down.bmp",
-        "effect\\alpha_dow.bmp",
-    }, false);
-    CTexture* ringBlue = ResolveEffectTextureCandidates({
-        "effect\\ring_blue.tga",
-        "effect\\ring_blue.bmp",
-        "effect\\ring_b.bmp",
-    }, false);
-    CTexture* sparkTexture = ResolveEffectTextureCandidates({
-        "effect\\alpha_center.tga",
-        "effect\\magic_blue.tga",
-        "effect\\ring_blue.tga",
-    }, false);
-
-    if (m_stateCnt == 0) {
-        TryPlayEffectWaveAt(base, {
-            "effect\\priest_recovery.wav",
-        });
-
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DCIRCLE, vector3d{})) {
-            prim->m_duration = m_duration;
-            prim->m_deltaPos2.y = -1.0f;
-            prim->m_innerSize = 9.0f;
-            prim->m_latitude = 90.0f;
-            prim->m_numSegments = 3;
-            prim->m_pattern |= 1;
-            prim->m_radius = 0.0f;
-            prim->m_radiusSpeed = 1.0f;
-            prim->m_radiusAccel = prim->m_radiusSpeed / static_cast<float>(prim->m_duration) * -0.4f;
-            prim->m_alpha = 150.0f;
-            prim->m_maxAlpha = 150.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 12;
-            prim->m_texture.push_back(alphaDown);
-            prim->m_tintColor = RGB(96, 180, 255);
+    const COLORREF tint = m_handler == Handler::RecoveryHp ? RGB(230, 255, 230) : RGB(230, 230, 255);
+    for (size_t index = 0; index < m_recoverySparkles.size(); ++index) {
+        const u32 startMs = static_cast<u32>(index) * kRecoverySparkleStaggerMs;
+        if (elapsedMs < startMs || elapsedMs - startMs >= kRecoverySparkleDurationMs) continue;
+        const RecoverySparkle& sparkle = m_recoverySparkles[index];
+        const float progress = static_cast<float>(elapsedMs - startMs) / kRecoverySparkleDurationMs;
+        float fade;
+        if (progress < 0.25f) {
+            fade = progress * 4.0f;
+        } else if (progress > 0.75f) {
+            fade = (1.0f - progress) * 4.0f;
+        } else {
+            fade = (std::cos(progress * 100.0f * 11.0f * sparkle.sparkFrequency * (kPi / 180.0f)) + 1.0f) * 0.5f;
         }
-
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DCYLINDER, vector3d{})) {
-            prim->m_renderFlag = 5u;
-            prim->m_duration = m_duration;
-            prim->m_deltaPos2.y = -4.0f;
-            prim->m_arcAngle = 36.0f;
-            prim->m_innerSize = 2.0f;
-            prim->m_outerSize = 4.8f;
-            prim->m_innerSpeed = 0.04f;
-            prim->m_outerSpeed = 0.1f;
-            prim->m_heightSize = 30.0f;
-            prim->m_alpha = 0.0f;
-            prim->m_maxAlpha = 112.0f;
-            prim->m_alphaSpeed = 16.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 10;
-            prim->m_texture.push_back(ringBlue);
-            prim->m_tintColor = RGB(156, 220, 255);
-        }
-    }
-
-    if ((m_stateCnt % 2) != 0 || m_stateCnt > 14) {
-        return;
-    }
-
-    for (int index = 0; index < 4; ++index) {
-        const float angleDegrees = static_cast<float>(rand() % 360);
-        const float angleRadians = angleDegrees * (kPi / 180.0f);
-        const float radius = static_cast<float>(rand() % 7 + 2);
-        if (CEffectPrim* prim = LaunchEffectPrim(PP_3DPARTICLE, vector3d{})) {
-            prim->m_renderFlag = 5u;
-            prim->m_duration = 20 + rand() % 6;
-            prim->m_deltaPos2 = {
-                std::sin(angleRadians) * radius,
-                -18.0f + static_cast<float>(rand() % 8),
-                -std::cos(angleRadians) * radius
-            };
-            prim->m_latitude = -90.0f;
-            prim->m_longitude = angleDegrees;
-            prim->m_speed = 0.24f + static_cast<float>(rand() % 8) * 0.02f;
-            prim->m_accel = -prim->m_speed / static_cast<float>(prim->m_duration) * 0.25f;
-            prim->m_size = 1.1f + static_cast<float>(rand() % 5) * 0.12f;
-            prim->m_sizeSpeed = -0.015f;
-            prim->m_alpha = 210.0f;
-            prim->m_maxAlpha = 210.0f;
-            prim->m_fadeOutCnt = prim->m_duration - 8;
-            prim->m_texture.push_back(sparkTexture);
-            prim->m_tintColor = RGB(180, 228, 255);
-        }
+        const unsigned int alpha = static_cast<unsigned int>(255.0f * 0.8f * fade);
+        vector3d center = AddVec3(base, sparkle.startOffset);
+        center.y = base.y + sparkle.startOffset.y + (sparkle.endHeight - sparkle.startOffset.y) * progress;
+        SubmitBillboard(center, viewMatrix, m_presentationTexture, sparkle.size, sparkle.size,
+            PackColor(alpha, tint), D3DBLEND_ONE, 0.0f, 1 | 2);
     }
 }
 
@@ -6659,6 +6533,14 @@ u8 CRagEffect::OnProcess()
         m_longitude = master->m_roty;
     }
 
+    if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
+        if (!m_presentationStarted) StartRecoverySparkles();
+        const u32 recoveryElapsedMs = timeGetTime() - m_presentationStartTick;
+        const u32 durationMs = kRecoverySparkleDurationMs
+            + static_cast<u32>(m_recoverySparkles.size() - 1) * kRecoverySparkleStaggerMs;
+        m_stateCnt = static_cast<int>(recoveryElapsedMs / kEffectTickMs);
+        return recoveryElapsedMs < durationMs ? 1 : 0;
+    }
     const u32 now = timeGetTime();
     if (m_handler == Handler::BodyBurst) {
         const auto& burst = m_proceduralPresentation->bodyBurst;
@@ -6760,12 +6642,6 @@ u8 CRagEffect::OnProcess()
                 break;
             case Handler::SuperAngel:
                 UpdateSuperAngel();
-                break;
-            case Handler::RecoveryHp:
-                SpawnRecoveryHp();
-                break;
-            case Handler::RecoverySp:
-                SpawnRecoverySp();
                 break;
             case Handler::BeginCasting:
                 SpawnBeginCasting();
@@ -6939,7 +6815,10 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         m_duration = static_cast<int>(par1);
         return;
     case 109:
-        if (m_handler == Handler::BodyBurst) m_cancelled = true;
+        if (m_handler == Handler::BodyBurst
+            || m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
+            m_cancelled = true;
+        }
         ClearPrims();
         m_loop = false;
         m_duration = 0;
@@ -7010,6 +6889,9 @@ void CRagEffect::Render(matrix* viewMatrix)
         return;
     }
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
+    if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
+        RenderRecoverySparkles(*viewMatrix);
+    }
 
     if ((m_type == kRagEffectPortal || m_type == kRagEffectReadyPortal || m_type == kRagEffectWarpZone)
         && m_stateCnt <= 3) {

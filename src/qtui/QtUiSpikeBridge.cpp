@@ -13,6 +13,7 @@
 #include "session/Session.h"
 #include "skill/Skill.h"
 #include "ui/UiScale.h"
+#include "ui/StatusIconInfo.h"
 #include "ui/UIEquipWnd.h"
 #include "ui/UILoginWnd.h"
 #include "ui/UIMakeCharWnd.h"
@@ -567,57 +568,14 @@ bool TryBuildGameImageWithBitmapRes(const std::string& path, bool applyTranspare
     return true;
 }
 
-void AddUniqueStatusPathCandidate(std::vector<std::string>* out, const std::string& raw)
-{
-    if (!out || raw.empty()) {
-        return;
-    }
-
-    const std::string normalized = shopui::NormalizeSlash(raw);
-    const std::string lowered = shopui::ToLowerAscii(normalized);
-    for (const std::string& existing : *out) {
-        if (shopui::ToLowerAscii(existing) == lowered) {
-            return;
-        }
-    }
-    out->push_back(normalized);
-}
-
 std::string ResolveQtStatusIconPath(int statusType)
 {
-    const qtui::StatusIconCatalogEntry* const entry = qtui::FindStatusIconCatalogEntry(statusType);
-    if (!entry || !entry->legacyIconFileName || !entry->legacyIconFileName[0]) {
-        LOG_QTUI_STATUS_ICON("[QtUiStatusIcon] no legacy filename mapped for statusType=%d label='%s'\n",
-            statusType,
-            GetStatusIconDebugLabel(statusType));
-        return std::string();
-    }
-
-    const std::string fileName(entry->legacyIconFileName);
-    std::vector<std::string> candidates;
-    AddUniqueStatusPathCandidate(&candidates, fileName);
-    AddUniqueStatusPathCandidate(&candidates, std::string("effect\\") + fileName);
-    AddUniqueStatusPathCandidate(&candidates, std::string("texture\\effect\\") + fileName);
-    AddUniqueStatusPathCandidate(&candidates, std::string("data\\texture\\effect\\") + fileName);
-    AddUniqueStatusPathCandidate(&candidates, std::string("data\\effect\\") + fileName);
-
-    for (const std::string& candidate : candidates) {
-        if (g_fileMgr.IsDataExist(candidate.c_str())) {
-            return candidate;
-        }
-    }
-
-    LOG_QTUI_STATUS_ICON("[QtUiStatusIcon] missing statusType=%d label='%s' filename='%s'\n",
-        statusType,
-        GetStatusIconDebugLabel(statusType),
-        entry->legacyIconFileName);
-
-    return std::string();
+    return statusui::ResolveStatusIconPath(statusType);
 }
 
 bool TryBuildStatusIconImage(int statusType, QImage* outImage)
 {
-    if (!outImage || statusType == 0) {
+    if (!outImage || statusType < 0) {
         return false;
     }
 

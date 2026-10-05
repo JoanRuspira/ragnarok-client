@@ -24,6 +24,8 @@
 #include "session/Session.h"
 #include "ui/UIMinimapWnd.h"
 #include "ui/UiScale.h"
+#include "ui/StatusIconInfo.h"
+#include "ui/UIShopCommon.h"
 #include "ui/UIPlayerContextMenuWnd.h"
 #include "ui/UIWindow.h"
 #include "ui/UIWindowMgr.h"
@@ -752,10 +754,72 @@ std::string ResolveGroundItemHoverLabel(const CItem* item);
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc);
 void DrawActorTextLabels(CGameMode& mode, HDC hdc);
 void QueueActorTextLabels(CGameMode& mode);
+void DrawNativeStatusIcons(CGameMode& mode, HDC hdc);
+
+constexpr int kNativeStatusIconSize = 56;
+constexpr int kNativeStatusIconSpacing = 6;
+constexpr int kNativeStatusIconMargin = 6;
+
+struct NativeStatusIconLayout {
+    int x = 0;
+    int y = kNativeStatusIconMargin;
+    int rows = 1;
+};
+
+NativeStatusIconLayout GetNativeStatusIconLayout(int clientWidth, int clientHeight)
+{
+    NativeStatusIconLayout layout;
+    layout.x = (std::max)(0, clientWidth - kNativeStatusIconSize - kNativeStatusIconMargin);
+    const UIRoMapWnd* minimap = g_windowMgr.m_roMapWnd;
+    if (minimap && minimap->m_show && minimap->HasLoadedMinimap()
+        && minimap->m_x + minimap->m_w > layout.x) {
+        layout.y = (std::max)(kNativeStatusIconMargin, minimap->m_y + minimap->m_h + kNativeStatusIconMargin);
+    }
+    if (layout.y + kNativeStatusIconSize + kNativeStatusIconMargin > clientHeight) {
+        layout.y = kNativeStatusIconMargin;
+    }
+    layout.rows = (std::max)(1, (clientHeight - layout.y - kNativeStatusIconMargin + kNativeStatusIconSpacing)
+        / (kNativeStatusIconSize + kNativeStatusIconSpacing));
+    return layout;
+}
+
+RECT GetNativeStatusIconRect(const NativeStatusIconLayout& layout, size_t index)
+{
+    const int stride = kNativeStatusIconSize + kNativeStatusIconSpacing;
+    const int x = layout.x - static_cast<int>(index / layout.rows) * stride;
+    const int y = layout.y + static_cast<int>(index % layout.rows) * stride;
+    return RECT{ x, y, x + kNativeStatusIconSize, y + kNativeStatusIconSize };
+}
+
+u32 PremultiplyStatusIconColor(u32 color)
+{
+    const u32 alpha = color >> 24;
+    const u32 red = (((color >> 16) & 0xFFu) * alpha + 127u) / 255u;
+    const u32 green = (((color >> 8) & 0xFFu) * alpha + 127u) / 255u;
+    const u32 blue = ((color & 0xFFu) * alpha + 127u) / 255u;
+    return (alpha << 24) | (red << 16) | (green << 8) | blue;
+}
+
+int FindHoveredNativeStatusIcon(int screenX, int screenY, const NativeStatusIconLayout& layout)
+{
+    const auto& icons = g_session.GetActiveStatusIcons();
+    for (size_t index = 0; index < icons.size(); ++index) {
+        const RECT rect = GetNativeStatusIconRect(layout, index);
+        if (screenX >= rect.left && screenX < rect.right
+            && screenY >= rect.top && screenY < rect.bottom) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
 
 bool IsWorldHoverBlockedByUi(int screenX, int screenY)
 {
-    return g_windowMgr.HasActiveNpcDialog() || g_windowMgr.HasWindowAtPoint(screenX, screenY);
+    if (g_windowMgr.HasActiveNpcDialog() || g_windowMgr.HasWindowAtPoint(screenX, screenY)) {
+        return true;
+    }
+    return !IsQtUiRuntimeEnabled() && FindHoveredNativeStatusIcon(screenX, screenY,
+        GetNativeStatusIconLayout(g_renderer.m_width, g_renderer.m_height)) >= 0;
 }
 
 std::uint64_t ComputeGameplayOverlayStateToken(
@@ -781,6 +845,7 @@ std::uint64_t ComputeGameplayOverlayStateToken(
         HashTokenValue(&hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(player->m_MaxSp)));
 
         const u32 statusNow = g_session.GetServerTime();
+        g_session.PruneExpiredStatusIcons(statusNow);
         const std::vector<ACTIVE_STATUS_ICON>& activeStatusIcons = g_session.GetActiveStatusIcons();
         HashTokenValue(&hash, static_cast<std::uint64_t>(activeStatusIcons.size()));
         for (const ACTIVE_STATUS_ICON& statusIcon : activeStatusIcons) {
@@ -792,6 +857,14 @@ std::uint64_t ComputeGameplayOverlayStateToken(
                     : 0u;
                 HashTokenValue(&hash, static_cast<std::uint64_t>(remainingMs / 1000u));
             }
+        }
+
+        if (includeWorldHover && !activeStatusIcons.empty()) {
+            const NativeStatusIconLayout layout = GetNativeStatusIconLayout(clientWidth, clientHeight);
+            HashTokenValue(&hash, static_cast<std::uint64_t>(layout.x));
+            HashTokenValue(&hash, static_cast<std::uint64_t>(layout.y));
+            HashTokenValue(&hash, static_cast<std::uint64_t>(layout.rows));
+            HashTokenValue(&hash, static_cast<std::uint64_t>(FindHoveredNativeStatusIcon(mode.m_oldMouseX, mode.m_oldMouseY, layout) + 1));
         }
 
         if (includeWorldHover && !IsWorldHoverBlockedByUi(mode.m_oldMouseX, mode.m_oldMouseY)) {
@@ -987,6 +1060,9 @@ bool QueueModernOverlayQuad(CGameMode& mode, int cursorActNum, u32 mouseAnimStar
             const double uiDrawStartMs = trackMovePerf ? QpcNowMs() : 0.0;
             if (!allowQtCpuBridge) {
                 g_windowMgr.OnDrawExcludingRoMapToHdc(s_overlayComposeSurface.GetDC());
+                if (!mapLoadingActive) {
+                    DrawNativeStatusIcons(mode, s_overlayComposeSurface.GetDC());
+                }
             } else {
                 g_windowMgr.ClearDirtyVisualState();
             }
@@ -2087,6 +2163,7 @@ void DrawGameplayFallbackToWindow(
             g_overlayMovePerfStats.fallbackOverlayDrawMs += QpcNowMs() - overlayDrawStartMs;
         }
         g_windowMgr.DrawVisibleWindowsToHdc(windowDc, true);
+        DrawNativeStatusIcons(mode, windowDc);
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.fallbackUiDrawMs += QpcNowMs() - uiDrawStartMs;
         }
@@ -3403,6 +3480,93 @@ void QueueActorTextLabels(CGameMode& mode)
         face->m_verts[3] = { x + image.width, y + image.height, 0.0f, 1.0f, 0xFFFFFFFFu, 0xFF000000u, maxU, maxV };
         g_renderer.AddRP(face, 1 | 8);
     });
+}
+
+void DrawNativeStatusIcons(CGameMode& mode, HDC hdc)
+{
+    if (!hdc || IsQtUiRuntimeEnabled() || IsMapLoadingActive(mode) || !mode.m_world || !mode.m_world->m_player) {
+        return;
+    }
+    const u32 now = g_session.GetServerTime();
+    g_session.PruneExpiredStatusIcons(now);
+    const auto& icons = g_session.GetActiveStatusIcons();
+    if (icons.empty()) return;
+
+    RECT clientRect{ 0, 0, g_renderer.m_width, g_renderer.m_height };
+    if (g_hMainWnd) GetClientRect(g_hMainWnd, &clientRect);
+    const int clientWidth = static_cast<int>(clientRect.right - clientRect.left);
+    const int clientHeight = static_cast<int>(clientRect.bottom - clientRect.top);
+    if (clientWidth <= 0 || clientHeight <= 0) return;
+    const NativeStatusIconLayout layout = GetNativeStatusIconLayout(clientWidth, clientHeight);
+    const int hoveredIndex = FindHoveredNativeStatusIcon(mode.m_oldMouseX, mode.m_oldMouseY, layout);
+    static std::map<int, shopui::BitmapPixels> images;
+    HBRUSH iconBackground = CreateSolidBrush(RGB(85, 101, 116));
+
+    for (size_t index = 0; index < icons.size(); ++index) {
+        const ACTIVE_STATUS_ICON& icon = icons[index];
+        const RECT rect = GetNativeStatusIconRect(layout, index);
+        auto image = images.find(icon.statusType);
+        if (image == images.end()) {
+            const std::string path = statusui::ResolveStatusIconPath(icon.statusType);
+            image = images.emplace(icon.statusType, path.empty()
+                ? shopui::BitmapPixels{} : shopui::LoadBitmapPixelsFromGameData(path, true)).first;
+            // GDI AlphaBlend expects premultiplied colors.
+            for (unsigned int& pixel : image->second.pixels) {
+                pixel = PremultiplyStatusIconColor(pixel);
+            }
+            DbgLog("[StatusIcon] type=%d name='%s' image='%s' loaded=%d\n", icon.statusType,
+                statusui::ResolveStatusIconLabel(icon.statusType).c_str(), path.c_str(), image->second.IsValid() ? 1 : 0);
+        }
+        // An opaque tile keeps alpha edges from blending with the HUD's color key.
+        FillRect(hdc, &rect, iconBackground);
+        if (image->second.IsValid()) {
+            shopui::DrawBitmapPixelsTransparent(hdc, image->second, rect);
+        } else {
+            shopui::FrameRectColor(hdc, rect, RGB(158, 169, 184));
+            RECT textRect = rect;
+            InflateRect(&textRect, -3, -3);
+            shopui::DrawWindowTextRect(hdc, textRect, statusui::ResolveStatusIconLabel(icon.statusType),
+                RGB(246, 241, 224), DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+        }
+        const u32 remainingMs = icon.hasTimer && icon.expireServerTime > now ? icon.expireServerTime - now : 0;
+        if (icon.hasTimer && remainingMs < 60000u) {
+            const float fraction = 1.0f - static_cast<float>(remainingMs) / 60000.0f;
+            const int tintHeight = static_cast<int>(std::round(kNativeStatusIconSize * fraction));
+            if (tintHeight > 0) {
+                const u32 alpha = static_cast<u32>(255.0f * (0.2f + 0.45f * fraction));
+                std::vector<unsigned int> tint(static_cast<size_t>(kNativeStatusIconSize) * tintHeight,
+                    PremultiplyStatusIconColor((alpha << 24) | 0x00C92F2Fu));
+                AlphaBlendArgbToHdc(hdc, rect.left, rect.bottom - tintHeight, kNativeStatusIconSize, tintHeight,
+                    tint.data(), kNativeStatusIconSize, tintHeight);
+            }
+        }
+    }
+    DeleteObject(iconBackground);
+
+    if (hoveredIndex >= 0) {
+        const ACTIVE_STATUS_ICON& icon = icons[hoveredIndex];
+        const RECT iconRect = GetNativeStatusIconRect(layout, static_cast<size_t>(hoveredIndex));
+        const std::string name = statusui::ResolveStatusIconLabel(icon.statusType);
+        std::string duration = "Active";
+        if (icon.hasTimer) {
+            const u32 remainingMs = icon.expireServerTime > now ? icon.expireServerTime - now : 0;
+            const u32 seconds = remainingMs / 1000u + (remainingMs % 1000u != 0 ? 1u : 0u);
+            char text[64]{};
+            std::snprintf(text, sizeof(text), "%u:%02u remaining", seconds / 60u, seconds % 60u);
+            duration = text;
+        }
+        const int width = (std::min)(200, clientWidth);
+        const int height = (std::min)(42, clientHeight);
+        const int x = (std::max)(0, static_cast<int>(iconRect.left) - width - 6);
+        const int y = (std::max)(0, (std::min)(static_cast<int>(iconRect.top), clientHeight - height));
+        const RECT tooltip{ x, y, x + width, y + height };
+        shopui::FillRectColor(hdc, tooltip, RGB(29, 35, 44));
+        shopui::FrameRectColor(hdc, tooltip, RGB(158, 169, 184));
+        const RECT nameRect{ x + 6, y + 4, x + width - 6, y + 20 };
+        const RECT durationRect{ x + 6, y + 22, x + width - 6, y + height - 4 };
+        shopui::DrawWindowTextRect(hdc, nameRect, name, RGB(243, 244, 246), DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        shopui::DrawWindowTextRect(hdc, durationRect, duration, RGB(255, 176, 98), DT_SINGLELINE | DT_NOPREFIX);
+    }
 }
 
 void DrawHoveredGroundItemName(CGameMode& mode, HDC hdc)

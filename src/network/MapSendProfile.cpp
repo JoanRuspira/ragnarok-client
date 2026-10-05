@@ -233,6 +233,7 @@ MapReceiveProfile MakePacketVer23ReceiveProfile()
     profile.skillUnitSetExtended = 0x01C9;
     profile.notifyEffectBasic = 0x019B;
     profile.notifyEffectDirect = 0x01F3;
+    profile.soundEffectNotify = 0x01D3;
     profile.actorSpawnLegacyIdle = 0x0078;
     profile.actorSpawnLegacySpawn = 0x0079;
     profile.actorSpawnLegacyAlt = 0x007A;

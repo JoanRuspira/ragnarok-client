@@ -204,6 +204,13 @@ private:
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
     std::vector<float> m_burstAngles;
+    struct RecoverySparkle {
+        vector3d startOffset{};
+        float endHeight = 0.0f;
+        float size = 0.0f;
+        float sparkFrequency = 0.0f;
+    };
+    std::array<RecoverySparkle, 12> m_recoverySparkles{};
     std::vector<std::unique_ptr<CRagEffect>> m_componentEffects;
     enum class Handler {
         None,
@@ -261,6 +268,7 @@ private:
     void SpawnSprite();
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
     void RenderBodyBurst(const matrix& viewMatrix);
+    void RenderRecoverySparkles(const matrix& viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;
 
@@ -278,8 +286,7 @@ private:
     void SpawnSuperAngelVariant(int variant, int birthFrame);
     void SpawnSuperAngelBurst(int startAngle);
     void UpdateSuperAngel();
-    void SpawnRecoveryHp();
-    void SpawnRecoverySp();
+    void StartRecoverySparkles();
     void SpawnBeginCasting();
     void SpawnHealLight();
     void SpawnHealMedium();

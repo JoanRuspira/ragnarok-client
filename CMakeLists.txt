@@ -244,11 +244,14 @@ endif()
 
 ro_add_qt_runtime_deploy(open_midgard "$<TARGET_FILE_DIR:open_midgard>")
 
-# Keep the editable presentation catalog beside every executable, including non-dev builds.
+# Keep the editable presentation and status icon catalogs beside every executable.
 add_custom_command(TARGET open_midgard POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/skill_presentation.lua"
             "$<TARGET_FILE_DIR:open_midgard>/skill_presentation.lua"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/status_icons.lua"
+            "$<TARGET_FILE_DIR:open_midgard>/status_icons.lua"
     VERBATIM
 )
 
@@ -265,6 +268,13 @@ if(RO_ENABLE_DEV_DEPLOY)
         COMMAND ${CMAKE_COMMAND}
                 "-DRO_SRC=${CMAKE_SOURCE_DIR}/skill_presentation.lua"
                 "-DRO_DST=${RO_DEV_DEPLOY_DIR}/skill_presentation.lua"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BestEffortCopy.cmake"
+        VERBATIM
+    )
+    add_custom_command(TARGET open_midgard POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DRO_SRC=${CMAKE_SOURCE_DIR}/status_icons.lua"
+                "-DRO_DST=${RO_DEV_DEPLOY_DIR}/status_icons.lua"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BestEffortCopy.cmake"
         VERBATIM
     )

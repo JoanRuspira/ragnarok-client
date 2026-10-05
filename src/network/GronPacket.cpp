@@ -272,6 +272,7 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x01CD, 30);             // Legacy Auto Spell choices
     SetPacketSize(0x01CF, 28);
     SetPacketSize(0x01D0, 8);
+    SetPacketSize(0x01D3, 35);             // ZC_SOUND: filename[24], action, term, actor ID
     SetPacketSize(0x01D6, 4);
     SetPacketSize(0x01D4, 6);
     SetPacketSize(0x01D7, 11);

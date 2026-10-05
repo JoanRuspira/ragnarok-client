@@ -219,6 +219,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
 struct PresentationCatalog {
     std::map<int, SkillPresentation> skills;
     std::map<int, SkillEffectPresentation> effects;
+    std::map<int, SkillSoundPresentation> sounds;
 
     bool ReadSkillEffects(lua_State* state, int table, const char* key, std::vector<int>& ids,
         std::string& error)
@@ -278,6 +279,36 @@ struct PresentationCatalog {
             error = "expected version = 1";
             return false;
         }
+        lua_getfield(state, 1, "sounds");
+        if (!lua_isnil(state, -1)) {
+            if (!lua_istable(state, -1)) {
+                error = "expected sounds table";
+                return false;
+            }
+            const int entries = lua_gettop(state);
+            lua_pushnil(state);
+            while (lua_next(state, entries)) {
+                int id = 0;
+                SkillSoundPresentation sound;
+                std::string trigger;
+                const int entry = lua_gettop(state);
+                if (!ReadIdKey(state, id, error) || id > 65535 || !lua_istable(state, entry)
+                    || !ReadString(state, entry, "wav", sound.wavPath, true, error)
+                    || !ValidateResourcePath(sound.wavPath, "data\\wav\\", ".wav", error)
+                    || !ReadString(state, entry, "trigger", trigger, false, error)) return false;
+                if (trigger == "damage") {
+                    sound.trigger = SkillSoundPresentation::Trigger::Damage;
+                } else if (trigger == "ground") {
+                    sound.trigger = SkillSoundPresentation::Trigger::Ground;
+                } else if (!trigger.empty() && trigger != "no_damage") {
+                    error = "unknown skill sound trigger: " + trigger;
+                    return false;
+                }
+                sounds.emplace(id, std::move(sound));
+                lua_pop(state, 1);
+            }
+        }
+        lua_pop(state, 1);
         lua_getfield(state, 1, "effects");
         if (!lua_isnil(state, -1)) {
             if (!lua_istable(state, -1)) {
@@ -328,6 +359,10 @@ struct PresentationCatalog {
         // Validate references after every inline definition is registered; Lua table order is unspecified.
         for (const auto& entry : skills) {
             const SkillPresentation& skill = entry.second;
+            if (skill.passive && sounds.count(entry.first)) {
+                error = "passive skill must have no presentation sound";
+                return false;
+            }
             if (skill.passive && skill.beginEffectId >= 0) {
                 error = "passive skill must have no cast-start effect";
                 return false;
@@ -387,11 +422,12 @@ struct PresentationCatalog {
         if (!loaded) {
             skills.clear();
             effects.clear();
+            sounds.clear();
             DbgLog("[SkillPresentation] rejected '%s': %s\n", source.string().c_str(), error.c_str());
             return;
         }
-        DbgLog("[SkillPresentation] loaded '%s': %zu skills, %zu effects\n",
-            source.string().c_str(), skills.size(), effects.size());
+        DbgLog("[SkillPresentation] loaded '%s': %zu skills, %zu effects, %zu sounds\n",
+            source.string().c_str(), skills.size(), effects.size(), sounds.size());
     }
 };
 
@@ -415,4 +451,11 @@ const SkillEffectPresentation* FindSkillEffectPresentation(int effectId)
     const auto& effects = Catalog().effects;
     const auto found = effects.find(effectId);
     return found == effects.end() ? nullptr : &found->second;
+}
+
+const SkillSoundPresentation* FindSkillSoundPresentation(int skillId)
+{
+    const auto& sounds = Catalog().sounds;
+    const auto found = sounds.find(skillId);
+    return found == sounds.end() ? nullptr : &found->second;
 }

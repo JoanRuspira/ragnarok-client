@@ -836,6 +836,11 @@ void ApplySelfStatusIconPacket(int statusType, u32 actorId, bool active, u32 rem
     }
 
     g_session.SetActiveStatusIcon(statusType, active, remainingMs);
+    DbgLog("[GameMode] self status icon type=%d actor=%u active=%d remainingMs=%u\n",
+        statusType,
+        actorId,
+        active ? 1 : 0,
+        remainingMs);
 }
 
 void HandlePacket0196(CGameMode&, const PacketView& packet)
@@ -5029,11 +5034,52 @@ static bool TryPlayFirstMatchingEffectWave(const vector3d& pos, std::initializer
     return false;
 }
 
+void HandleSoundEffectNotify(CGameMode& mode, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 35
+        || packet.packetId != ro::net::GetActiveMapReceiveProfile().soundEffectNotify) {
+        return;
+    }
+
+    // ZC_SOUND uses a bounded, ANSI filename relative to data\wav.
+    const char* nameBegin = reinterpret_cast<const char*>(packet.data + 2);
+    const char* nameEnd = std::find(nameBegin, nameBegin + 24, '\0');
+    const std::string waveName(nameBegin, nameEnd);
+    const u8 action = packet.data[26];
+    const u32 actorId = ReadLE32(packet.data + 31);
+    if (waveName.empty() || action != 0) {
+        DbgLog("[GameMode] sound notify ignored actor=%u action=%u wav='%s'\n",
+            actorId, static_cast<unsigned int>(action), waveName.c_str());
+        return;
+    }
+
+    CGameActor* actor = actorId != 0 ? ResolveCombatActor(mode, actorId, true) : nullptr;
+    const bool played = actor && TryPlayEffectWaveAtPosition(actor->m_pos, waveName);
+    DbgLog("[GameMode] sound notify actor=%u action=%u wav='%s' resolved=%d played=%d\n",
+        actorId, static_cast<unsigned int>(action), waveName.c_str(), actor != nullptr, played);
+}
+
+static bool PlayConfiguredSkillSound(u16 skillId, SkillSoundPresentation::Trigger trigger,
+    const vector3d& position)
+{
+    const SkillSoundPresentation* sound = FindSkillSoundPresentation(skillId);
+    if (!sound || sound->trigger != trigger) {
+        return false;
+    }
+    TryPlayEffectWaveAtPosition(position, sound->wavPath);
+    // A matching definition owns the sound even when muted, out of range, or missing.
+    return true;
+}
+
 // EzStr world effects do not emit audio from keyframes; timed casts no longer attach begin-spell STR (which
 // often carried cast SFX). Play impact SFX when server-driven packets spawn the ground/cell effect.
 static void PlayGroundSkillImpactSound(u16 skillId, const vector3d& worldPos)
 {
     if (!g_soundMode || !g_isSoundOn) {
+        return;
+    }
+
+    if (PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Ground, worldPos)) {
         return;
     }
 
@@ -5343,6 +5389,8 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
     }
     EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
 
+    PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, targetActor->m_pos);
+
     DbgLog("[GameMode] skill damage opcode=0x%04X src=%u dst=%u skill=%u level=%u damage=%d div=%u type=%u\n",
         packet.packetId,
         srcGid,
@@ -5415,7 +5463,9 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
     }
 
     EmitGroundSkillEffects(mode, skillId, level, impactPos);
-    PlayGroundSkillImpactSound(skillId, impactPos);
+    if (!PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, impactPos)) {
+        PlayGroundSkillImpactSound(skillId, impactPos);
+    }
     DbgLog("[GameMode] skill damage pos src=%u dst=%u skill=%u level=%u damage=%d div=%u cell=(%d,%d)\n",
         srcGid,
         dstGid,
@@ -5488,6 +5538,11 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
+    }
+
+    if (result != 0 && (targetActor || sourceActor)) {
+        PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::NoDamage,
+            targetActor ? targetActor->m_pos : sourceActor->m_pos);
     }
 
     if (targetActor && result != 0 && skillId == kSkillIdHeal) {
@@ -9076,6 +9131,7 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x0141, HandleSelfStatInfo);
     router.Register(0x0148, HandleActorResurrection);
     RegisterHandlerIfValid(router, receiveProfile.notifyEffectBasic, HandleNotifyEffect);
+    RegisterHandlerIfValid(router, receiveProfile.soundEffectNotify, HandleSoundEffectNotify);
     router.Register(0x01B9, HandleSkillCastCancel);
     router.Register(0x0192, HandleIgnorePacket);
     RegisterHandlerIfValid(router, receiveProfile.skillUnitSetExtended, HandleSkillUnitSet);

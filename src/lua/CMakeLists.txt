@@ -59,6 +59,7 @@ add_library(ro_lua STATIC
 )
 
 target_include_directories(ro_lua PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(ro_lua PRIVATE RO_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(ro_lua PUBLIC
     ro_core
     lua51

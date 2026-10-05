@@ -125,7 +125,7 @@ Item {
     }
 
     function statusIconSource(statusType) {
-        return statusType > 0 ? "image://openmidgard/status/" + statusType : ""
+        return statusType >= 0 ? "image://openmidgard/status/" + statusType : ""
     }
 
     function formatStatusDuration(remainingMs) {
@@ -1124,7 +1124,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     text: modelData.label
-                    color: root.uiTheme.uiText
+                    color: "#ffffff"
                     font.pixelSize: experienceBars.barData.labelFontSize || 12
                     font.bold: true
                     style: Text.Outline
@@ -1176,7 +1176,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     text: modelData.keyLabel
-                    color: root.uiTheme.uiText
+                    color: "#ffffff"
                     font.pixelSize: modelData.labelFontSize
                     font.bold: true
                     style: Text.Outline
@@ -2221,14 +2221,16 @@ Item {
     }
 
     Item {
-        x: uiState.minimapX + Math.max(0, uiState.minimapWidth - width)
-        y: uiState.minimapY + uiState.minimapHeight + 6
+        x: Math.max(0, Math.floor(parent.width) - width - 6)
+        y: uiState.minimapVisible && uiState.minimapX + uiState.minimapWidth > x
+            ? Math.max(6, uiState.minimapY + uiState.minimapHeight + 6)
+            : 6
         width: 56
         height: {
             const iconCount = (uiState.statusIcons || []).length
             return iconCount > 0 ? (iconCount * 56) + ((iconCount - 1) * 6) : 0
         }
-        visible: uiState.minimapVisible && (uiState.statusIcons || []).length > 0
+        visible: (uiState.statusIcons || []).length > 0
         z: 72
 
         Column {

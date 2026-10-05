@@ -126,6 +126,7 @@ struct MapReceiveProfile {
     u16 skillUnitSetExtended;
     u16 notifyEffectBasic;
     u16 notifyEffectDirect;
+    u16 soundEffectNotify;
     u16 actorSpawnLegacyIdle;
     u16 actorSpawnLegacySpawn;
     u16 actorSpawnLegacyAlt;

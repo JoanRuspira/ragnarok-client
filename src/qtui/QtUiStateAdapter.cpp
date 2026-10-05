@@ -17,6 +17,7 @@
 #include "session/Session.h"
 #include "skill/Skill.h"
 #include "ui/UiScale.h"
+#include "ui/StatusIconInfo.h"
 #include "ui/UILoginWnd.h"
 #include "ui/UILoadingWnd.h"
 #include "ui/UIMakeCharWnd.h"
@@ -62,6 +63,7 @@
 #include <QChar>
 #include <QFont>
 #include <QFontMetrics>
+#include <QPoint>
 #include <QStringList>
 #include <QVariantMap>
 
@@ -79,7 +81,7 @@ constexpr int kQtActorTextFontPixelSize = 20;
 constexpr int kQtActorTextPaddingY = 8;
 constexpr int kQtStatusIconSize = 56;
 constexpr int kQtStatusIconSpacing = 6;
-constexpr int kQtStatusIconTopMargin = 6;
+constexpr int kQtStatusIconScreenMargin = 6;
 
 bool IsGameplayUiSuppressed(const QtUiState* state)
 {
@@ -436,24 +438,9 @@ QString ResolveShortcutSlotLabel(const SHORTCUT_SLOT* slot)
     return QStringLiteral("Item %1").arg(slot->id);
 }
 
-QString ResolveStatusIconLabel(int statusType, int skillId)
+QString ResolveStatusIconLabel(int statusType)
 {
-    if (skillId > 0) {
-        if (const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillId)) {
-            if (!metadata->displayName.empty()) {
-                return ToQString(metadata->displayName);
-            }
-            if (!metadata->skillIdName.empty()) {
-                return ToQString(metadata->skillIdName);
-            }
-        }
-    }
-
-    if (const qtui::StatusIconCatalogEntry* entry = qtui::FindStatusIconCatalogEntry(statusType)) {
-        return ToQString(entry->fallbackLabel);
-    }
-
-    return QStringLiteral("Status %1").arg(statusType);
+    return ToQString(statusui::ResolveStatusIconLabel(statusType));
 }
 
 QString FormatStatusDuration(u32 remainingMs)
@@ -486,9 +473,25 @@ QString BuildStatusIconTooltipText(const QVariantMap& icon)
     return QStringLiteral("%1\nActive").arg(name);
 }
 
+QPoint ResolveStatusIconStackPosition(const QtUiState* state)
+{
+    RECT clientRect{ 0, 0, WINDOW_WIDTH > 0 ? WINDOW_WIDTH : 640, WINDOW_HEIGHT > 0 ? WINDOW_HEIGHT : 480 };
+    if (g_hMainWnd) {
+        GetClientRect(g_hMainWnd, &clientRect);
+    }
+    const int clientWidth = UiScaleRawToLogicalCoordinate(static_cast<int>(clientRect.right - clientRect.left));
+    const int stackX = (std::max)(0, clientWidth - kQtStatusIconSize - kQtStatusIconScreenMargin);
+    const bool minimapOverlapsStack = state->minimapVisible()
+        && state->minimapX() + state->minimapWidth() > stackX;
+    const int stackY = minimapOverlapsStack
+        ? (std::max)(kQtStatusIconScreenMargin, state->minimapY() + state->minimapHeight() + kQtStatusIconScreenMargin)
+        : kQtStatusIconScreenMargin;
+    return QPoint(stackX, stackY);
+}
+
 int FindHoveredStatusIconIndex(const QtUiState* state, int mouseX, int mouseY)
 {
-    if (!state || !state->minimapVisible()) {
+    if (!state || IsGameplayUiSuppressed(state)) {
         return -1;
     }
 
@@ -497,8 +500,9 @@ int FindHoveredStatusIconIndex(const QtUiState* state, int mouseX, int mouseY)
         return -1;
     }
 
-    const int stackX = state->minimapX() + (std::max)(0, state->minimapWidth() - kQtStatusIconSize);
-    const int stackY = state->minimapY() + state->minimapHeight() + kQtStatusIconTopMargin;
+    const QPoint stackPosition = ResolveStatusIconStackPosition(state);
+    const int stackX = stackPosition.x();
+    const int stackY = stackPosition.y();
     const int stride = kQtStatusIconSize + kQtStatusIconSpacing;
     const int stackHeight = (icons.size() * kQtStatusIconSize) + ((icons.size() - 1) * kQtStatusIconSpacing);
     if (mouseX < stackX || mouseX >= stackX + kQtStatusIconSize || mouseY < stackY || mouseY >= stackY + stackHeight) {
@@ -533,10 +537,9 @@ bool TryAppendHoveredStatusIconAnchor(const QtUiState* state, int mouseX, int mo
     }
 
     const QVariantMap icon = icons[hoveredIndex].toMap();
-    const int logicalCenterX = state->minimapX() + (std::max)(0, state->minimapWidth() - kQtStatusIconSize) + (kQtStatusIconSize / 2);
-    const int logicalBottomY = state->minimapY()
-        + state->minimapHeight()
-        + kQtStatusIconTopMargin
+    const QPoint stackPosition = ResolveStatusIconStackPosition(state);
+    const int logicalCenterX = stackPosition.x() + (kQtStatusIconSize / 2);
+    const int logicalBottomY = stackPosition.y()
         + (hoveredIndex * (kQtStatusIconSize + kQtStatusIconSpacing))
         - 8;
 
@@ -3185,7 +3188,7 @@ void PopulateStatusIconsState(QtUiState* state, int mouseX, int mouseY)
         const u32 remainingMs = (entry.hasTimer && entry.expireServerTime > now)
             ? (entry.expireServerTime - now)
             : 0;
-        const QString label = ResolveStatusIconLabel(entry.statusType, skillId);
+        const QString label = ResolveStatusIconLabel(entry.statusType);
 
         QVariantMap icon;
         icon.insert(QStringLiteral("statusType"), entry.statusType);

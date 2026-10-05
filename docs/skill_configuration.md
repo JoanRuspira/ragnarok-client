@@ -136,6 +136,39 @@ Existing minimal-effect variants remain selected when `/mineffect` is enabled.
 Skill damage presentation accepts an unresolved source when the target is
 known, and server SP-restoration notifications show blue recovery numbers.
 
+Buff and debuff icons appear at the right edge in both the native and Qt UIs,
+independently of minimap visibility. Names and images come from
+`lua files/stateicon/efstids.lub`, `stateiconimginfo.lub`, and `stateiconinfo.lub`,
+using the Lua bridge's existing loose-file and GRF lookup order. Native icons
+wrap into columns when the screen fills. Hover shows the status name and any
+server-provided remaining time; `0196` has no timer and remains active until the
+server removes it. Spirit Growth is skill `819`, status `1353`; status IDs are
+separate from skill and effect IDs.
+The native path logs each image lookup as `[StatusIcon]`, and local activation
+and removal packets are logged as `[GameMode] self status icon`.
+
+`status_icons.lua` provides editable names and full GRF image paths for individual
+buffs/debuffs. Its `icons` table is keyed by the server status ID. Initially it
+contains only Spirit Growth (`1353`), with a dummy path that should be replaced:
+
+```lua
+[1353] = {
+    name = "Spirit Growth",
+    icon = [[data\texture\effect\custom\spirit_growth_placeholder.tga]],
+},
+```
+
+Put the image in your GRF at the chosen path and update `icon` to match. Long Lua
+strings (`[[...]]`) preserve backslashes. Configured paths take priority in both
+the native and Qt UI; a missing configured image displays the text tile. Other
+statuses retain automatic lookup. The loader searches beside `open-midgard.ini`,
+then the current working directory, then the source checkout for development.
+Deployment copies the file beside the executable and into the configured client
+directory. Restart the client after editing; the file and images are cached.
+The `[StatusIcon]` log records which configuration file was loaded.
+Native TGA icons use the client's own decoder through the shared UI pixel loader,
+matching the Qt icon path's decoder, with alpha and RLE compression support.
+
 ### Regenerating the asset catalogs
 
 `tools/generate_rageffect_assets.py` reads installed GRFs directly. Pass them in
@@ -192,6 +225,47 @@ automatically and does not modify shared character textures.
 Shared definitions can live in the top-level `effects` table, with skill entries
 referencing them using just `{ effect_id = ... }`. Define each effect once.
 
+For audio without replacing a skill's existing visuals, add its **skill ID** to
+the separate top-level `sounds` table. Provoke is configured this way:
+
+```lua
+sounds = {
+    [6] = { -- SK_SM_PROVOKE
+        wav = [[data\wav\effect\swordman_provoke.wav]],
+        trigger = "no_damage",
+    },
+},
+```
+
+`wav` must be a full GRF path. `trigger` selects `"no_damage"` (the default,
+successful buff/debuff and other non-damaging skill notifications), `"damage"`
+(actor or position damage notifications), or `"ground"` (ground notifications,
+including position damage notifications). This selects one packet path when a
+skill sends several notification types. No-damage failures do not play audio.
+Sounds play at the target or ground position, falling back to the caster for a
+no-damage notification without a resolved target, with the usual sound settings
+and distance attenuation. A matching ground or position sound replaces the
+existing inferred ground sound. Effect-specific `wav` fields still play with
+their effects, so avoid configuring the same sound in both places. Passive skill
+entries cannot have a sound. The installed GRF contains Provoke's WAV; its current
+visual remains handled by the existing skill/effect path.
+
+The server can also request one-shot audio with `0x01D3` (`ZC_SOUND`, 35 bytes):
+a 24-byte WAV filename relative to `data\wav`, an action byte, a 32-bit term,
+and the actor ID. The client frames this packet and plays action `0` at that
+actor's position using the same audio settings and distance attenuation. Avoid
+adding a `sounds` entry for audio already requested by the server.
+
+Magnum Break (`942`, `SK_SM_MAGNUM`) uses attack motion `2`. The server sends
+its caster effects (`1385`, `1359`, `1465`) and `magnumbr.wav`, then damage
+notifications for nearby enemies and a successful self-use notification even
+when none are hit. The self-use notification drives the skill name and caster
+animation; enemy damage notifications display their damage numbers. Previously,
+the unregistered sound packet broke receive alignment, losing those subsequent
+notifications. Magnum Break therefore has a server-notified skill entry and no
+duplicate Lua sound entry. The `[GameMode] sound notify` log records the WAV,
+actor resolution, and playback result.
+
 `server_notified = true` means that effect-notification packets already trigger
 the configured effects. Skill-use packets then suppress their own effect replay,
 avoiding duplicates. Direct server packets carry only an effect ID; inline skill
@@ -228,6 +302,33 @@ renderer remains unimplemented. The caster visual and sound need an in-game
 comparison with the official client.
 
 ### Coverage and play checks
+
+Passive HP/SP recovery boosts (`SK_SM_RECOVERY`, skill `4`, and
+`SK_SM_SRECOVERY`, skill `9`) arrive through the `013d` recovery packet.
+They use effects `331` (`EF_HPTIME`) and `332` (`EF_SPTIME`), independently of
+skill-use presentation entries. To replace either recovery presentation, add
+`[331] = { str = [[data\texture\effect\recovery.str]] }` for HP and/or
+`[332] = { str = [[data\texture\effect\recovery.str]] }` for SP inside the existing
+top-level `effects` table in `skill_presentation.lua`. The file includes
+commented examples with the corresponding recovery WAVs. `recovery.str` is an
+installed Priest Recovery animation used as an example; choose the STR you want.
+Each override owns the complete visual and sound, so omitting `wav` makes that
+boost silent. `offset_y` and paired `variants` also work. Restart the client to
+reload changes. These entries use effect IDs `331`/`332`; passive skill entries
+`4`/`9` do not control recovery packets.
+
+Without a Lua override, both effects emit twelve small, rising
+`data\texture\effect\pok1.tga` sparkles attached to the actor, with pale green
+HP tint or pale blue SP tint, additive blending, twinkling, and fades. The
+texture, particle count, spacing, color, and motion ranges follow the
+[roBrowser effect definition](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js).
+Each sparkle lasts 500 ms, starting 10 ms after the previous one; the effect
+finishes after 610 ms. HP recovery plays `data\wav\_heal_effect.wav`; SP recovery
+plays the absorption WAV whose CP949 filename bytes are `c8 ed b1 e2`.
+The installed GRFs contain all three assets. The former expanding rings,
+cylinders, and Priest Recovery WAV were unrelated to passive regeneration.
+HP/SP updates and recovery numbers still use the existing packet handling.
+The visual scale and timing still need an in-game comparison.
 
 Spear Quicken (`SK_KN_SQUICKEN`, skill `816`) explicitly sends
 `EF_TWOHANDQUICKEN` (`130`) from this server. The gameplay log confirms that
@@ -278,6 +379,9 @@ in a running updated client. Compare these cases against the official client:
 | Case | Expected behavior |
 | --- | --- |
 | Two-Handed Sword Mastery (3) | Passive bonus; no cast visual or sound |
+| HP Recovery (4) / SP Recovery (9), below maximum HP/SP | Each boost shows its recovery amount and one brief group of rising green/blue sparkles, with its corresponding recovery sound |
+| Magnum Break (942), with no nearby enemies | One caster animation and "Magnum Break!!" message, one server-requested `magnumbr.wav`, and the server's caster effects |
+| Magnum Break (942), with nearby enemies | Same caster presentation, plus damage numbers on every hit enemy; following packets stay aligned |
 | Traumatic Strike (398) | One caster body flash/halo, delayed radial burst, and Head Crush WAV; server-driven `cwound.str` on the target |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |

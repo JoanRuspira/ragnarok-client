@@ -612,7 +612,22 @@ bool LoadBgraPixelsFromGameData(const char* path, u32** outPixels, int* outWidth
     int width = 0;
     int height = 0;
     u32* pixels = nullptr;
-    const bool decoded = LoadImageFromMemory(bytes, size, width, height, pixels);
+    bool decoded = false;
+    const char* extension = std::strrchr(path, '.');
+    if (extension && _stricmp(extension, ".tga") == 0) {
+        // UI icons need the same TGA decoder as world/effect textures.
+        // The platform image decoder used for other formats may not support TGA.
+        CBitmapRes bitmap;
+        decoded = bitmap.LoadFromBuffer(path, bytes, size);
+        if (decoded) {
+            width = bitmap.m_width;
+            height = bitmap.m_height;
+            pixels = bitmap.m_data;
+            bitmap.m_data = nullptr; // Transfer ownership to the caller.
+        }
+    } else {
+        decoded = LoadImageFromMemory(bytes, size, width, height, pixels);
+    }
     delete[] bytes;
     if (!decoded || !pixels || width <= 0 || height <= 0) {
         delete[] pixels;

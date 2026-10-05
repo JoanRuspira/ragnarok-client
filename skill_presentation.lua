@@ -5,10 +5,23 @@
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
 return {
     version = 1,
+    -- Skill IDs here add audio while preserving the skill's existing visuals.
+    -- trigger selects "no_damage" (default), "damage", or "ground" notifications.
+    sounds = {
+        [6] = { -- SK_SM_PROVOKE
+            wav = [[data\wav\effect\swordman_provoke.wav]],
+            trigger = "no_damage",
+        },
+    },
     skills = {
         [3] = {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
+        },
+        [942] = {
+            name = "Magnum Break", -- SK_SM_MAGNUM
+            motion_type = 2,
+            server_notified = true, -- The server sends the caster effects and magnumbr.wav.
         },
         [398] = {
             name = "Traumatic Strike", -- SK_SM_TRAUMATIC_STRIKE (Head Crush)
@@ -83,29 +96,28 @@ return {
             target = {
                 {
                     effect_id = 2002,
-                    str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
-                },
-                {
-                    effect_id = 2003,
-                    str = [[data\texture\effect\grand_judgement\grand_judgement_buff\grand_judgement_buff.str]],
-                },
+                    str = [[data\texture\effect\new_clearence\new_clearence\new_clearence.str]],
+                    -- str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
 
-            },
-        },
-        [942] = {
-            name = "Magnum Break",
-            motion_type = 2,
-            server_notified = true,
-            target = {
-                {
-                    wav = [[data\wav\magnumbr.wav]],
                 }
             },
-        },
+        }
     },
-    -- Shared server effect: preserve the existing Quicken correction for all weapon types.
-    -- This is separate from passive Two-Handed Sword Mastery above.
+    -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
+    -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        -- Uncomment either example and choose the STR you want for that boost.
+        -- recovery.str is an installed example asset; it is the Priest Recovery visual.
+        -- Entries here replace the built-in visual and audio; omit wav for silence.
+        [331] = { -- EF_HPTIME / SK_SM_RECOVERY HP boost
+            str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
+            wav = [[data\wav\_heal_effect.wav]],
+        },
+        [332] = { -- EF_SPTIME / SK_SM_SRECOVERY SP boost
+            str = [[data\texture\effect\presensacies\presensacies_cast\presensacies_cast.str]],
+            wav = [[data\wav\_heal_effect.wav]],
+        },
+        -- Shared Quicken effect for all weapon types.
         [130] = {
             str = [[data\texture\effect\twohand.str]],
             wav = [[data\wav\effect\knight_twohandquicken.wav]],

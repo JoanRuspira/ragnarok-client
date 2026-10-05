@@ -10,6 +10,12 @@ struct lua_State;
 struct ItemMetadata;
 struct SkillMetadata;
 
+struct LuaStatusIconInfo {
+    std::string displayName;
+    std::string iconFileName;
+    std::string iconGrfPath; // Full path from status_icons.lua; overrides automatic lookup.
+};
+
 struct LuaSkillEffectInfo {
     bool hasBeginEffectId = false;
     int beginEffectId = -1;
@@ -49,6 +55,7 @@ public:
     bool GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo);
     bool GetSkillMetadata(std::vector<SkillMetadata>* outSkills);
     bool GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* outInfo);
+    bool GetStatusIconInfoByStatusType(int statusType, LuaStatusIconInfo* outInfo);
 
     const std::string& GetLastError() const;
     std::string ResolveLocalLuaPath(const char* relativePath) const;
@@ -60,12 +67,16 @@ private:
         std::string* outSourcePath,
         bool* outLoadedFromLocal) const;
     bool ExecuteBuffer(const unsigned char* bytes, size_t size, const char* chunkName, const char* returnedTableGlobalName = nullptr);
+    void LoadStatusIconOverrides();
 
     lua_State* m_state;
     mutable std::recursive_mutex m_mutex;
     std::vector<std::string> m_loadedScripts;
     std::unordered_map<int, LuaSkillEffectInfo> m_skillEffectInfoCache;
     std::unordered_set<int> m_missingSkillEffectInfoIds;
+    bool m_statusIconScriptsAttempted = false;
+    std::unordered_map<int, LuaStatusIconInfo> m_statusIconOverrides;
+    std::unordered_map<int, LuaStatusIconInfo> m_statusIconInfoCache;
     std::string m_lastError;
 };
 

@@ -1,6 +1,7 @@
 ﻿#include "LuaBridge.h"
 
 #include "core/File.h"
+#include "core/SettingsIni.h"
 #include "DebugLog.h"
 #include "item/Item.h"
 #include "skill/Skill.h"
@@ -759,6 +760,9 @@ void CLuaBridge::Shutdown()
 	m_loadedScripts.clear();
 	m_skillEffectInfoCache.clear();
 	m_missingSkillEffectInfoIds.clear();
+	m_statusIconScriptsAttempted = false;
+	m_statusIconOverrides.clear();
+	m_statusIconInfoCache.clear();
 	m_lastError.clear();
 }
 
@@ -1568,6 +1572,147 @@ bool CLuaBridge::GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* ou
 		*outInfo = info;
 	}
 	return true;
+}
+
+void CLuaBridge::LoadStatusIconOverrides()
+{
+	std::vector<std::filesystem::path> candidates = {
+		GetOpenMidgardIniPath().parent_path() / "status_icons.lua",
+	};
+	std::error_code error;
+	const auto current = std::filesystem::current_path(error);
+	if (!error) candidates.push_back(current / "status_icons.lua");
+#ifdef RO_SOURCE_ROOT
+	candidates.emplace_back(std::filesystem::path(RO_SOURCE_ROOT) / "status_icons.lua");
+#endif
+	std::filesystem::path source;
+	for (const auto& candidate : candidates) {
+		if (std::filesystem::is_regular_file(candidate, error) && !error) {
+			source = candidate;
+			break;
+		}
+	}
+	if (source.empty()) {
+		DbgLog("[StatusIcon] status_icons.lua not found; using automatic lookup.\n");
+		return;
+	}
+	const std::string path = source.string();
+	lua_settop(m_state, 0);
+	if (luaL_loadfile(m_state, path.c_str()) != 0 || lua_pcall(m_state, 0, 1, 0) != 0) {
+		const char* message = lua_tostring(m_state, -1);
+		DbgLog("[StatusIcon] rejected '%s': %s\n", path.c_str(), message ? message : "could not load table");
+		lua_settop(m_state, 0);
+		return;
+	}
+	int version = 0;
+	if (!lua_istable(m_state, -1)
+		|| !TryGetLuaTableIntegerField(m_state, -1, "version", &version) || version != 1) {
+		DbgLog("[StatusIcon] rejected '%s': expected a table with version = 1.\n", path.c_str());
+		lua_settop(m_state, 0);
+		return;
+	}
+	lua_getfield(m_state, -1, "icons");
+	if (!lua_istable(m_state, -1)) {
+		DbgLog("[StatusIcon] rejected '%s': missing icons table.\n", path.c_str());
+		lua_settop(m_state, 0);
+		return;
+	}
+	lua_pushnil(m_state);
+	while (lua_next(m_state, -2) != 0) {
+		const double status = lua_tonumber(m_state, -2);
+		if (lua_type(m_state, -2) != LUA_TNUMBER || !(status >= 0 && status <= 65535)
+			|| status != std::floor(status) || !lua_istable(m_state, -1)) {
+			DbgLog("[StatusIcon] ignored invalid entry in '%s': expected a numeric status ID and table.\n", path.c_str());
+			lua_pop(m_state, 1);
+			continue;
+		}
+		LuaStatusIconInfo info;
+		lua_getfield(m_state, -1, "name");
+		if (lua_type(m_state, -1) == LUA_TSTRING) info.displayName = lua_tostring(m_state, -1);
+		lua_pop(m_state, 1);
+		lua_getfield(m_state, -1, "icon");
+		if (lua_type(m_state, -1) == LUA_TSTRING) {
+			info.iconGrfPath = NormalizeSlashPath(lua_tostring(m_state, -1));
+		}
+		lua_pop(m_state, 1);
+		if (!info.displayName.empty() || !info.iconGrfPath.empty()) {
+			m_statusIconOverrides.emplace(static_cast<int>(status), std::move(info));
+		} else {
+			DbgLog("[StatusIcon] ignored status %d in '%s': expected name or icon.\n", static_cast<int>(status), path.c_str());
+		}
+		lua_pop(m_state, 1);
+	}
+	lua_settop(m_state, 0);
+	DbgLog("[StatusIcon] loaded '%s': %zu overrides.\n", path.c_str(), m_statusIconOverrides.size());
+}
+
+bool CLuaBridge::GetStatusIconInfoByStatusType(int statusType, LuaStatusIconInfo* outInfo)
+{
+	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	if (!outInfo || statusType < 0) {
+		return false;
+	}
+	*outInfo = LuaStatusIconInfo{};
+	if (!Initialize()) {
+		return false;
+	}
+	const auto cached = m_statusIconInfoCache.find(statusType);
+	if (cached != m_statusIconInfoCache.end()) {
+		*outInfo = cached->second;
+		return !outInfo->displayName.empty() || !outInfo->iconFileName.empty() || !outInfo->iconGrfPath.empty();
+	}
+	if (!m_statusIconScriptsAttempted) {
+		m_statusIconScriptsAttempted = true;
+		LoadStatusIconOverrides();
+		if (LoadRagnarokScriptOnce("lua files\\stateicon\\efstids.lub")) {
+			LoadRagnarokScriptOnce("lua files\\stateicon\\stateiconimginfo.lub");
+			LoadRagnarokScriptOnce("lua files\\stateicon\\stateiconinfo.lub");
+		}
+	}
+
+	LuaStatusIconInfo info;
+	lua_getglobal(m_state, "StateIconImgList");
+	if (lua_istable(m_state, -1)) {
+		// Image entries are grouped by priority (gold, red, blue, green, white).
+		for (int priority = 0; priority <= 4 && info.iconFileName.empty(); ++priority) {
+			lua_rawgeti(m_state, -1, priority);
+			if (lua_istable(m_state, -1)) {
+				lua_rawgeti(m_state, -1, statusType);
+				if (lua_type(m_state, -1) == LUA_TSTRING) {
+					info.iconFileName = lua_tostring(m_state, -1);
+				}
+				lua_pop(m_state, 1);
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_settop(m_state, 0);
+
+	lua_getglobal(m_state, "StateIconList");
+	if (lua_istable(m_state, -1)) {
+		lua_rawgeti(m_state, -1, statusType);
+		if (lua_istable(m_state, -1)) {
+			lua_getfield(m_state, -1, "descript");
+			if (lua_istable(m_state, -1)) {
+				lua_rawgeti(m_state, -1, 1);
+				if (lua_istable(m_state, -1)) {
+					lua_rawgeti(m_state, -1, 1);
+					if (lua_type(m_state, -1) == LUA_TSTRING) {
+						info.displayName = lua_tostring(m_state, -1);
+					}
+				}
+			}
+		}
+	}
+	lua_settop(m_state, 0);
+	const auto overrideInfo = m_statusIconOverrides.find(statusType);
+	if (overrideInfo != m_statusIconOverrides.end()) {
+		if (!overrideInfo->second.displayName.empty()) info.displayName = overrideInfo->second.displayName;
+		info.iconGrfPath = overrideInfo->second.iconGrfPath;
+	}
+	m_statusIconInfoCache.emplace(statusType, info);
+	*outInfo = info;
+	return !info.displayName.empty() || !info.iconFileName.empty() || !info.iconGrfPath.empty();
 }
 
 const std::string& CLuaBridge::GetLastError() const

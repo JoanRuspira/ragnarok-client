@@ -1235,6 +1235,16 @@ bool CLuaBridge::GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo)
 	}
 	lua_pop(m_state, 1);
 
+	lua_getfield(m_state, entryIndex, "ClassNum");
+	if (lua_type(m_state, -1) == LUA_TNUMBER) {
+		const lua_Number classNum = lua_tonumber(m_state, -1);
+		if (std::isfinite(classNum) && classNum >= 0 && classNum <= 65535
+			&& classNum == std::floor(classNum)) {
+			outInfo->classNum = static_cast<int>(classNum);
+		}
+	}
+	lua_pop(m_state, 1);
+
 	const auto readDescription = [&](const char* key) {
 		lua_getfield(m_state, entryIndex, key);
 		if (lua_istable(m_state, -1)) {

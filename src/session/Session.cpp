@@ -74,6 +74,7 @@ constexpr const char* kBodyTokenPecoPaladin = "\xC6\xE4\xC4\xDA\xC6\xC8\xB6\xF3\
 constexpr const char* kStyledBodyTokenPecoLordKnight = "\xB7\xCE\xB5\xE5\xC6\xE4\xC4\xDA";
 constexpr u32 kServerTimeLeadMs = 72u;
 constexpr u32 kServerTimeLateToleranceMs = 144u;
+constexpr int kStatusTypePostDelay = 46; // EFST_POSTDELAY
 constexpr const char* kFogParameterTableFile = "fogparametertable.txt";
 
 // rAthena sends these next-EXP limits when the corresponding level is capped.
@@ -1120,7 +1121,21 @@ int ResolveWeaponTypeOrViewType(const CSession& session, int value)
         return value;
     }
 
-    return session.GetWeaponTypeByItemId(value & 0xFFFF);
+    const int itemId = value & 0xFFFF;
+    const int legacyType = session.GetWeaponTypeByItemId(itemId);
+    if (legacyType > 0) {
+        return legacyType;
+    }
+
+    // Custom/forged spears can fall outside the legacy item-ID ranges. Only
+    // interpret ClassNum here, where the value is a server weapon appearance;
+    // armor and shields use the same field for unrelated view IDs.
+    if (const ItemMetadata* metadata = g_ttemmgr.GetMetadata(static_cast<unsigned int>(itemId))) {
+        if (metadata->classNum == 4 || metadata->classNum == 5) {
+            return metadata->classNum;
+        }
+    }
+    return legacyType;
 }
 
 int NormalizePlayerBodyJob(int job)
@@ -1189,24 +1204,7 @@ const char* GetPlayerBodyWeaponToken(int weaponType)
 
 int ResolvePlayerBodyWeaponType(const CSession& session, int job, int weaponItemId)
 {
-    if (weaponItemId <= 0) {
-        return 0;
-    }
-
-    if (weaponItemId <= 31) {
-        return weaponItemId;
-    }
-
-    if (IsDualWeaponJob(job)) {
-        const int primaryWeapon = weaponItemId & 0xFFFF;
-        const int secondaryWeapon = static_cast<int>((static_cast<unsigned int>(weaponItemId) >> 16) & 0xFFFFu);
-        if (secondaryWeapon != 0 && session.GetWeaponTypeByItemId(secondaryWeapon) > 0) {
-            return session.MakeWeaponTypeByItemId(primaryWeapon, secondaryWeapon);
-        }
-        return session.GetWeaponTypeByItemId(primaryWeapon);
-    }
-
-    return session.GetWeaponTypeByItemId(weaponItemId & 0xFFFF);
+    return session.ResolvePackedWeaponType(job, weaponItemId);
 }
 
 char* BuildPlayerBodyResourceName(const CSession& session,
@@ -1674,7 +1672,9 @@ void CSession::ClearActiveStatusIcons()
 void CSession::SetActiveStatusIcon(int statusType, bool active, u32 remainingMs)
 {
     // EFST_PROVOKE is a valid status with ID zero.
-    if (statusType < 0) {
+    // After-cast delay is not a buff. Legacy 0x0196 carries no duration or expiry
+    // removal for it, so adding it here would leave a permanent "Status 46" tile.
+    if (statusType < 0 || statusType == kStatusTypePostDelay) {
         return;
     }
 

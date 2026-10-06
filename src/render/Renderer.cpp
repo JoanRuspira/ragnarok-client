@@ -816,12 +816,16 @@ void CRenderer::Clear(int color) {
 }
 
 void CRenderer::ClearBackground() {
+    m_modernFireWater.BeginFrame();
     GetRenderDevice().ClearColor(m_nClearColor);
 }
 
 bool CRenderer::DrawScene(bool applyScreenFade) {
-    if (!m_renderDevice || !m_renderDevice->BeginScene())
+    if (!m_renderDevice || !m_renderDevice->BeginScene()) {
+        m_rainQueued = false;
+        m_nightQueued = false;
         return false;
+    }
 
     ApplyFogState();
 
@@ -833,6 +837,78 @@ bool CRenderer::DrawScene(bool applyScreenFade) {
 
     m_renderDevice->EndScene();
     return true;
+}
+
+void CRenderer::SetRainEnabled(bool enabled)
+{
+    m_rainEffect.SetEnabled(enabled);
+    m_rainQueued = false;
+}
+
+void CRenderer::QueueRain()
+{
+    m_rainQueued = m_rainEffect.IsEnabled();
+}
+
+void CRenderer::SetNightEnabled(bool enabled)
+{
+    m_fireflyEffect.SetEnabled(enabled);
+    m_nightEnabled = enabled;
+    m_nightQueued = false;
+}
+
+void CRenderer::QueueNightFilter()
+{
+    m_nightQueued = m_nightEnabled;
+}
+
+void CRenderer::DrawNightFilter()
+{
+    const int width = m_renderDevice->GetRenderWidth();
+    const int height = m_renderDevice->GetRenderHeight();
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    // Multiply the scene's RGB by a cool tint, preserving contrast and blacks.
+    // Keep the lower screen a little brighter so nearby actors remain readable.
+    constexpr DWORD topTint = 0xFF536CA0u;
+    constexpr DWORD bottomTint = 0xFF738AB7u;
+    const float right = static_cast<float>(width) - 0.5f;
+    const float bottom = static_cast<float>(height) - 0.5f;
+    const tlvertex3d vertices[] = {
+        { -0.5f, -0.5f, 0.0f, 1.0f, topTint, 0u, 0.0f, 0.0f },
+        { right, -0.5f, 0.0f, 1.0f, topTint, 0u, 0.0f, 0.0f },
+        { -0.5f, bottom, 0.0f, 1.0f, bottomTint, 0u, 0.0f, 0.0f },
+        { right, bottom, 0.0f, 1.0f, bottomTint, 0u, 0.0f, 0.0f },
+    };
+
+    SetMultiTextureMode(0);
+    m_renderDevice->BindTexture(0, nullptr);
+    m_oldTexture = nullptr;
+    m_oldLmapTexture = nullptr;
+    m_renderDevice->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    m_renderDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_FOGENABLE, FALSE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_CULLMODE, D3DCULL_NONE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_ZERO);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_SRCCOLOR);
+    m_renderDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, D3DFVF_TLVERTEX, vertices, 4, 0);
+
+    // Their light remains warm and bright above the night tint, beneath UI.
+    m_fireflyEffect.Draw(*m_renderDevice);
+    SetMultiTextureMode(0);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, TRUE);
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_FOGENABLE, m_isFoggy ? TRUE : FALSE);
 }
 
 void CRenderer::SetScreenFadeOpacity(float opacity)
@@ -1353,7 +1429,9 @@ void CRenderer::FlushRenderList() {
         return a.first < b.first;
     });
 
-    if (!m_rpAlphaNoDepthList.empty() && !m_renderDevice->PrepareOverlayPass()) {
+    if ((!m_rpAlphaNoDepthList.empty() || m_rainQueued || m_nightQueued) && !m_renderDevice->PrepareOverlayPass()) {
+        m_rainQueued = false;
+        m_nightQueued = false;
         m_rpFaceList.clear();
         m_rpLMGroundList.clear();
         m_rpLMLightList.clear();
@@ -1372,6 +1450,25 @@ void CRenderer::FlushRenderList() {
         m_rpQuadFaceListIter = m_rpQuadFaceList.begin();
         m_rpLmQuadFaceListIter = m_rpLmQuadFaceList.begin();
         return;
+    }
+
+    // Rain and particle mist cover the world; gameplay UI draws above both.
+    if (m_rainQueued) {
+        m_rainQueued = false;
+        m_rainEffect.Draw(*m_renderDevice);
+        // Rain binds textures directly; synchronize the renderer's binding cache
+        // and restore the texture/fog state expected by the remaining overlays.
+        m_oldTexture = nullptr;
+        m_oldLmapTexture = nullptr;
+        SetMultiTextureMode(0);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, TRUE);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_FOGENABLE, m_isFoggy ? TRUE : FALSE);
+    }
+
+    // Night colours the complete world and weather, while gameplay UI stays clear.
+    if (m_nightQueued) {
+        m_nightQueued = false;
+        DrawNightFilter();
     }
 
     m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_FALSE);

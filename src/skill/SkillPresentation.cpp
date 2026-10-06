@@ -163,6 +163,29 @@ bool ReadBodyBurst(lua_State* state, int table, SkillBodyBurstPresentation& burs
     return true;
 }
 
+bool ReadGuardSphere(lua_State* state, int table, SkillGuardSpherePresentation& sphere, std::string& error)
+{
+    if (!ReadString(state, table, "texture", sphere.texturePath, true, error)
+        || !ValidateResourcePath(sphere.texturePath, "data\\texture\\effect\\", ".tga", error)
+        || !ReadString(state, table, "wav", sphere.wavPath, false, error)
+        || (!sphere.wavPath.empty() && !ValidateResourcePath(sphere.wavPath, "data\\wav\\", ".wav", error))
+        || !ReadInteger(state, table, "duration_ms", sphere.durationMs, error)
+        || !ReadInteger(state, table, "fade_in_ms", sphere.fadeInMs, error)
+        || !ReadInteger(state, table, "fade_out_ms", sphere.fadeOutMs, error)
+        || !ReadInteger(state, table, "color", sphere.color, error)
+        || !ReadNumber(state, table, "radius", sphere.radius, 0.1f, 1000.0f, error)
+        || !ReadNumber(state, table, "height", sphere.height, 0.1f, 1000.0f, error)
+        || !ReadNumber(state, table, "alpha", sphere.alpha, 0.0f, 1.0f, error)) return false;
+    if (sphere.durationMs <= 0 || sphere.durationMs > 60000
+        || sphere.fadeInMs <= 0 || sphere.fadeOutMs <= 0
+        || sphere.fadeInMs > sphere.durationMs || sphere.fadeOutMs > sphere.durationMs - sphere.fadeInMs
+        || sphere.color < 0 || sphere.color > 0xFFFFFF) {
+        error = "invalid guard_sphere color or timing";
+        return false;
+    }
+    return true;
+}
+
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
@@ -177,7 +200,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         }
         return ReadBodyBurst(state, table, effect.bodyBurst, error);
     }
-    if (!renderer.empty() && renderer != "str") {
+    if (!renderer.empty() && renderer != "str" && renderer != "guard_sphere") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -191,6 +214,14 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         effect.offsetY = static_cast<float>(offset);
     }
     lua_pop(state, 1);
+    if (renderer == "guard_sphere") {
+        effect.renderer = SkillEffectPresentation::Renderer::GuardSphere;
+        if (effect.loop) {
+            error = "guard_sphere cannot loop";
+            return false;
+        }
+        return ReadGuardSphere(state, table, effect.guardSphere, error);
+    }
     lua_getfield(state, table, "variants");
     if (lua_isnil(state, -1)) {
         lua_pop(state, 1);

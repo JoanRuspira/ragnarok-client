@@ -3,6 +3,14 @@ cmake_minimum_required(VERSION 3.20)
 add_library(ro_render STATIC
     Renderer.h
     Renderer.cpp
+    RainEffect.h
+    RainEffect.cpp
+    ParticleFog.h
+    ParticleFog.cpp
+    FireflyEffect.h
+    FireflyEffect.cpp
+    ModernFireWater.h
+    ModernFireWater.cpp
     DrawUtil.h
     DrawUtil.cpp
     DC.h

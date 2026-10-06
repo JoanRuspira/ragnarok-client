@@ -367,8 +367,14 @@ void EnsureMapWeatherEffects(CGameMode& mode)
 void UpdateMapAudio(CGameMode& mode)
 {
     CAudio* audio = CAudio::GetInstance();
-    if (!audio || audio->IsBgmSuppressed()) {
+    if (!audio || audio->IsBgmSuppressed()
+        || mode.m_mapLoadingStage != CGameMode::MapLoading_None) {
         return;
+    }
+
+    if (mode.m_rainSoundPending) {
+        mode.m_rainSoundPending = false;
+        audio->PlayLoopedSound("data\\wav\\rain.wav");
     }
 
     if (mode.m_rswName[0] != '\0') {
@@ -759,10 +765,11 @@ void DrawNativeStatusIcons(CGameMode& mode, HDC hdc);
 constexpr int kNativeStatusIconSize = 56;
 constexpr int kNativeStatusIconSpacing = 6;
 constexpr int kNativeStatusIconMargin = 6;
+constexpr int kNativeStatusIconTopMargin = 12;
 
 struct NativeStatusIconLayout {
     int x = 0;
-    int y = kNativeStatusIconMargin;
+    int y = kNativeStatusIconTopMargin;
     int rows = 1;
 };
 
@@ -773,10 +780,10 @@ NativeStatusIconLayout GetNativeStatusIconLayout(int clientWidth, int clientHeig
     const UIRoMapWnd* minimap = g_windowMgr.m_roMapWnd;
     if (minimap && minimap->m_show && minimap->HasLoadedMinimap()
         && minimap->m_x + minimap->m_w > layout.x) {
-        layout.y = (std::max)(kNativeStatusIconMargin, minimap->m_y + minimap->m_h + kNativeStatusIconMargin);
+        layout.y = (std::max)(kNativeStatusIconTopMargin, minimap->m_y + minimap->m_h + kNativeStatusIconTopMargin);
     }
     if (layout.y + kNativeStatusIconSize + kNativeStatusIconMargin > clientHeight) {
-        layout.y = kNativeStatusIconMargin;
+        layout.y = kNativeStatusIconTopMargin;
     }
     layout.rows = (std::max)(1, (clientHeight - layout.y - kNativeStatusIconMargin + kNativeStatusIconSpacing)
         / (kNativeStatusIconSize + kNativeStatusIconSpacing));
@@ -2451,6 +2458,74 @@ bool IsIndoorRswName(const char* rswName)
 
     const std::vector<std::string>& table = GetIndoorRswTable();
     return std::binary_search(table.begin(), table.end(), key);
+}
+
+bool IsOutdoorWeatherMap(const char* rswName)
+{
+    std::string mapName = NormalizeRswNameForCameraTables(rswName);
+    if (mapName.empty() || IsIndoorRswName(mapName.c_str())) {
+        return false;
+    }
+    if (mapName.size() >= 4 && mapName.compare(mapName.size() - 4, 4, ".rsw") == 0) {
+        mapName.resize(mapName.size() - 4);
+    }
+    if (mapName.empty()) {
+        return false;
+    }
+
+    // The indoor camera table does not cover dungeons. Instance maps and
+    // standard dungeon families must also suppress the outdoor overlays.
+    if (mapName.find('@') != std::string::npos
+        || mapName.find("_dun") != std::string::npos
+        || mapName.find("_tdun") != std::string::npos
+        || mapName.find("_dugn") != std::string::npos) {
+        return false;
+    }
+
+    static constexpr const char* kExcludedPrefixes[] = {
+        "abbey", "abyss_", "amicitia", "anthell", "c_tower", "com_d02",
+        "gefenia", "gl_", "glast_", "gld2_", "in_", "jupe_", "juperos_",
+        "kh_kiehl", "lhz_d_", "moc_pryd", "moro_cav", "moro_vol",
+        "odin_tem", "orcsdun", "prt_lib", "prt_maze", "prt_mz", "prt_pri",
+        "prt_sew", "ra_san", "rockmi", "slabw", "sp_rudus", "tha_t",
+        "thana_", "thor_v", "treasure", "yggdrasil"
+    };
+    for (const char* prefix : kExcludedPrefixes) {
+        if (mapName.compare(0, std::strlen(prefix), prefix) == 0) {
+            return false;
+        }
+    }
+
+    // Cover conventional interiors and castles even when an older GRF's
+    // indoor table is missing those entries. Match token boundaries so
+    // names such as "iz_int" are handled separately from "*_in01".
+    for (const char* token : { "_in", "_cas" }) {
+        const size_t tokenLength = std::strlen(token);
+        size_t tokenPos = mapName.find(token);
+        while (tokenPos != std::string::npos) {
+            const size_t suffixPos = tokenPos + tokenLength;
+            if (suffixPos == mapName.size() || mapName[suffixPos] == '_'
+                || (mapName[suffixPos] >= '0' && mapName[suffixPos] <= '9')
+                || (tokenLength == 4 && mapName.compare(suffixPos, 3, "tle") == 0)) {
+                return false;
+            }
+            tokenPos = mapName.find(token, suffixPos);
+        }
+    }
+
+    static constexpr const char* kExcludedMaps[] = {
+        "alb_ship", "cave", "grademk", "harboro2", "iz_ac01", "iz_ac02",
+        "iz_int", "job4_bio", "job4_mag", "job4_tro", "monk_test",
+        "nameless_n", "prt_church_x", "prt_q", "que_rael", "que_san04",
+        "que_thr", "ra_temsky", "sec_pri", "turbo_room"
+    };
+    for (const char* excludedMap : kExcludedMaps) {
+        if (mapName == excludedMap) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 const ViewPointConstraintData* FindViewPointConstraintData(const char* rswName)
@@ -8877,14 +8952,20 @@ void EnsureBootstrapWorldAssets(const CGameMode& mode)
 
         case BootstrapLoadStage::BuildBackgroundObjects:
             if (cache.worldRes && mode.m_world) {
-                if (!mode.m_world->BuildBackgroundObjects(
+                if (!mode.m_world->AppendBackgroundObjects(
                     *cache.worldRes,
+                    cache.nextBackgroundActorIndex,
+                    kBootstrapBackgroundActorBatch,
                     cache.worldInfo.lightDir,
                     cache.worldInfo.diffuseCol,
-                    cache.worldInfo.ambientCol)) {
+                    cache.worldInfo.ambientCol,
+                    &cache.nextBackgroundActorIndex,
+                    cache.nextBackgroundActorIndex == 0)) {
                     return;
                 }
-                cache.nextBackgroundActorIndex = cache.worldRes->m_3dActors.size();
+                if (cache.nextBackgroundActorIndex < cache.worldRes->m_3dActors.size()) {
+                    return;
+                }
                 LogNearbyBackgroundActorsOnce(mode);
             }
             cache.loadStage = BootstrapLoadStage::BuildFixedEffects;
@@ -9333,6 +9414,7 @@ void CGameMode::ReleaseHeldAttack()
 
 void CGameMode::OnInit(const char* worldName) {
     m_autoAttack = LoadSettingsIniInt("Gameplay", "AutoAttack", 1) != 0;
+    g_renderer.ModernFireWater().SetEnabled(LoadSettingsIniInt("Effects", "ModernFireWater", 0) != 0);
     m_heldAttackTargetGid = 0;
     m_hasHeldContinuousAttack = false;
     m_isAttackChaseCancelled = false;
@@ -9371,6 +9453,13 @@ void CGameMode::OnInit(const char* worldName) {
         std::strncpy(g_session.m_curMap, mapName, sizeof(g_session.m_curMap) - 1);
         BuildMinimapName(worldName, m_minimapBmpName, sizeof(m_minimapBmpName));
     }
+
+    const bool outdoorWeather = IsOutdoorWeatherMap(m_rswName);
+    m_rainEnabled = outdoorWeather && LoadSettingsIniInt("Weather", "Rain", 0) != 0;
+    g_renderer.SetRainEnabled(m_rainEnabled);
+    g_renderer.SetNightEnabled(outdoorWeather && LoadSettingsIniInt("Weather", "Night", 0) != 0);
+    CAudio::GetInstance()->StopLoopedSound();
+    m_rainSoundPending = m_rainEnabled;
 
     m_world = &g_world;
     if (m_world) {
@@ -9429,6 +9518,12 @@ void CGameMode::MakeFog(int fogOn)
 }
 
 void CGameMode::OnExit() {
+    g_renderer.SetRainEnabled(false);
+    CAudio::GetInstance()->StopLoopedSound();
+    m_rainEnabled = false;
+    m_rainSoundPending = false;
+    g_renderer.SetNightEnabled(false);
+    g_renderer.ModernFireWater().SetEnabled(false);
     // The map connection may already have changed during a mode transition.
     m_heldAttackTargetGid = 0;
     m_hasHeldContinuousAttack = false;
@@ -9475,6 +9570,10 @@ int  CGameMode::OnRun() {
     SyncRendererToWindowSize();
 
     const bool mapLoadingWasActive = IsMapLoadingActive(*this);
+    if (mapLoadingWasActive) {
+        CAudio::GetInstance()->StopLoopedSound();
+        m_rainSoundPending = m_rainEnabled;
+    }
     const DWORD updateStart = GetTickCount();
     OnUpdate();
     const DWORD updateEnd = GetTickCount();
@@ -9537,6 +9636,8 @@ int  CGameMode::OnRun() {
     ++s_gameplayRenderFrame;
     const DWORD renderPrepStart = GetTickCount();
     m_view->OnRender();
+    g_renderer.QueueRain();
+    g_renderer.QueueNightFilter();
     const DWORD renderPrepEnd = GetTickCount();
     DWORD uiDrawStart = renderPrepEnd;
     DWORD uiDrawEnd = renderPrepEnd;
@@ -9678,7 +9779,7 @@ int  CGameMode::OnRun() {
         g_overlayMovePerfStats = OverlayMovePerfStats{};
     }
 
-    // Start music after presenting gameplay so the last loading frame stays silent.
+    // Start map audio after presenting gameplay so the last loading frame stays silent.
     UpdateMapAudio(*this);
     return 1;
 }

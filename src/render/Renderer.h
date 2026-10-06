@@ -9,6 +9,9 @@
 #include "Types.h"
 #include "res/Texture.h"
 #include "render3d/D3dutil.h"
+#include "RainEffect.h"
+#include "FireflyEffect.h"
+#include "ModernFireWater.h"
 
 // Forward declarations
 class CTexture;
@@ -141,6 +144,11 @@ public:
 
     void Init();
     bool DrawScene(bool applyScreenFade = true);
+    void SetRainEnabled(bool enabled);
+    void QueueRain();
+    void SetNightEnabled(bool enabled);
+    void QueueNightFilter();
+    CModernFireWater& ModernFireWater() { return m_modernFireWater; }
     void SetScreenFadeOpacity(float opacity);
     bool HasScreenFadeBeenDrawn() const { return m_screenFadeDrawn; }
     void ApplyScreenFadeToPixels(void* pixels, int width, int height, int pitch);
@@ -240,6 +248,13 @@ public:
     std::list<CacheSurface> m_cacheSurfaces[16];
 
 private:
+    CRainEffect m_rainEffect;
+    CFireflyEffect m_fireflyEffect;
+    CModernFireWater m_modernFireWater;
+    bool m_rainQueued = false;
+    bool m_nightEnabled = false;
+    bool m_nightQueued = false;
+    void DrawNightFilter();
     void DrawScreenFade();
     float m_screenFadeOpacity = 0.0f;
     bool m_screenFadeDrawn = false;

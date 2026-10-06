@@ -142,8 +142,11 @@ independently of minimap visibility. Names and images come from
 using the Lua bridge's existing loose-file and GRF lookup order. Native icons
 wrap into columns when the screen fills. Hover shows the status name and any
 server-provided remaining time; `0196` has no timer and remains active until the
-server removes it. Spirit Growth is skill `819`, status `1353`; status IDs are
-separate from skill and effect IDs.
+server removes it. After-cast delay (`46`, `EFST_POSTDELAY`) is excluded from the
+buff list for both status packet formats. Its legacy `0196` notification has no
+duration or expiry removal and would otherwise leave a permanent "Status 46"
+tile after skills such as Magnum Break. Spirit Growth is skill `819`, status
+`1353`; status IDs are separate from skill and effect IDs.
 The native path logs each image lookup as `[StatusIcon]`, and local activation
 and removal packets are logged as `[GameMode] self status icon`.
 
@@ -222,6 +225,13 @@ Its `flash_start_color` and `flash_peak_color` are RGB integers, with
 height and radii use world units; positive height moves up in the caster's
 billboard plane. These effects cannot loop. Flash/halo state expires
 automatically and does not modify shared character textures.
+For a brief textured barrier, use `renderer = "guard_sphere"` with a full
+`texture` TGA path and optional `wav`. `radius` sets the horizontal radius,
+`height` the full vertical height, and `offset_y` the center's attachment offset,
+all in world units. `color` is an RGB integer and `alpha` ranges from 0 to 1.
+`duration_ms`, `fade_in_ms`, and `fade_out_ms` define its lifetime and fades.
+The fades must be positive and fit within the duration. These effects cannot
+loop; the texture repeats across six columns and three curved bands.
 Shared definitions can live in the top-level `effects` table, with skill entries
 referencing them using just `{ effect_id = ... }`. Define each effect once.
 
@@ -358,6 +368,21 @@ removed. Inspection of the installed GRFs verified all seven configured STRs,
 every referenced texture, and the four PCM WAVs. An updated client still needs an
 in-game check.
 
+Counterstrike (`146`, `SK_SM_AUTOBERSERK`) is an active self buff in this server,
+which sends `EF_MAXPAIN` (`1032`) on the caster. The gameplay log confirms that
+notification and the client's former "no presentation" warning. Its owned skill
+entry uses `server_notified = true`, so the successful-use packet drives the
+caster motion and skill name without launching a second barrier or legacy GRF
+skill effects. The shared effect entry uses `guard_sphere` with the installed
+128-by-128 `guardK2.tga` and `effect\kyrie_guard.wav`, matching the assets in the
+[captured effect reference](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/effects.json)
+and its [effect 1032 clip](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/videos/effect_1032.webm).
+No installed STR references this texture. The procedural barrier fades in over
+100 ms, holds, then fades out over 200 ms, ending after 700 ms. It follows the
+caster, uses world depth, respects delayed starts and cancellation, and plays
+the guard WAV once when it starts. Its geometry, scale, tint, and timing are an
+approximation of the capture and still need comparison in a running client.
+
 This repair does **not** establish complete parity with the official client.
 The customized database contains 455 skills. A static scan found 325 distinct
 explicit effect IDs in the server's skill/status source, including conditional
@@ -379,9 +404,11 @@ in a running updated client. Compare these cases against the official client:
 | Case | Expected behavior |
 | --- | --- |
 | Two-Handed Sword Mastery (3) | Passive bonus; no cast visual or sound |
+| Counterstrike / Auto Berserk (146) | One brief orange cross barrier around the caster and one guard WAV; no duplicate effect on the successful-use packet or lasting barrier after the buff is applied |
 | HP Recovery (4) / SP Recovery (9), below maximum HP/SP | Each boost shows its recovery amount and one brief group of rising green/blue sparkles, with its corresponding recovery sound |
 | Magnum Break (942), with no nearby enemies | One caster animation and "Magnum Break!!" message, one server-requested `magnumbr.wav`, and the server's caster effects |
 | Magnum Break (942), with nearby enemies | Same caster presentation, plus damage numbers on every hit enemy; following packets stay aligned |
+| Magnum Break (942), after-cast delay notification | No "Status 46" buff tile in either UI; actual buffs still display normally |
 | Traumatic Strike (398) | One caster body flash/halo, delayed radial burst, and Head Crush WAV; server-driven `cwound.str` on the target |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |

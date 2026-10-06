@@ -28,11 +28,25 @@ struct SkillBodyBurstPresentation {
     std::vector<float> burstRadii;
 };
 
+// A brief textured barrier for effects such as EF_MAXPAIN, which have no STR.
+struct SkillGuardSpherePresentation {
+    std::string texturePath;
+    std::string wavPath;
+    int durationMs = 700;
+    int fadeInMs = 100;
+    int fadeOutMs = 200;
+    int color = 0xFF9F24;
+    float radius = 7.0f;
+    float height = 16.0f;
+    float alpha = 0.8f;
+};
+
 struct SkillEffectPresentation {
-    enum class Renderer { Str, BodyBurst };
+    enum class Renderer { Str, BodyBurst, GuardSphere };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
     SkillBodyBurstPresentation bodyBurst;
+    SkillGuardSpherePresentation guardSphere;
     float offsetY = 0.0f;
     bool loop = false;
 };

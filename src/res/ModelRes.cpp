@@ -28,8 +28,17 @@ struct offsetMatrix34 {
     float v43;
 };
 
+struct legacyScaleKeyframe {
+    int frame;
+    float sx;
+    float sy;
+    float sz;
+    float data;
+};
+
 static_assert(sizeof(face3d_v11) == 20, "face3d_v11 size mismatch");
 static_assert(sizeof(offsetMatrix34) == 48, "offsetMatrix34 size mismatch");
+static_assert(sizeof(legacyScaleKeyframe) == 20, "legacyScaleKeyframe size mismatch");
 
 bool ReadU8(const unsigned char* buffer, size_t size, size_t* offset, u8* outValue)
 {
@@ -51,6 +60,14 @@ bool ReadI32(const unsigned char* buffer, size_t size, size_t* offset, int* outV
     std::memcpy(outValue, buffer + *offset, sizeof(int));
     *offset += sizeof(int);
     return true;
+}
+
+bool ReadCount(const unsigned char* buffer, size_t size, size_t* offset, int* outValue, size_t recordSize)
+{
+    return recordSize > 0
+        && ReadI32(buffer, size, offset, outValue)
+        && *outValue >= 0
+        && static_cast<size_t>(*outValue) <= (size - *offset) / recordSize;
 }
 
 bool ReadF32(const unsigned char* buffer, size_t size, size_t* offset, float* outValue)
@@ -75,10 +92,10 @@ bool ReadBytes(const unsigned char* buffer, size_t size, size_t* offset, void* o
     return true;
 }
 
-std::string ReadFixedString(const unsigned char* buffer, size_t size, size_t* offset, size_t fieldLength)
+bool ReadFixedString(const unsigned char* buffer, size_t size, size_t* offset, size_t fieldLength, std::string* outValue)
 {
-    if (!offset || *offset + fieldLength > size) {
-        return std::string();
+    if (!offset || !outValue || *offset + fieldLength > size) {
+        return false;
     }
 
     size_t actualLength = 0;
@@ -86,9 +103,9 @@ std::string ReadFixedString(const unsigned char* buffer, size_t size, size_t* of
         ++actualLength;
     }
 
-    const std::string result(reinterpret_cast<const char*>(buffer + *offset), actualLength);
+    outValue->assign(reinterpret_cast<const char*>(buffer + *offset), actualLength);
     *offset += fieldLength;
-    return result;
+    return true;
 }
 
 void NormalizeVector(vector3d* value)
@@ -146,7 +163,7 @@ bool C3dPosAnim::LoadFromBuffer(const unsigned char* buffer, size_t size, size_t
     Reset();
 
     int count = 0;
-    if (!ReadI32(buffer, size, offset, &count) || count < 0) {
+    if (!ReadCount(buffer, size, offset, &count, sizeof(posKeyframe))) {
         return false;
     }
 
@@ -168,7 +185,7 @@ bool C3dRotAnim::LoadFromBuffer(const unsigned char* buffer, size_t size, size_t
     Reset();
 
     int count = 0;
-    if (!ReadI32(buffer, size, offset, &count) || count < 0) {
+    if (!ReadCount(buffer, size, offset, &count, sizeof(rotKeyframe))) {
         return false;
     }
 
@@ -190,16 +207,20 @@ bool C3dScaleAnim::LoadFromBuffer(const unsigned char* buffer, size_t size, size
     Reset();
 
     int count = 0;
-    if (!ReadI32(buffer, size, offset, &count) || count < 0) {
+    if (!ReadCount(buffer, size, offset, &count, sizeof(legacyScaleKeyframe))) {
         return false;
     }
 
     m_animdata.resize(static_cast<size_t>(count));
-    if (count == 0) {
-        return true;
+    for (scaleKeyframe& keyframe : m_animdata) {
+        legacyScaleKeyframe legacy{};
+        if (!ReadBytes(buffer, size, offset, &legacy, sizeof(legacy))) {
+            return false;
+        }
+        keyframe = scaleKeyframe{ legacy.frame, legacy.sx, legacy.sy, legacy.sz, 1.0f, 0.0f, 0.0f, 0.0f };
     }
 
-    return ReadBytes(buffer, size, offset, m_animdata.data(), sizeof(scaleKeyframe) * static_cast<size_t>(count));
+    return true;
 }
 
 C3dMesh::C3dMesh()
@@ -383,25 +404,25 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
         return false;
     }
 
-    if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &m_numMaterials) || m_numMaterials < 0) {
+    if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &m_numMaterials, 40)) {
         return false;
     }
 
     m_materialNames.resize(static_cast<size_t>(m_numMaterials));
     for (int materialIndex = 0; materialIndex < m_numMaterials; ++materialIndex) {
-        m_materialNames[static_cast<size_t>(materialIndex)] = ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40);
-        if (offset > static_cast<size_t>(size)) {
+        if (!ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40, &m_materialNames[static_cast<size_t>(materialIndex)])) {
             return false;
         }
     }
 
-    const std::string mainNode = ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40);
-    if (offset > static_cast<size_t>(size)) {
+    std::string mainNode;
+    if (!ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40, &mainNode)) {
         return false;
     }
 
     int numNodes = 0;
-    if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &numNodes) || numNodes < 0) {
+    // A legacy node has at least 188 bytes, before texture indices and mesh data.
+    if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &numNodes, 188)) {
         return false;
     }
 
@@ -409,15 +430,14 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
         C3dNodeRes* node = new C3dNodeRes();
         node->scene = this;
         node->alpha = m_alpha;
-        node->name = ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40);
-        node->parentname = ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40);
-        if (offset > static_cast<size_t>(size)) {
+        if (!ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40, &node->name)
+            || !ReadFixedString(buffer, static_cast<size_t>(size), &offset, 40, &node->parentname)) {
             delete node;
             return false;
         }
 
         int numTexture = 0;
-        if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &numTexture) || numTexture < 0) {
+        if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &numTexture, sizeof(int))) {
             delete node;
             return false;
         }
@@ -440,7 +460,7 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
         }
 
         node->mesh = new C3dMesh();
-        if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numVert) || node->mesh->m_numVert < 0) {
+        if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numVert, sizeof(vector3d))) {
             delete node;
             return false;
         }
@@ -454,7 +474,8 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
             vertex = TransformPoint(offsetTM, vertex);
         }
 
-        if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numTVert) || node->mesh->m_numTVert < 0) {
+        const size_t texVertexSize = verMinor == 1 ? sizeof(texCoor) : sizeof(tvertex3d);
+        if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numTVert, texVertexSize)) {
             delete node;
             return false;
         }
@@ -477,7 +498,8 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
             return false;
         }
 
-        if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numFace) || node->mesh->m_numFace < 0) {
+        const size_t faceSize = verMinor == 1 ? sizeof(face3d_v11) : sizeof(face3d);
+        if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &node->mesh->m_numFace, faceSize)) {
             delete node;
             return false;
         }
@@ -513,15 +535,9 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
         });
         node->mesh->UpdateNormal();
 
-        if (verMinor >= 5 && !node->posanim.LoadFromBuffer(buffer, static_cast<size_t>(size), &offset)) {
-            delete node;
-            return false;
-        }
+        // RSM 1.1-1.5 stores rotation keys per node. Reading position or scale
+        // keys here consumes the next node's name as an animation count.
         if (!node->rotanim.LoadFromBuffer(buffer, static_cast<size_t>(size), &offset)) {
-            delete node;
-            return false;
-        }
-        if (verMinor >= 5 && !node->scaleanim.LoadFromBuffer(buffer, static_cast<size_t>(size), &offset)) {
             delete node;
             return false;
         }
@@ -530,11 +546,17 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
         m_objectList.push_back(node);
     }
 
-    if (verMinor < 5) {
-        C3dNodeRes* rootNode = FindNode(mainNode.c_str());
-        if (rootNode && !rootNode->posanim.LoadFromBuffer(buffer, static_cast<size_t>(size), &offset)) {
-            return false;
-        }
+    // Legacy models store 20-byte scale keys once, after all nodes.
+    C3dScaleAnim modelScaleAnim;
+    if (!modelScaleAnim.LoadFromBuffer(buffer, static_cast<size_t>(size), &offset)) {
+        return false;
+    }
+    C3dNodeRes* rootNode = FindNode(mainNode.c_str());
+    if (!rootNode && !m_objectList.empty()) {
+        rootNode = m_objectList.front();
+    }
+    if (rootNode) {
+        rootNode->scaleanim.m_animdata.swap(modelScaleAnim.m_animdata);
     }
 
     for (C3dNodeRes* node : m_objectList) {
@@ -552,7 +574,8 @@ bool C3dModelRes::LoadFromBuffer(const char* fName, const unsigned char* buffer,
     }
 
     int numVol = 0;
-    if (!ReadI32(buffer, static_cast<size_t>(size), &offset, &numVol) || numVol < 0) {
+    const size_t volumeSize = verMinor >= 3 ? 40 : 36;
+    if (!ReadCount(buffer, static_cast<size_t>(size), &offset, &numVol, volumeSize)) {
         return false;
     }
 

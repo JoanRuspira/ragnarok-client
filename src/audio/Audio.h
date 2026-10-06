@@ -72,6 +72,10 @@ public:
     bool Init();
     void Shutdown();
     bool PlaySound(const char* fName, float vol = 1.0f);
+    // One ambient loop, independent of music and one-shot sound effects.
+    // Muting retains the request; StopLoopedSound cancels it entirely.
+    bool PlayLoopedSound(const char* fName, float vol = 1.0f);
+    void StopLoopedSound();
     bool PlaySound3D(const char* fName, const vector3d& soundPos, const vector3d& listenerPos,
         int volumeMaxDist = 250, int volumeMinDist = 40, float vol = 1.0f);
     void PlayBGM(const char* fName);
@@ -89,11 +93,15 @@ public:
     std::string ResolveMapBgmPath(const char* rswName);
 
 private:
+    bool SyncLoopedSound();
     bool EnsureMapBgmTableLoaded();
     static std::string CanonicalizeMapName(const char* rswName);
     static std::string NormalizeAudioPath(const char* path);
 
     float m_soundVolume;
+    float m_loopedSoundVolume;
+    bool m_loopedSoundPlaying;
+    std::string m_loopedSoundPath;
     int m_bgmVolume;
     bool m_bgmPaused;
     bool m_bgmSuppressed;

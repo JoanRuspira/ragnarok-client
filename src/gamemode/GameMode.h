@@ -287,6 +287,8 @@ public:
     int m_skillChaseRange;
     int m_hasSkillChase;
     int m_mapLoadingStage;
+    bool m_rainEnabled = false;
+    bool m_rainSoundPending = false;
     u32 m_mapLoadingStartTick;
     u32 m_mapLoadingAckTick;
     u32 m_lastActorBootstrapPacketTick;

@@ -11,6 +11,9 @@ public:
     virtual void Shutdown() = 0;
 
     virtual bool PlayWave(const char* fName, float volume) = 0;
+    virtual bool PlayLoopedWave(const char* fName, float volume) = 0;
+    virtual void StopLoopedWave() = 0;
+    virtual void SetLoopedWaveVolume(float volume) = 0;
     virtual bool PlayBGM(const char* normalizedPath, int volume, bool paused) = 0;
     virtual void StopBGM() = 0;
     virtual void StopAllSounds() = 0;

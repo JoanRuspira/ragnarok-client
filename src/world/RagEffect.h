@@ -216,6 +216,7 @@ private:
         None,
         EzStr,
         BodyBurst,
+        GuardSphere,
         GroundSurface,
         Sprite,
         Entry2,
@@ -268,6 +269,7 @@ private:
     void SpawnSprite();
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
     void RenderBodyBurst(const matrix& viewMatrix);
+    void RenderGuardSphere(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;

@@ -1595,6 +1595,43 @@ void RenderPortalEffectAtPosition(const vector3d& sourcePos,
 
 bool DoesWorldPositionCoverAttrCell(const C3dAttr& attr, const vector3d& pos, float radius, int attrX, int attrY);
 
+vector3d ResolveModernTorchPosition(const C3dWorldRes::effectSrcInfo& source,
+    const std::vector<C3dActor*>& actors)
+{
+    vector3d position = source.pos;
+    if (source.type != 47 || !g_renderer.ModernFireWater().IsEnabled()) {
+        return position;
+    }
+
+    // Some maps place torch emitters at the supporting prop's foot. Match
+    // that shared origin, then lift the whole effect by the rendered prop's
+    // height, including its node transforms, rotation and instance scale.
+    float nearestDistanceSquared = 1.0f;
+    for (C3dActor* actor : actors) {
+        if (!actor || !actor->m_node || std::fabs(actor->m_pos.y - source.pos.y) > 8.0f) {
+            continue;
+        }
+        const float dx = actor->m_pos.x - source.pos.x;
+        const float dz = actor->m_pos.z - source.pos.z;
+        const float distanceSquared = dx * dx + dz * dz;
+        if (distanceSquared > nearestDistanceSquared) {
+            continue;
+        }
+        if (actor->m_isMatrixNeedUpdate) {
+            actor->UpdateMatrix();
+        }
+        vector3d minBounds{ 100000.0f, 100000.0f, 100000.0f };
+        vector3d maxBounds{ -100000.0f, -100000.0f, -100000.0f };
+        actor->m_node->UpdateBounds(&minBounds, &maxBounds, actor->m_wtm);
+        if (!std::isfinite(minBounds.y) || minBounds.y >= actor->m_pos.y - 1.0f) {
+            continue;
+        }
+        position.y = source.pos.y + minBounds.y - actor->m_pos.y;
+        nearestDistanceSquared = distanceSquared;
+    }
+    return position;
+}
+
 class CFixedWorldEffect : public CAbleToMakeEffect {
 public:
     explicit CFixedWorldEffect(const C3dWorldRes::effectSrcInfo& source)
@@ -3083,6 +3120,10 @@ u32 ResolveWaterColor(const C3dGround& ground)
 
 CTexture* UpdateGroundWater(C3dGround& ground)
 {
+    if (g_renderer.ModernFireWater().IsEnabled()) {
+        ground.m_waterTex = nullptr;
+        return nullptr;
+    }
     const u32 now = timeGetTime();
     if (ground.m_lastWaterAnimTick == 0) {
         ground.m_lastWaterAnimTick = now;
@@ -3136,6 +3177,20 @@ bool BuildWaterQuadHeights(const C3dGround& ground,
         return false;
     }
 
+    const auto& modern = g_renderer.ModernFireWater();
+    if (modern.IsEnabled()) {
+        const float x0 = GroundCoordX(tileX, ground.m_width, ground.m_zoom);
+        const float x1 = GroundCoordX(tileX + 1, ground.m_width, ground.m_zoom);
+        const float z0 = GroundCoordZ(tileY, ground.m_height, ground.m_zoom);
+        const float z1 = GroundCoordZ(tileY + 1, ground.m_height, ground.m_zoom);
+        const float amplitude = (std::min)(3.0f, (std::max)(0.9f, 0.8f + std::fabs(ground.m_waveHeight) * 2.5f));
+        *outH0 = ground.m_waterLevel + modern.WaterHeight(x0, z0, amplitude);
+        *outH1 = ground.m_waterLevel + modern.WaterHeight(x1, z0, amplitude);
+        *outH2 = ground.m_waterLevel + modern.WaterHeight(x0, z1, amplitude);
+        *outH3 = ground.m_waterLevel + modern.WaterHeight(x1, z1, amplitude);
+        return true;
+    }
+
     if (ground.m_waveHeight == 0.0f) {
         *outH0 = ground.m_waterLevel;
         *outH1 = ground.m_waterLevel;
@@ -3160,7 +3215,7 @@ void SubmitWaterQuad(C3dGround& ground,
     int tileY,
     const CGroundCell& cell)
 {
-    if (!ground.m_waterTex) {
+    if (!ground.m_waterTex && !g_renderer.ModernFireWater().IsEnabled()) {
         return;
     }
 
@@ -3172,7 +3227,10 @@ void SubmitWaterQuad(C3dGround& ground,
         return;
     }
 
-    if (!(cell.h[0] > h1 || cell.h[1] > h1 || cell.h[2] > h1 || cell.h[3] > h1)) {
+    const bool submerged = g_renderer.ModernFireWater().IsEnabled()
+        ? (cell.h[0] > h0 || cell.h[1] > h1 || cell.h[2] > h2 || cell.h[3] > h3)
+        : (cell.h[0] > h1 || cell.h[1] > h1 || cell.h[2] > h1 || cell.h[3] > h1);
+    if (!submerged) {
         return;
     }
 
@@ -3186,6 +3244,12 @@ void SubmitWaterQuad(C3dGround& ground,
         vector3d{ x0, h2, z1 },
         vector3d{ x1, h3, z1 },
     };
+
+    if (g_renderer.ModernFireWater().IsEnabled()) {
+        const float depths[4] = { cell.h[0] - h0, cell.h[1] - h1, cell.h[2] - h2, cell.h[3] - h3 };
+        g_renderer.ModernFireWater().QueueWater(g_renderer, viewMatrix, waterVerts, depths, ResolveWaterColor(ground));
+        return;
+    }
 
     RPFace* face = g_renderer.BorrowNullRP();
     if (!face) {
@@ -5671,7 +5735,9 @@ bool CWorld::AppendFixedEffects(const C3dWorldRes& worldRes,
             continue;
         }
 
-        CFixedWorldEffect* effect = new CFixedWorldEffect(*effectInfo);
+        C3dWorldRes::effectSrcInfo renderSource = *effectInfo;
+        renderSource.pos = ResolveModernTorchPosition(*effectInfo, m_bgObjList);
+        CFixedWorldEffect* effect = new CFixedWorldEffect(renderSource);
         if (!effect) {
             return false;
         }

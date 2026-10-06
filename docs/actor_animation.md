@@ -22,6 +22,11 @@ to the server damage motion time, with a 200 ms fallback. Completed attacks
 return to idle or the player's ready stance; death actions hold their last pose.
 Player idle and sitting frames retain their head direction semantics.
 
+The player's battle ready stance (action band 32) loops while the player remains
+stationary. Billboard selection keeps this action visible after the first
+animation cycle, until a state change such as walking, sitting, attacking or
+casting replaces it.
+
 Visible equipment uses its own elapsed-time clock while idle or sitting. The
 client reads each equipment ACT's motion count and delay for the current facing
 direction. Animated actions contain three head-direction groups; frames loop
@@ -74,6 +79,32 @@ are invalidated when an actor's exact position or animation pose changes.
 Per-frame motion trace logging is disabled by default to avoid synchronous
 log writes while attacking.
 
+## Spear weapon appearance
+
+Weapon appearance lookup uses the item-info `ClassNum` for spears whose item IDs
+fall outside the legacy weapon ranges. Class `4` selects a one-handed spear and
+class `5` selects a two-handed spear. This covers the forged Spear (`50401`) and
+forged Two-Handed Spear (`50451`) in the installed `System/itemInfo_true.lub`.
+The metadata is loaded through the existing item-info lookup and cached with
+each item. Known legacy item types and direct server weapon-class values keep
+their existing precedence.
+
+The resolved class drives both weapon overlays and attack selection, including
+the spear thrust action band (`88`), rather than the ordinary attack band (`80`).
+Body resource lookup uses the same resolver. Both spear types use the installed
+class-specific spear ACT/SPR pairs and their optional weapon-light layers;
+transcendent and baby jobs retain the existing base-job resource fallback.
+`ClassNum` is interpreted as a spear class in the weapon appearance path only:
+armor and shields also use this field for unrelated view IDs.
+
+Direct inspection verified male and female Swordman, Knight, and Crusader spear
+ACT/SPR pairs. Every facing direction has six visible battle-ready frames and
+eight visible thrust frames. Their ordinary idle frames contain no weapon clips,
+so these assets show the equipped spear in the combat poses authored for them.
+This source change has not been built or checked in a running updated client.
+Compare `1401`/`50401` and `1451`/`50451`, both sexes and all eight directions,
+including swapping weapons, unequipping, and a shield with a one-handed spear.
+
 ## Validation
 
 Source and diff checks and direct GRF inspection were performed. The user
@@ -96,7 +127,9 @@ GRFs, movement speed and attack speed:
 1. Walk straight, diagonally and around corners; extend the destination while
    walking. Compare the local player with another player and a moving monster.
 2. Attack Poring, Lunatic and Fabre at ordinary and high ASPD. Check the impact
-   pose, weapon layers, sound timing and return to idle after the last attack.
+   pose, weapon layers and sound timing. After the last attack, remain stationary
+   for several cycles and check that the battle ready stance keeps looping.
+   Walk, sit, attack or cast and check that the next action replaces the stance.
 3. Take damage and kill each monster. Check the full hit reaction and death
    sequence, including Lunatic's 34-frame death action and the final fade.
 4. Change head direction while idle and sitting, then walk and cast skills.

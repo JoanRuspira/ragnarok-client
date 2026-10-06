@@ -49,6 +49,8 @@ std::unique_ptr<IAudioBackend> CreateDefaultAudioBackend()
 
 CAudio::CAudio()
     : m_soundVolume(1.0f)
+    , m_loopedSoundVolume(1.0f)
+    , m_loopedSoundPlaying(false)
     , m_bgmVolume(kMaxVolume)
     , m_bgmPaused(false)
     , m_bgmSuppressed(false)
@@ -76,6 +78,7 @@ bool CAudio::Init()
 
 void CAudio::Shutdown()
 {
+    StopLoopedSound();
     if (!m_backend) {
         return;
     }
@@ -97,6 +100,59 @@ bool CAudio::PlaySound(const char* fName, float vol)
     }
 
     return m_backend->PlayWave(fName, clampedVolume);
+}
+
+bool CAudio::PlayLoopedSound(const char* fName, float vol)
+{
+    const std::string path = NormalizeAudioPath(fName);
+    if (path.empty()) {
+        StopLoopedSound();
+        return false;
+    }
+
+    if (path != m_loopedSoundPath) {
+        StopLoopedSound();
+        m_loopedSoundPath = path;
+    }
+    m_loopedSoundVolume = ClampUnit(vol);
+    return SyncLoopedSound();
+}
+
+void CAudio::StopLoopedSound()
+{
+    if (m_backend) {
+        m_backend->StopLoopedWave();
+    }
+    m_loopedSoundPlaying = false;
+    m_loopedSoundPath.clear();
+}
+
+bool CAudio::SyncLoopedSound()
+{
+    if (m_loopedSoundPath.empty()) {
+        return false;
+    }
+
+    const float volume = ClampUnit(m_loopedSoundVolume * m_soundVolume);
+    if (!g_soundMode || !g_isSoundOn || volume <= 0.0f) {
+        if (m_backend) {
+            m_backend->StopLoopedWave();
+        }
+        m_loopedSoundPlaying = false;
+        // Keep the requested loop so unmuting can resume it on this map.
+        return false;
+    }
+
+    if (!Init()) {
+        return false;
+    }
+    if (m_loopedSoundPlaying) {
+        m_backend->SetLoopedWaveVolume(volume);
+        return true;
+    }
+
+    m_loopedSoundPlaying = m_backend->PlayLoopedWave(m_loopedSoundPath.c_str(), volume);
+    return m_loopedSoundPlaying;
 }
 
 bool CAudio::PlaySound3D(const char* fName, const vector3d& soundPos, const vector3d& listenerPos,
@@ -159,11 +215,14 @@ void CAudio::StopAllSounds()
     if (m_backend) {
         m_backend->StopAllSounds();
     }
+    m_loopedSoundPlaying = false;
+    m_loopedSoundPath.clear();
 }
 
 void CAudio::SetVolume(float vol)
 {
     m_soundVolume = ClampUnit(vol);
+    SyncLoopedSound();
 }
 
 float CAudio::GetVolume() const

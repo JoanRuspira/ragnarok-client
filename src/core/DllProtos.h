@@ -14,6 +14,7 @@ typedef void (__stdcall *P_AIL_release_sample_handle)(void *sample);
 typedef void (__stdcall *P_AIL_init_sample)(void *sample);
 typedef void (__stdcall *P_AIL_set_sample_file)(void *sample, const void *file_image, s32 block);
 typedef void (__stdcall *P_AIL_set_sample_volume)(void *sample, s32 volume);
+typedef void (__stdcall *P_AIL_set_sample_loop_count)(void *sample, s32 count);
 typedef void (__stdcall *P_AIL_start_sample)(void *sample);
 typedef void (__stdcall *P_AIL_stop_sample)(void *sample);
 typedef u32 (__stdcall *P_AIL_sample_status)(void *sample);
@@ -122,6 +123,7 @@ struct DLL_EXPORTS {
     P_AIL_init_sample AIL_init_sample;
     P_AIL_set_sample_file AIL_set_sample_file;
     P_AIL_set_sample_volume AIL_set_sample_volume;
+    P_AIL_set_sample_loop_count AIL_set_sample_loop_count;
     P_AIL_start_sample AIL_start_sample;
     P_AIL_stop_sample AIL_stop_sample;
     P_AIL_sample_status AIL_sample_status;

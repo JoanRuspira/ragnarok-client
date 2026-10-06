@@ -170,6 +170,7 @@ bool CDllMgr::LoadAll() {
     g_dllExports.AIL_init_sample = (P_AIL_init_sample)getMilesProc("_AIL_init_sample@4", "AIL_init_sample");
     g_dllExports.AIL_set_sample_file = (P_AIL_set_sample_file)getMilesProc("_AIL_set_sample_file@12", "AIL_set_sample_file");
     g_dllExports.AIL_set_sample_volume = (P_AIL_set_sample_volume)getMilesProc("_AIL_set_sample_volume@8", "AIL_set_sample_volume");
+    g_dllExports.AIL_set_sample_loop_count = (P_AIL_set_sample_loop_count)getMilesProc("_AIL_set_sample_loop_count@8", "AIL_set_sample_loop_count");
     g_dllExports.AIL_start_sample = (P_AIL_start_sample)getMilesProc("_AIL_start_sample@4", "AIL_start_sample");
     g_dllExports.AIL_stop_sample = (P_AIL_stop_sample)getMilesProc("_AIL_stop_sample@4", "AIL_stop_sample");
     g_dllExports.AIL_sample_status = (P_AIL_sample_status)getMilesProc("_AIL_sample_status@4", "AIL_sample_status");

@@ -204,6 +204,67 @@ enemy for 200 ms enables continuous attacks regardless of `AutoAttack`; with `Au
 releasing it stops continuous attacks. Short clicks remain single attacks.
 Restart the client after changing the setting.
 
+Procedural rain and particle mist can be enabled for outdoor gameplay maps in the same INI file:
+
+```ini
+[Weather]
+Rain=1
+```
+
+Set `Rain=0` (the default) to disable rain, mist and rain audio. Restart the client
+after editing the setting, or change maps to reload it. This proof of concept generates translucent
+rain streaks and a texture for soft, irregular mist particles entirely in code.
+The blue mist drifts in varied directions, swirls and circulates across the screen,
+and gently turns, changes size and fades beneath the rain and UI.
+Each map retains its normal fog settings. Rain and mist automatically stop in
+interiors and dungeons and resume when returning outdoors. Map detection uses
+the client's `data/indoorrswtable.txt` plus standard interior, dungeon and
+instance map naming rules. Custom maps with other names need classification
+before they can be excluded. Both weather effects use screen coordinates;
+they have no roof collision or ground splashes.
+
+Add a WAV file at `data/wav/rain.wav` to play a continuous rain sound loop under
+the same `Rain` toggle. The loop follows the sound effects volume and mute
+settings. It starts after gameplay is presented, remains silent during loading
+screens and stops on map exit, including transitions to interiors or dungeons.
+A missing file leaves the rain visuals enabled without audio. Use a WAV prepared
+for seamless looping; the client repeats the entire file.
+
+A night filter with glowing fireflies can be enabled independently in the same INI file:
+
+```ini
+[Weather]
+Night=1
+```
+
+Set `Night=0` (the default) to disable it. Restart or change maps after editing.
+This proof of concept darkens outdoor gameplay maps with a
+cool blue tint that also affects rain and mist. The lower screen stays slightly
+brighter, and the UI retains its normal brightness. It can be used with `Rain=1`.
+The same toggle adds softly glowing yellow-green fireflies with varied drift,
+flutter and blinking rhythms. Their generated glow draws after the night tint
+and beneath the UI. Night and fireflies use the same map detection as rain,
+automatically stopping in interiors and dungeons and resuming outdoors.
+These proof-of-concept particles use screen coordinates.
+
+Procedural fire and water replacements share one proof-of-concept toggle:
+
+```ini
+[Effects]
+ModernFireWater=1
+```
+
+Set `ModernFireWater=0` (the default) to use the classic rendering. Restart or
+change maps after editing. This applies to every map torch emitter (RSW type 47)
+and all ground water surfaces, including the torches and pools in `pay_dun01`.
+Fire gains layered, flickering flame tongues, soft glow and rising embers. Emitters
+at a supporting prop's foot are raised to its rendered top, accounting for the
+prop's scale and rotation. Water gains larger rolling waves, bright blue color
+bands, two flowing texture layers, glancing-angle highlights and thick pale
+crests near shallow edges. All textures are generated in code. Effects retain
+world depth testing and map water levels; this does not add
+scene reflections or dynamic lighting, or replace skill animations.
+
 ## Project Goals
 
 - Recreate the Ragnarok Online client as open source code

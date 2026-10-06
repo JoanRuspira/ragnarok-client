@@ -136,6 +136,66 @@ public:
         return true;
     }
 
+    bool PlayLoopedWave(const char* fName, float volume) override
+    {
+        if (!fName || !*fName || volume <= 0.0f || !Init()) {
+            return false;
+        }
+
+        StopLoopedWave();
+        // Keep the file bytes alive for the decoder, independently of the
+        // resource cache, which can be unloaded while the loop is playing.
+        if (!m_loopedWaveData.Load(fName)) {
+            return false;
+        }
+
+        ma_decoder_config decoderConfig = ma_decoder_config_init_default();
+        if (ma_decoder_init_memory(
+                m_loopedWaveData.m_fileImage,
+                static_cast<size_t>(m_loopedWaveData.m_fileSize),
+                &decoderConfig,
+                &m_loopedWave.decoder) != MA_SUCCESS) {
+            StopLoopedWave();
+            return false;
+        }
+        m_loopedWave.decoderInitialized = true;
+
+        if (ma_sound_init_from_data_source(
+                &m_engine,
+                &m_loopedWave.decoder,
+                MA_SOUND_FLAG_NO_SPATIALIZATION,
+                nullptr,
+                &m_loopedWave.sound) != MA_SUCCESS) {
+            StopLoopedWave();
+            return false;
+        }
+        m_loopedWave.soundInitialized = true;
+        ma_sound_set_looping(&m_loopedWave.sound, MA_TRUE);
+        SetLoopedWaveVolume(volume);
+        if (ma_sound_start(&m_loopedWave.sound) != MA_SUCCESS) {
+            StopLoopedWave();
+            return false;
+        }
+
+        return true;
+    }
+
+    void StopLoopedWave() override
+    {
+        if (m_loopedWave.soundInitialized) {
+            ma_sound_stop(&m_loopedWave.sound);
+        }
+        CleanupOneShot(&m_loopedWave);
+        m_loopedWaveData.Reset();
+    }
+
+    void SetLoopedWaveVolume(float volume) override
+    {
+        if (m_loopedWave.soundInitialized) {
+            ma_sound_set_volume(&m_loopedWave.sound, volume);
+        }
+    }
+
     bool PlayBGM(const char* normalizedPath, int volume, bool paused) override
     {
         if (!normalizedPath || !*normalizedPath || !Init()) {
@@ -212,6 +272,7 @@ public:
 
     void StopAllSounds() override
     {
+        StopLoopedWave();
         for (const std::unique_ptr<MiniaudioOneShot>& instance : m_activeSounds) {
             CleanupOneShot(instance.get());
         }
@@ -298,6 +359,8 @@ private:
     ma_engine m_engine{};
     bool m_initialized = false;
     std::vector<std::unique_ptr<MiniaudioOneShot>> m_activeSounds;
+    MiniaudioOneShot m_loopedWave{};
+    CWave m_loopedWaveData;
 
     ma_decoder m_bgmDecoder{};
     ma_sound m_bgmSound{};

@@ -125,6 +125,62 @@ public:
         return true;
     }
 
+    bool PlayLoopedWave(const char* fName, float volume) override
+    {
+        if (!fName || !*fName || volume <= 0.0f || !Init()
+            || !g_dllExports.AIL_allocate_sample_handle
+            || !g_dllExports.AIL_release_sample_handle
+            || !g_dllExports.AIL_init_sample
+            || !g_dllExports.AIL_set_sample_file
+            || !g_dllExports.AIL_set_sample_volume
+            || !g_dllExports.AIL_set_sample_loop_count
+            || !g_dllExports.AIL_start_sample
+            || !g_dllExports.AIL_end_sample) {
+            return false;
+        }
+
+        StopLoopedWave();
+        if (!m_loopedWaveData.Load(fName)) {
+            return false;
+        }
+
+        // A dedicated handle keeps one-shot effects from reusing the loop.
+        m_loopedSample = g_dllExports.AIL_allocate_sample_handle(m_digDriver);
+        if (!m_loopedSample) {
+            StopLoopedWave();
+            return false;
+        }
+
+        g_dllExports.AIL_init_sample(m_loopedSample);
+        g_dllExports.AIL_set_sample_file(m_loopedSample, m_loopedWaveData.m_fileImage, 0);
+        g_dllExports.AIL_set_sample_loop_count(m_loopedSample, 0); // Infinite playback.
+        SetLoopedWaveVolume(volume);
+        g_dllExports.AIL_start_sample(m_loopedSample);
+        return true;
+    }
+
+    void StopLoopedWave() override
+    {
+        if (m_loopedSample) {
+            if (g_dllExports.AIL_end_sample) {
+                g_dllExports.AIL_end_sample(m_loopedSample);
+            }
+            if (g_dllExports.AIL_release_sample_handle) {
+                g_dllExports.AIL_release_sample_handle(m_loopedSample);
+            }
+            m_loopedSample = nullptr;
+        }
+        m_loopedWaveData.Reset();
+    }
+
+    void SetLoopedWaveVolume(float volume) override
+    {
+        if (m_loopedSample && g_dllExports.AIL_set_sample_volume) {
+            g_dllExports.AIL_set_sample_volume(m_loopedSample,
+                ClampMilesVolume(static_cast<int>(volume * static_cast<float>(kMaxVolume))));
+        }
+    }
+
     bool PlayBGM(const char* normalizedPath, int volume, bool paused) override
     {
         if (!normalizedPath || !*normalizedPath || !Init() || !g_dllExports.AIL_open_stream) {
@@ -178,6 +234,7 @@ public:
 
     void StopAllSounds() override
     {
+        StopLoopedWave();
         if (!g_dllExports.AIL_end_sample) {
             return;
         }
@@ -246,6 +303,8 @@ private:
 
     HDIGDRIVER m_digDriver = nullptr;
     std::vector<HSAMPLE> m_samples;
+    HSAMPLE m_loopedSample = nullptr;
+    CWave m_loopedWaveData;
     void* m_bgmStream = nullptr;
     int m_bgmVolume = kMaxVolume;
     bool m_bgmPaused = false;

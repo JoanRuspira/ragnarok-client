@@ -4038,6 +4038,18 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        if (presentation->renderer == SkillEffectPresentation::Renderer::GuardSphere) {
+            const auto& sphere = presentation->guardSphere;
+            m_handler = Handler::GuardSphere;
+            m_proceduralPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            m_duration = static_cast<int>(std::ceil(sphere.durationMs / kEffectTickMs));
+            m_presentationTexture = g_texMgr.GetTexture(sphere.texturePath.c_str(), false);
+            if (m_presentationTexture == &CTexMgr::s_dummy_texture) m_presentationTexture = nullptr;
+            m_pendingPresentationSound = sphere.wavPath;
+            if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", sphere.texturePath.c_str());
+            return;
+        }
         if (presentation->renderer == SkillEffectPresentation::Renderer::BodyBurst) {
             const auto& burst = presentation->bodyBurst;
             m_handler = Handler::BodyBurst;
@@ -4413,7 +4425,9 @@ void CRagEffect::InitWorld(const C3dWorldRes::effectSrcInfo& source)
     m_tickCarryMs = kEffectTickMs;
 
     const std::string worldStrName = ResolveWorldStrName(source.name);
-    if (!worldStrName.empty()) {
+    if (source.type == 47 && g_renderer.ModernFireWater().IsEnabled()) {
+        m_handler = Handler::Torch;
+    } else if (!worldStrName.empty()) {
         m_handler = Handler::EzStr;
         LoadEzEffect(worldStrName.c_str());
         InitEZ2STRFrame();
@@ -4568,6 +4582,11 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::GuardSphere:
+        center.y += m_presentationOffsetY;
+        radius = (std::max)(m_proceduralPresentation->guardSphere.radius,
+            m_proceduralPresentation->guardSphere.height * 0.5f);
+        break;
     case Handler::BodyBurst:
         if (m_proceduralPresentation) {
             const auto& burst = m_proceduralPresentation->bodyBurst;
@@ -6132,7 +6151,7 @@ void CRagEffect::SpawnSmoke()
 
 void CRagEffect::SpawnTorch()
 {
-    if (m_stateCnt != 0) {
+    if (m_stateCnt != 0 || g_renderer.ModernFireWater().IsEnabled()) {
         return;
     }
 
@@ -6516,6 +6535,10 @@ u8 CRagEffect::OnProcess()
                 burst.haloAlpha, burst.haloRadius };
         }
     }
+    if (m_handler == Handler::GuardSphere && !m_presentationStarted) {
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+    }
     if (!m_pendingPresentationSound.empty()) {
         // Play once when the animation starts, after any SetStartDelayMs delay.
         TryPlaySingleEffectWave(ResolveBasePosition(), m_pendingPresentationSound);
@@ -6542,6 +6565,10 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (m_handler == Handler::GuardSphere) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < static_cast<u32>(m_proceduralPresentation->guardSphere.durationMs) ? 1 : 0;
+    }
     if (m_handler == Handler::BodyBurst) {
         const auto& burst = m_proceduralPresentation->bodyBurst;
         const int durationMs = (std::max)(burst.flashEndMs, burst.burstDelayMs + burst.burstDurationMs);
@@ -6883,12 +6910,68 @@ void CRagEffect::RenderBodyBurst(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderGuardSphere(const matrix& viewMatrix)
+{
+    if (!m_presentationStarted || !m_presentationTexture) return;
+    const auto& sphere = m_proceduralPresentation->guardSphere;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    if (elapsedMs >= static_cast<u32>(sphere.durationMs)) return;
+    const float fade = (std::min)(1.0f, (std::min)(
+        static_cast<float>(elapsedMs) / sphere.fadeInMs,
+        static_cast<float>(sphere.durationMs - elapsedMs) / sphere.fadeOutMs));
+    const u32 color = (static_cast<u32>(255.0f * sphere.alpha * fade) << 24)
+        | static_cast<u32>(sphere.color);
+    const unsigned int colors[4] = { color, color, color, color };
+    vector3d center = ResolveBasePosition();
+    center.y += m_presentationOffsetY;
+
+    // Six crosses around each of three bands, subdivided to curve with the barrier.
+    // Each tile uses UVs in [0,1], avoiding dependence on the sampler's wrap mode.
+    constexpr int columns = 6;
+    constexpr int rows = 3;
+    constexpr int subdivisions = 4;
+    const auto point = [&](float u, float v) {
+        const float longitude = u * 2.0f * kPi;
+        const float latitude = (v - 0.5f) * kPi;
+        const float ringRadius = sphere.radius * std::cos(latitude);
+        return vector3d{ center.x + ringRadius * std::cos(longitude),
+            center.y + sphere.height * 0.5f * std::sin(latitude),
+            center.z + ringRadius * std::sin(longitude) };
+    };
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            for (int y = 0; y < subdivisions; ++y) {
+                for (int x = 0; x < subdivisions; ++x) {
+                    const float u0 = static_cast<float>(x) / subdivisions;
+                    const float u1 = static_cast<float>(x + 1) / subdivisions;
+                    const float v0 = static_cast<float>(y) / subdivisions;
+                    const float v1 = static_cast<float>(y + 1) / subdivisions;
+                    const vector3d quad[4] = {
+                        point((column + u0) / columns, (row + v0) / rows),
+                        point((column + u1) / columns, (row + v0) / rows),
+                        point((column + u0) / columns, (row + v1) / rows),
+                        point((column + u1) / columns, (row + v1) / rows),
+                    };
+                    const float uvs[4][2] = { { u0, v0 }, { u1, v0 }, { u0, v1 }, { u1, v1 } };
+                    // World depth keeps the rear crosses behind the caster and the front ones ahead.
+                    SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 2);
+                }
+            }
+        }
+    }
+}
+
 void CRagEffect::Render(matrix* viewMatrix)
 {
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
         return;
     }
+    if (m_handler == Handler::Torch && g_renderer.ModernFireWater().IsEnabled()) {
+        g_renderer.ModernFireWater().QueueTorch(g_renderer, *viewMatrix, ResolveBasePosition(), m_param[0]);
+        return;
+    }
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
+    if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
         RenderRecoverySparkles(*viewMatrix);
     }

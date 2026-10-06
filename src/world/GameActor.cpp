@@ -1945,7 +1945,11 @@ bool IsTransientActionActive(const CGameActor& actor, CActRes* actRes, int actio
         // State processing owns completion, including freezes and recovery.
         return true;
     }
-    // The player's ready stance briefly follows the completed action.
+    if (actor.m_isPc != 0 && actionBand == 32) {
+        // The player's ready stance loops until a state change replaces it.
+        return true;
+    }
+    // Other action bands retained in idle finish after one cycle.
     const int motionCount = (std::max)(1, actRes->GetMotionCount(resolvedAction));
     return ResolveActorMotionProgress(actor, actRes, resolvedAction) < static_cast<float>(motionCount);
 }

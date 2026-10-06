@@ -2213,10 +2213,11 @@ Item {
     }
 
     Item {
+        readonly property int topMargin: 12
         x: Math.max(0, Math.floor(parent.width) - width - 6)
         y: uiState.minimapVisible && uiState.minimapX + uiState.minimapWidth > x
-            ? Math.max(6, uiState.minimapY + uiState.minimapHeight + 6)
-            : 6
+            ? Math.max(topMargin, uiState.minimapY + uiState.minimapHeight + topMargin)
+            : topMargin
         width: 56
         height: {
             const iconCount = (uiState.statusIcons || []).length

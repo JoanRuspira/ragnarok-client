@@ -8,7 +8,7 @@ return {
         [1353] = { -- EFST_SPIRITGROWTH; skill 819 (SK_SM_SPIRITGROWTH)
             name = "Spirit Growth",
             -- Placeholder: replace with the path to your own icon in the GRF.
-            icon = [[data\texture\effect\abc_abyss_dagger.tga]],
+            icon = [[data\texture\effect\spiritgrowth.tga]],
         },
     },
 }

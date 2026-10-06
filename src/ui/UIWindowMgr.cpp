@@ -1903,6 +1903,7 @@ bool UIWindowMgr::SetWallpaperFromGameData(const std::string& wallpaperName) {
 
 void UIWindowMgr::ShowLoadingScreen(const std::string& message, float progress)
 {
+    CAudio::GetInstance()->StopLoopedSound();
     CAudio::GetInstance()->SetBgmSuppressed(true);
     if (!m_loadingScreenActive) {
         const std::vector<std::string>& loadingScreens = GetLoadingScreenList();
@@ -1929,6 +1930,7 @@ void UIWindowMgr::UpdateLoadingScreen(const std::string& message, float progress
         return;
     }
 
+    CAudio::GetInstance()->StopLoopedSound();
     CAudio::GetInstance()->SetBgmSuppressed(true);
     m_loadingWnd->SetMessage(message);
     m_loadingWnd->SetProgress(progress);

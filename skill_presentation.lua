@@ -18,43 +18,77 @@ return {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
+        [398] = {
+            name = "Traumatic Strike", 
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2003,
+                    str = [[data\texture\effect\chain_reaction_shot\chain_reaction_shot_hit\chain_reaction_shot_hit.str]],
+                    wav = [[data\wav\_hit_sword.wav]],
+                },
+                {
+                    effect_id = 2004,
+                    str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_b_bottom\acidified_zone_fire_b_bottom.str]],
+                }
+            },
+        },
         [942] = {
             name = "Magnum Break", -- SK_SM_MAGNUM
             motion_type = 2,
             server_notified = true, -- The server sends the caster effects and magnumbr.wav.
         },
-        [398] = {
-            name = "Traumatic Strike", -- SK_SM_TRAUMATIC_STRIKE (Head Crush)
+        [5] = {
+            name = "Bash",
             motion_type = 2,
-            server_notified = true, -- The server owns the impact effects on the target.
-            source_server_notified = false, -- It does not send the caster presentation.
+            server_notified = true,
             target = {
-                { effect_id = 677, str = [[data\texture\effect\cwound.str]] },
-                -- EF_MADNESS_RED (626) is also server-sent; its renderer is not implemented yet.
+                {
+                    effect_id = 2000,
+                    str = [[data\texture\effect\wooden_warrior\throwrock\throwrock_hit\throwrock_hit.str]],
+                    wav = [[data\wav\_hit_sword.wav]],
+                },
+                {
+                    effect_id = 2001,
+                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_b_bottom\acidified_zone_ground_b_bottom.str]],
+                },
             },
-            -- {
-            --     effect_id = 399, -- EF_BASH3D3, an effect ID independent of skill IDs.
-            --     renderer = "body_burst", -- This effect is procedural; it has no STR.
-            --     texture = [[data\texture\effect\alpha_center.tga]],
-            --     -- Head Crush WAV: CP949 filename bytes, independent of Lua file encoding.
-            --     wav = "data\\wav\\effect\\\199\236\181\229 \197\169\183\175\189\172.wav",
-            --     flash_start_color = 0xFFFFCD,
-            --     flash_peak_color = 0xFFFF05,
-            --     flash_peak_ms = 200,
-            --     flash_end_ms = 500,
-            --     halo_alpha = 0.6,
-            --     halo_radius = 2,
-            --     burst_delay_ms = 500,
-            --     burst_duration_ms = 175,
-            --     burst_count = 6,
-            --     burst_arc_degrees = 12,
-            --     burst_height = 7.5, -- Above the actor; reference cell units converted to world units (x5).
-            --     burst_alpha = 0.6,
-            --     burst_radii = { 22.5, 36 },
-            -- },
+        },
+        [813] = {
+            name = "Spear Stance",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2008,
+                    str = [[data\texture\effect\servant_demolition\servant_demolition_collect\servant_demolition_collect.str]],
+                    wav = [[data\wav\effect\sr_powervelocity.wav]],
+                }
+            },
+        },
+        [58] = {
+            name = "Spear Stab", 
+            motion_type = 2,
+            server_notified = true, 
+            target = {         
+                { 
+                    effect_id = 2005, 
+                    str = [[data\texture\effect\servant_phantom\servant_phantom_down\servant_phantom_down.str]],
+                    wav = [[data\wav\_hit_sword.wav]] 
+                },
+                { 
+                    effect_id = 2006, 
+                    str = [[data\texture\effect\servantweapon\new_servantweapon\new_servantweapon_hit\new_servantweapon_hit.str]] 
+                },
+                { 
+                    effect_id = 2007,
+                    str = [[data\texture\effect\servantweapon\new_servantweapon\new_servantweapon_hit_bottom\new_servantweapon_hit_bottom.str]] 
+                },
+            },
         },
         [399] = {
-            name = "Arcane Strike", -- SK_SM_LIGHTNING_STRIKE
+            name = "Arcane Strike", 
             motion_type = 2,
             server_notified = true,
             target = {
@@ -73,22 +107,6 @@ return {
                 },
             },
         },
-        [5] = {
-            name = "Bash",
-            motion_type = 2,
-            server_notified = true,
-            target = {
-                {
-                    effect_id = 2000,
-                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_hit\acidified_zone_ground_hit.str]],
-                    wav = [[data\wav\_hit_sword.wav]],
-                },
-                {
-                    effect_id = 2001,
-                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_b_bottom\acidified_zone_ground_b_bottom.str]],
-                },
-            },
-        },
         [819] = {
             name = "Spirit Growth",
             motion_type = 1,
@@ -96,24 +114,43 @@ return {
             target = {
                 {
                     effect_id = 2002,
-                    str = [[data\texture\effect\new_clearence\new_clearence\new_clearence.str]],
-                    -- str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
-
+                    str = [[data\texture\effect\new_comet\new_comet_cast\new_comet_cast.str]],
+                    wav = [[data\wav\ag_climax.wav]],
                 }
             },
-        }
+        },
+
+
+        -- [146] = {
+        --     name = "Counterstrike", -- SK_SM_AUTOBERSERK in this server's skill database.
+        --     server_notified = true,
+        --     source = { { effect_id = 1032 } }, -- The server sends EF_MAXPAIN once on the caster.
+        -- },
     },
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        -- [1032] = { -- EF_MAXPAIN: brief orange guard barrier; there is no authored STR.
+        --     renderer = "guard_sphere",
+        --     texture = [[data\texture\effect\guardK2.tga]],
+        --     wav = [[data\wav\effect\kyrie_guard.wav]],
+        --     offset_y = -7,
+        --     radius = 7,
+        --     height = 16,
+        --     color = 0xFF9F24,
+        --     alpha = 0.8,
+        --     duration_ms = 700,
+        --     fade_in_ms = 100,
+        --     fade_out_ms = 200,
+        -- },
         -- Uncomment either example and choose the STR you want for that boost.
         -- recovery.str is an installed example asset; it is the Priest Recovery visual.
         -- Entries here replace the built-in visual and audio; omit wav for silence.
-        [331] = { -- EF_HPTIME / SK_SM_RECOVERY HP boost
+        [332] = { -- EF_HPTIME / SK_SM_RECOVERY HP boost
             str = [[data\texture\effect\arbitrium\arbitrium_cast\arbitrium_cast.str]],
             wav = [[data\wav\_heal_effect.wav]],
         },
-        [332] = { -- EF_SPTIME / SK_SM_SRECOVERY SP boost
+        [331] = { -- EF_SPTIME / SK_SM_SRECOVERY SP boost
             str = [[data\texture\effect\presensacies\presensacies_cast\presensacies_cast.str]],
             wav = [[data\wav\_heal_effect.wav]],
         },

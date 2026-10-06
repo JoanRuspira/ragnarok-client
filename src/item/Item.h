@@ -39,6 +39,7 @@ struct ItemMetadata {
     std::string identifiedResourceName;
     std::string description;
     int slotCount = 0;
+    int classNum = 0; // Client item-info view class; also used by spear appearance lookup.
     std::string cardIllustName;
 };
 

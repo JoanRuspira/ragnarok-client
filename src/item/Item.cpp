@@ -362,6 +362,7 @@ const ItemMetadata* CItemMgr::GetMetadata(unsigned int itemId)
 			if (metadata.slotCount == 0) {
 				metadata.slotCount = luaInfo.slotCount;
 			}
+			metadata.classNum = luaInfo.classNum;
 		}
 	}
 	const auto it = m_metadata.find(itemId);

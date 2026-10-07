@@ -54,7 +54,7 @@ constexpr float kNearPlane = 10.0f;
 constexpr float kGroundSubmitNearPlane = 80.0f;
 constexpr float kAttrTileDepthBias = 0.0010f;
 constexpr float kPlayerBillboardWorldHeightScale = 2.0f;
-constexpr float kNonPcBillboardScaleAnchorY = 110.0f;
+constexpr float kActorBillboardScaleAnchorY = 110.0f;
 constexpr float kPlayerBillboardDepthWorldBiasScale = 0.35f;
 constexpr float kPlayerBillboardDepthWorldBiasMin = 0.75f;
 constexpr float kPlayerBillboardDepthWorldBiasMax = 3.0f;
@@ -964,7 +964,7 @@ void RenderActorShadow(CWorld& world, const CWorld::BillboardScreenEntry& entry,
     const float shadowZoom = std::isfinite(actor->m_shadowZoom) && actor->m_shadowZoom > 0.0f
         ? actor->m_shadowZoom : 1.0f;
     const float radius = ResolveActorShadowWidth(world, *actor) * 0.5f * shadowZoom * kActorShadowSizeScale
-        * zoom * kPlayerBillboardWorldHeightScale / kNonPcBillboardScaleAnchorY;
+        * zoom * kPlayerBillboardWorldHeightScale / kActorBillboardScaleAnchorY;
     if (!std::isfinite(radius) || radius <= 0.0f) {
         logSkippedShadow("invalid-radius");
         return;
@@ -2776,10 +2776,9 @@ bool BuildBillboardRenderEntry(CPc* actor,
     }
 
     const float worldHeight = zoom * kPlayerBillboardWorldHeightScale;
-    const float scaleAnchorY = actor->m_isPc != 0
-        ? anchorY
-        : kNonPcBillboardScaleAnchorY;
-    const float unitsPerPixel = worldHeight / (std::max)(1.0f, scaleAnchorY);
+    // Composition anchors move as poses grow. Keep sprite pixels at their
+    // original world scale so a wide swing cannot resize the whole character.
+    const float unitsPerPixel = worldHeight / kActorBillboardScaleAnchorY;
     const float leftUnits = (anchorX - leftPixels) * unitsPerPixel;
     const float rightUnits = (rightPixels - anchorX) * unitsPerPixel;
     const float topUnits = (anchorY - topPixels) * unitsPerPixel;
@@ -2848,7 +2847,7 @@ bool BuildBillboardRenderEntry(CPc* actor,
         renderMaxY = (std::max)(renderMaxY, projected.y);
     }
 
-    const float fullTopUnits = anchorY * unitsPerPixel;
+    const float fullTopUnits = (actor->m_isPc != 0 ? kActorBillboardScaleAnchorY : anchorY) * unitsPerPixel;
     const float visibleBottomUnits = bottomUnits;
     const vector3d fullDepthTopCenter = AddVec3(actor->m_pos, ScaleVec3(depthUp, fullTopUnits));
     const vector3d fullDepthBottomCenter = AddVec3(actor->m_pos, ScaleVec3(depthUp, -visibleBottomUnits));

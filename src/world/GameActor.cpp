@@ -129,6 +129,34 @@ constexpr float kItemProjectNearPlane = 10.0f;
 constexpr float kItemProjectSubmitNearPlane = 80.0f;
 constexpr const char* kLegacyItemSpriteRoot = "data\\sprite\\\xBE\xC6\xC0\xCC\xC5\xDB\\";
 
+bool ComputeBillboardMotionBounds(CSprRes* sprRes, const CMotion* motion,
+    const CMotion* next, float fraction, const ActorBillboardAnimation& animation, RECT* bounds)
+{
+    if (!animation.enabled && !animation.sharpPixels) {
+        return ComputeMotionClipBounds(sprRes, motion, bounds);
+    }
+
+    bool hasBounds = ComputeInterpolatedMotionBounds(sprRes, motion,
+        animation.enabled ? next : motion, animation.enabled ? fraction : 0.0f, bounds);
+    if (!animation.enabled && animation.sharpPixels) {
+        // Sharp static poses use the transformed sampler at 2x. Large surfaces
+        // fall back to the legacy blitter at 1x, so cover either raster path.
+        RECT legacyBounds{};
+        if (ComputeMotionClipBounds(sprRes, motion, &legacyBounds)) {
+            if (hasBounds) {
+                bounds->left = (std::min)(bounds->left, legacyBounds.left);
+                bounds->top = (std::min)(bounds->top, legacyBounds.top);
+                bounds->right = (std::max)(bounds->right, legacyBounds.right);
+                bounds->bottom = (std::max)(bounds->bottom, legacyBounds.bottom);
+            } else {
+                *bounds = legacyBounds;
+            }
+            hasBounds = true;
+        }
+    }
+    return hasBounds;
+}
+
 struct BillboardComposeSurface {
     BillboardComposeSurface(int width, int height, bool sharpPixels = false)
         : m_scale(sharpPixels && width <= 1024 && height <= 1024 ? 2 : 1),
@@ -138,6 +166,13 @@ struct BillboardComposeSurface {
         animation.sharpPixels = sharpPixels;
     }
 
+    // Reuse the drawing code to measure every layer and attachment without
+    // allocating pixels or estimating optical flow. Rasterize after sizing.
+    explicit BillboardComposeSurface(const ActorBillboardAnimation& sample)
+        : animation(sample), m_boundsOnly(true)
+    {
+    }
+
     void Clear(unsigned int color)
     {
         std::fill(m_pixels.begin(), m_pixels.end(), color);
@@ -145,6 +180,10 @@ struct BillboardComposeSurface {
 
     void BltSprite(int x, int y, CSprRes* sprRes, const CMotion* motion, unsigned int* palette)
     {
+        if (m_boundsOnly) {
+            IncludeSpriteBounds(static_cast<float>(x), static_cast<float>(y), sprRes, motion, motion, 0.0f);
+            return;
+        }
         if (m_scale > 1) {
             BlitInterpolatedMotionToArgb(m_pixels.data(), m_width, m_height,
                 static_cast<float>(x), static_cast<float>(y), sprRes, motion, motion,
@@ -157,6 +196,13 @@ struct BillboardComposeSurface {
     void BltInterpolatedSprite(float x, float y, CSprRes* sprRes, const CMotion* motion,
         const CMotion* next, unsigned int* palette, float fraction)
     {
+        if (m_boundsOnly) {
+            if (!std::isfinite(x) || !std::isfinite(y) || std::fabs(x) > 1000000 || std::fabs(y) > 1000000) {
+                return;
+            }
+            IncludeSpriteBounds(x, y, sprRes, motion, next, fraction);
+            return;
+        }
         if (animation.enabled) {
             BlitInterpolatedMotionToArgb(m_pixels.data(), m_width, m_height,
                 x, y, sprRes, motion, next, palette, fraction,
@@ -174,6 +220,15 @@ struct BillboardComposeSurface {
     int GetHeight() const { return m_height; }
     int GetScale() const { return m_scale; }
 
+    bool GetMotionBounds(RECT* bounds) const
+    {
+        if (!bounds || !m_hasBounds) {
+            return false;
+        }
+        *bounds = m_bounds;
+        return true;
+    }
+
     void ToLogicalBounds(tagRECT* bounds) const
     {
         // Geometry, anchors and hit testing stay in the original sprite pixels.
@@ -185,10 +240,37 @@ struct BillboardComposeSurface {
     }
 
 private:
+    void IncludeSpriteBounds(float x, float y, CSprRes* sprRes, const CMotion* motion,
+        const CMotion* next, float fraction)
+    {
+        RECT bounds{};
+        if (!ComputeBillboardMotionBounds(sprRes, motion, next, fraction, animation, &bounds)) {
+            return;
+        }
+        // Round fractional attachments outward. This also covers static drawing
+        // truncating the origin after the final composition anchor is added.
+        bounds.left = static_cast<LONG>(std::floor(x + bounds.left));
+        bounds.top = static_cast<LONG>(std::floor(y + bounds.top));
+        bounds.right = static_cast<LONG>(std::ceil(x + bounds.right));
+        bounds.bottom = static_cast<LONG>(std::ceil(y + bounds.bottom));
+        if (m_hasBounds) {
+            m_bounds.left = (std::min)(m_bounds.left, bounds.left);
+            m_bounds.top = (std::min)(m_bounds.top, bounds.top);
+            m_bounds.right = (std::max)(m_bounds.right, bounds.right);
+            m_bounds.bottom = (std::max)(m_bounds.bottom, bounds.bottom);
+        } else {
+            m_bounds = bounds;
+        }
+        m_hasBounds = true;
+    }
+
     int m_scale = 1;
     int m_width = 0;
     int m_height = 0;
     std::vector<unsigned int> m_pixels;
+    bool m_boundsOnly = false;
+    bool m_hasBounds = false;
+    RECT m_bounds{};
 };
 
 #define LOG_ACT_LOAD(...) do { if constexpr (kLogActLoad) { DbgLog(__VA_ARGS__); } } while (0)
@@ -1342,12 +1424,31 @@ bool ResolveCachedNonPcResourcesForActor(CPc& actor, CActRes** outActRes, CSprRe
 bool FindOpaqueBounds(const unsigned int* pixels, int width, int height, tagRECT* outBounds);
 void UnpremultiplyPixels(std::vector<unsigned int>& pixels);
 
-struct NonPcBillboardComposeConfig {
+struct BillboardComposeConfig {
     int width = kPlayerBillboardComposeWidth;
     int height = kPlayerBillboardComposeHeight;
     int anchorX = kPlayerBillboardAnchorX;
     int anchorY = kPlayerBillboardAnchorY;
 };
+
+bool ResolveBillboardComposeConfig(const RECT& bounds, BillboardComposeConfig* outConfig)
+{
+    // Keep the actor's origin on the surface and leave transparent texels around
+    // the artwork so texture filtering cannot sample a cropped edge.
+    constexpr int padding = 2;
+    const int left = (std::min)(static_cast<int>(bounds.left), 0) - padding;
+    const int right = (std::max)(static_cast<int>(bounds.right), 1) + padding;
+    const int top = (std::min)(static_cast<int>(bounds.top), 0) - padding;
+    const int bottom = (std::max)(static_cast<int>(bounds.bottom), 1) + padding;
+    if (!outConfig || right - left > 4096 || bottom - top > 4096) {
+        return false;
+    }
+    outConfig->width = right - left;
+    outConfig->height = bottom - top;
+    outConfig->anchorX = -left;
+    outConfig->anchorY = -top;
+    return true;
+}
 
 bool ResolveNonPcBillboardMotion(const CPc& actor,
     int bodyAction,
@@ -1398,7 +1499,7 @@ bool ResolveNonPcBillboardMotion(const CPc& actor,
 bool ResolveNonPcBillboardComposeConfig(const CPc& actor,
     int bodyAction,
     int motion,
-    NonPcBillboardComposeConfig* outConfig,
+    BillboardComposeConfig* outConfig,
     const ActorBillboardAnimation& animation)
 {
     if (!outConfig) {
@@ -1419,28 +1520,12 @@ bool ResolveNonPcBillboardComposeConfig(const CPc& actor,
         CSprRes* nextSpr = nullptr;
         ResolveNonPcBillboardMotion(actor, bodyAction, animation.body.next, &nextAct, &nextSpr, &nextMotion);
     }
-    const bool hasBounds = animation.enabled
-        ? ComputeInterpolatedMotionBounds(sprRes, spriteMotion, nextMotion, animation.body.Fraction(), &clipBounds)
-        : ComputeMotionClipBounds(sprRes, spriteMotion, &clipBounds);
-    if (!hasBounds) {
+    if (!ComputeBillboardMotionBounds(sprRes, spriteMotion, nextMotion,
+            animation.body.Fraction(), animation, &clipBounds)) {
         return false;
     }
 
-    const int clipLeft = static_cast<int>(clipBounds.left);
-    const int clipTop = static_cast<int>(clipBounds.top);
-    const int clipRight = static_cast<int>(clipBounds.right);
-    const int clipBottom = static_cast<int>(clipBounds.bottom);
-
-    const int composeLeft = (std::min)(clipLeft, 0);
-    const int composeRight = (std::max)(clipRight, 1);
-    const int composeTop = (std::min)(clipTop, 0);
-    const int composeBottom = (std::max)(clipBottom, 1);
-
-    outConfig->width = (std::max)(1, composeRight - composeLeft);
-    outConfig->height = (std::max)(1, composeBottom - composeTop);
-    outConfig->anchorX = -composeLeft;
-    outConfig->anchorY = -composeTop;
-    return outConfig->width <= 4096 && outConfig->height <= 4096;
+    return ResolveBillboardComposeConfig(clipBounds, outConfig);
 }
 bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     const CPc& actor,
@@ -1454,6 +1539,20 @@ bool DrawPcBillboard(BillboardComposeSurface& bitmap,
     int* outSex,
     int* outBodyPalette,
     int* outHeadPalette);
+
+bool ResolvePlayerBillboardComposeConfig(const CPc& actor, int bodyAction, int headMotion,
+    const std::array<int, 3>& accessoryMotions, const ActorBillboardAnimation& animation,
+    BillboardComposeConfig* outConfig)
+{
+    BillboardComposeSurface boundsSurface(animation);
+    RECT bounds{};
+    if (!DrawPcBillboard(boundsSurface, actor, 0, 0, bodyAction, headMotion, accessoryMotions,
+            nullptr, nullptr, nullptr, nullptr, nullptr)
+        || !boundsSurface.GetMotionBounds(&bounds)) {
+        return false;
+    }
+    return ResolveBillboardComposeConfig(bounds, outConfig);
+}
 
 std::array<int, 3> ResolvePcAccessoryMotionIndices(const CPc& actor,
     int bodyAction, int headMotion, u32 elapsedMs);
@@ -1560,7 +1659,13 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
         return true;
     }
 
-    BillboardComposeSurface stripSurface(kPlayerBillboardComposeWidth, kPlayerBillboardComposeHeight,
+    BillboardComposeConfig composeConfig{};
+    if (!ResolvePlayerBillboardComposeConfig(actor, bodyAction, motionIndex,
+            frameKey.accessoryMotions, frameKey.animation, &composeConfig)) {
+        return false;
+    }
+
+    BillboardComposeSurface stripSurface(composeConfig.width, composeConfig.height,
         frameKey.animation.sharpPixels);
     stripSurface.animation = frameKey.animation;
     stripSurface.Clear(0x00000000u);
@@ -1572,8 +1677,8 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
     int stripResolvedHeadPalette = -1;
     if (!DrawPcBillboard(stripSurface,
             actor,
-            kPlayerBillboardAnchorX,
-            kPlayerBillboardAnchorY,
+            composeConfig.anchorX,
+            composeConfig.anchorY,
             bodyAction,
             motionIndex,
             frameKey.accessoryMotions,
@@ -1625,10 +1730,10 @@ bool PopulateSharedPlayerBillboardFrame(CPc& actor,
     stripValue.texture.reset(stripTexture);
     stripValue.lastUsed = NextBillboardCacheUse();
     stripValue.opaqueBounds = stripOpaqueBounds;
-    stripValue.width = kPlayerBillboardComposeWidth;
-    stripValue.height = kPlayerBillboardComposeHeight;
-    stripValue.anchorX = kPlayerBillboardAnchorX;
-    stripValue.anchorY = kPlayerBillboardAnchorY;
+    stripValue.width = composeConfig.width;
+    stripValue.height = composeConfig.height;
+    stripValue.anchorX = composeConfig.anchorX;
+    stripValue.anchorY = composeConfig.anchorY;
     sharedCache[frameKey] = stripValue;
     TrimSharedBillboardCache(sharedCache);
     return true;
@@ -3702,7 +3807,7 @@ bool PopulateSharedNonPcBillboardFrame(CPc& actor, int displayJob, int bodyActio
         return true;
     }
 
-    NonPcBillboardComposeConfig composeConfig{};
+    BillboardComposeConfig composeConfig{};
     if (!ResolveNonPcBillboardComposeConfig(actor, bodyAction, motion, &composeConfig, animation)) {
         composeConfig.width = kPlayerBillboardComposeWidth;
         composeConfig.height = kPlayerBillboardComposeHeight;
@@ -6355,19 +6460,19 @@ bool CPc::EnsureBillboardTexture(float cameraLongitude)
         }
     }
 
-    int composeWidth = kPlayerBillboardComposeWidth;
-    int composeHeight = kPlayerBillboardComposeHeight;
-    int composeAnchorX = kPlayerBillboardAnchorX;
-    int composeAnchorY = kPlayerBillboardAnchorY;
-    if (!usePlayerStyleBillboard) {
-        NonPcBillboardComposeConfig composeConfig{};
-        if (ResolveNonPcBillboardComposeConfig(*this, bodyAction, headMotion, &composeConfig, animation)) {
-            composeWidth = composeConfig.width;
-            composeHeight = composeConfig.height;
-            composeAnchorX = composeConfig.anchorX;
-            composeAnchorY = composeConfig.anchorY;
+    BillboardComposeConfig composeConfig{};
+    if (usePlayerStyleBillboard) {
+        if (!ResolvePlayerBillboardComposeConfig(*this, bodyAction, headMotion,
+                sharedPlayerKey.accessoryMotions, animation, &composeConfig)) {
+            return false;
         }
+    } else {
+        ResolveNonPcBillboardComposeConfig(*this, bodyAction, headMotion, &composeConfig, animation);
     }
+    const int composeWidth = composeConfig.width;
+    const int composeHeight = composeConfig.height;
+    const int composeAnchorX = composeConfig.anchorX;
+    const int composeAnchorY = composeConfig.anchorY;
 
     BillboardComposeSurface composeSurface(composeWidth, composeHeight, animation.sharpPixels);
     composeSurface.animation = animation;

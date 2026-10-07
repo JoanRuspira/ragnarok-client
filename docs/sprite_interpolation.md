@@ -78,6 +78,21 @@ original raster resolution to limit temporary allocations and texture sizes.
 This change preserves authored details; it does not invent higher-resolution
 artwork. Occluded or mismatched details can still switch between source frames.
 
+World player surfaces fit the complete rendered pose instead of clipping it to
+a fixed 128x128 canvas. A bounds pass uses the same body, hair, weapon, shield
+and equipment drawing paths, including interpolated attachment offsets. It
+does not allocate pixels or estimate optical flow. The compositor then draws
+into the measured surface, with two source pixels of transparent padding.
+Monsters and NPCs share the padding and transform-aware bounds, including sharp
+static rendering with interpolation disabled. Bounds also cover the legacy
+static blitter when a large surface falls back to its original raster resolution.
+
+Surface dimensions and anchors are stored with each cached pose. World scale
+uses the original 110-pixel reference independently of those anchors, so a wide
+attack or tall piece of equipment cannot resize the character. Player depth
+projection retains that reference too. Logical surfaces are limited to 4096
+pixels in each dimension.
+
 ## Sampling and composition
 
 `ActMotionSample` retains the current motion, next motion and a quantized
@@ -164,10 +179,21 @@ sampler call argument counts were checked, and diff checks passed.
 No build, compiled test or in-game validation was run. Source parsing does not
 check C++ types, linking, rendering quality or runtime performance.
 
+The dynamic bounds change passed C++ source parsing and numerical checks on 32
+local ACT/SPR pairs, including player bodies and weapon layers for both sexes
+of Novice, Swordman and Knight, plus Poring, Lunatic, Fabre and
+`ep14_mors_dummy`. IMF offsets were included where available. Across 112,112
+pose/setting samples, some player extents exceeded the old canvas; all measured
+surfaces contained the raster bounds. Another 8,000 synthetic samples covered
+fractional origins, rotation, negative scale, odd image sizes and the large
+surface resolution fallback. These checks do not execute the client compositor.
+
 After a user-provided build, compare enabled and disabled playback:
 
 1. Walk and attack with a player wearing a weapon and shield. Check hair,
-   equipment alignment, attack impact sounds and ordinary/high ASPD.
+   equipment alignment, attack impact sounds and ordinary/high ASPD. Try wide
+   axe swings, long spears and large headgear in all eight directions; check
+   sprite edges and consistent character size across poses.
 2. Watch Poring, Lunatic and Fabre while idle, walking, attacking, taking damage
    and dying. Check the final death pose, direction changes and hovering.
 3. Observe an animated NPC and a static NPC. Static artwork should stay still.

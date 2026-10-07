@@ -163,7 +163,8 @@ public:
     void SetLmapTexture(CTexture* tex);
     void SetMultiTextureMode(int nMode);
     
-    void AddRP(RPFace* face, int renderFlag);
+    // useFaceBlend keeps explicit blend modes in the depth-sorted alpha queue.
+    void AddRP(RPFace* face, int renderFlag, bool useFaceBlend = false);
     void AddGroundShadowRP(RPFace* face);
     void AddLmRP(RPLmFace* face, int renderFlag);
     void AddRawRP(RPRaw* face, int renderFlag);
@@ -222,7 +223,12 @@ public:
     std::vector<RPFace*> m_rpLMGroundList;
     std::vector<RPFace*> m_rpLMLightList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaDepthList;
-    std::vector<std::pair<float, RPFace*>> m_rpAlphaList;
+    struct AlphaFaceEntry {
+        float sortKey;
+        RPFace* face;
+        bool useFaceBlend;
+    };
+    std::vector<AlphaFaceEntry> m_rpAlphaList;
     std::vector<RPFace*> m_rpGroundShadowList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaNoDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveDepthList;

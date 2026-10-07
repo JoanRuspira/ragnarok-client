@@ -49,6 +49,7 @@
 #include <cstdio>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <functional>
@@ -788,6 +789,13 @@ void HandleNotifyEffect2(CGameMode& mode, const PacketView& packet)
         static_cast<unsigned int>(effectId),
         actor == (mode.m_world ? static_cast<CGameActor*>(mode.m_world->m_player) : nullptr));
 
+    // Vigor sends these before its skill-use response. EF_GREENBODY also serves
+    // Acid Terror, so suppress it only while this actor is completing Vigor.
+    if ((effectId == 538 || effectId == 841) && actor->m_vigorEffectSuppressUntilTick != 0
+        && static_cast<s32>(actor->m_vigorEffectSuppressUntilTick - timeGetTime()) > 0) {
+        return;
+    }
+
     if (!actor->LaunchEffect(static_cast<int>(effectId), vector3d{ 0.0f, 0.0f, 0.0f }, 0.0f)) {
         DbgLog("[GameMode] notify effect2 launch failed actor=%u effect=%u\n",
             static_cast<unsigned int>(actorId),
@@ -814,6 +822,7 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
     }
 
     ClearAttachedSkillEffects(actor);
+    actor->m_vigorEffectSuppressUntilTick = 0;
     actor->m_isMotionFreezed = 0;
     actor->m_freezeEndTick = 0;
     actor->m_attackMotion = -1.0f;
@@ -3505,6 +3514,8 @@ constexpr u8 kNotifyActLuckyDodge = 11;
 constexpr int kDefaultAttackMotionTime = 1440;
 constexpr int kDefaultSkillMotionTime = 450;
 constexpr u32 kRefDoubleAttackTermMs = 200;
+constexpr u32 kSkillHitNumberIntervalMs = 160;
+constexpr u32 kSkillTotalNumberDelayMs = 320;
 
 struct ScheduledAttackHit {
     int damage = 0;
@@ -3743,7 +3754,7 @@ void SpawnAttackProjectile(CGameMode& mode, CGameActor* sourceActor, CGameActor*
         delayFrames);
 }
 
-void EmitCombatNumber(CGameActor* sourceActor, CGameActor* targetActor, int damage, u8 actionType)
+void EmitCombatNumber(CGameActor* sourceActor, CGameActor* targetActor, int damage, u8 actionType, u32 delayMs = 0)
 {
     if (!targetActor || damage == 0 || actionType == kNotifyActLuckyDodge) {
         return;
@@ -3760,11 +3771,8 @@ void EmitCombatNumber(CGameActor* sourceActor, CGameActor* targetActor, int dama
         ? 0xFFFF4040u
         : ResolveCombatNumberColor(damage, actionType);
 
-    targetActor->SendMsg(sourceActor,
-        88,
-        numberValue,
-        static_cast<int>(numberColor),
-        ResolveCombatNumberKind(damage, actionType));
+    targetActor->QueueDamageNumber(sourceActor, numberValue, numberColor,
+        ResolveCombatNumberKind(damage, actionType), delayMs);
 }
 
 void AppendCombatDamageHits(std::vector<int>& hitDamages, int damage, u16 hitCountRaw)
@@ -3888,8 +3896,25 @@ void PopulateCombatHitWaveName(CGameActor* sourceActor, CGameActor* targetActor,
 
 void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const std::vector<int>& hitDamages, u8 actionType)
 {
-    for (int hitDamage : hitDamages) {
-        EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType);
+    if (!targetActor || actionType == kNotifyActLuckyDodge) {
+        return;
+    }
+    s64 totalDamage = 0;
+    for (size_t hitIndex = 0; hitIndex < hitDamages.size(); ++hitIndex) {
+        const int hitDamage = hitDamages[hitIndex];
+        EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
+            static_cast<u32>(hitIndex) * kSkillHitNumberIntervalMs);
+        if (hitDamage > 0) {
+            totalDamage += hitDamage;
+        }
+    }
+    if (hitDamages.size() > 1 && totalDamage > 0) {
+        const int totalValue = static_cast<int>((std::min)(totalDamage,
+            static_cast<s64>((std::numeric_limits<int>::max)())));
+        const u32 totalDelayMs = static_cast<u32>(hitDamages.size() - 1) * kSkillHitNumberIntervalMs
+            + kSkillTotalNumberDelayMs;
+        targetActor->QueueDamageNumber(sourceActor, totalValue, 0xFFFFFF00u,
+            kTotalDamageNumberKind, totalDelayMs);
     }
 }
 
@@ -3984,7 +4009,7 @@ void EmitSkillImpactEffects(CGameActor* targetActor, u16 skillId, u16 hitCountRa
     const bool isBolt = skillId == 14 || skillId == 19 || skillId == 20;
     const int hitCount = isBolt ? (std::max)(1, (std::min)(64, static_cast<int>(hitCountRaw))) : 1;
     for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex) {
-        EmitSkillImpactEffect(targetActor, skillId, static_cast<u32>(hitIndex) * 80);
+        EmitSkillImpactEffect(targetActor, skillId, static_cast<u32>(hitIndex) * kSkillHitNumberIntervalMs);
     }
 }
 
@@ -4328,12 +4353,14 @@ const char* ResolveSkillFailMessage(u16 skillId, u32 btype, u8 cause)
 
 void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
 {
-    (void)mode;
     if (!packet.data || packet.packetLength < 10) {
         return;
     }
 
     const u16 skillId = ReadLE16(packet.data + 2);
+    if (skillId == 2016 && mode.m_world && mode.m_world->m_player) {
+        mode.m_world->m_player->m_vigorEffectSuppressUntilTick = 0;
+    }
     const u32 btype = ReadLE16(packet.data + 4);
     const u8 result = packet.data[8];
     const u8 cause = packet.data[9];
@@ -4878,7 +4905,14 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
                 }
             }
         }
-        if (skillId == 2413) {
+        if (skillId == 59 && targetPos && (!targetActor || targetActor != actor)) { // SK_KN_SPEARCANNON
+            constexpr float travelFrames = 140.0f / 24.0f;
+            const float impactFrames = static_cast<float>(ResolveAttackImpactDelayMs(*actor)) / 24.0f;
+            g_world.SpawnProjectileEffect(actor->m_pos, *targetPos,
+                targetActor ? targetActor->m_gid : 0,
+                WorldProjectileVisual::Spear, travelFrames,
+                (std::max)(0.0f, impactFrames - travelFrames));
+        } else if (skillId == 2413) {
             actor->LaunchEffect(kRagEffectMetallicSound, vector3d{}, 0.0f);
         } else if (skillId == 17 && targetActor && targetActor != actor) { // MG_FIREBALL
             if (CRagEffect* effect = actor->LaunchEffect(24, vector3d{}, 0.0f)) {
@@ -5240,6 +5274,11 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         ? targetActor->m_pos
         : ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
+    // Track Vigor even for instant casts: its effect notifications precede the
+    // successful-use response. Bound the suppression if that response never arrives.
+    sourceActor->m_vigorEffectSuppressUntilTick = skillId == 2016
+        ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
+
     // Instant skills receive their action/effects from the successful-use packet.
     if (castTimeMs <= 0) {
         DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
@@ -5538,6 +5577,7 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     CGameActor* targetActor = ResolveCombatActor(mode, dstGid, true);
     const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
     const u32 now = timeGetTime();
+    if (sourceActor && skillId == 2016) sourceActor->m_vigorEffectSuppressUntilTick = 0;
     const bool receivingBuffDuringCast = sourceActor && sourceActor == targetActor
         && sourceActor->m_castingSkillId != 0 && sourceActor->m_castingSkillId != skillId
         && (static_cast<s32>(sourceActor->m_skillRechargeEndTick - now) > 0

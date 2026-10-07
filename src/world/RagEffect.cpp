@@ -35,6 +35,7 @@ constexpr float kEffectPixelRatioScale = 0.14285715f;
 constexpr float kEffectSpriteDepthBias = 0.0002f;
 constexpr u32 kRecoverySparkleDurationMs = 500;
 constexpr u32 kRecoverySparkleStaggerMs = 10;
+constexpr u32 kSpriteFlashDurationMs = 240;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
 constexpr float kMapPillarDurationFrames = 960.0f;
 constexpr float kWaterfallSegmentHeight = 40.0f;
@@ -2856,6 +2857,38 @@ bool UpdateFreeParticlePrimitive(CEffectPrim* prim, bool applyGravity, bool spli
 
 } // namespace
 
+bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float directionY, float alpha)
+{
+    // CP949: data\sprite\이펙트\창. Action 4 leaves the downward-pointing spear unrotated.
+    const BakedEffectSpriteFrame* frame = GetBakedEffectSpriteFrame(
+        "data\\sprite\\\300\314\306\321\306\256\\\303\242.act",
+        "data\\sprite\\\300\314\306\321\306\256\\\303\242.spr", 4, 0);
+    if (!frame || !frame->texture) {
+        return false;
+    }
+
+    const float pixelRatio = ResolveEffectPixelRatio(anchor);
+    if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) {
+        return false;
+    }
+    const float angle = std::atan2(directionY, directionX) * (180.0f / kPi) - 90.0f;
+    const unsigned int opacity = static_cast<unsigned int>(
+        (std::max)(0.0f, (std::min)(1.0f, alpha)) * 255.0f);
+    SubmitScreenQuadPivot(anchor,
+        frame->texture,
+        frame->pivotX * pixelRatio,
+        frame->pivotY * pixelRatio,
+        static_cast<float>(frame->width) * pixelRatio,
+        static_cast<float>(frame->height) * pixelRatio,
+        angle,
+        (opacity << 24) | 0x00FFFFFFu,
+        D3DBLEND_INVSRCALPHA,
+        anchor.oow,
+        1,
+        kEffectSpriteDepthBias);
+    return true;
+}
+
 CEffectPrim::CEffectPrim()
     : m_master(nullptr)
     , m_type(PP_3DCIRCLE)
@@ -4013,6 +4046,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationStarted = false;
     m_presentationStartTick = 0;
     m_burstAngles.clear();
+    m_castConeTextures.fill(nullptr);
     m_master = master;
     m_ownsMaster = false;
     if (const CGameActor* actorMaster = dynamic_cast<const CGameActor*>(master)) {
@@ -4083,6 +4117,40 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
 
     switch (effectId) {
+    case 457: // EF_JUMPKICK: actor motion and sound, without a texture/STR.
+        m_handler = Handler::JumpKick;
+        m_duration = 15;
+        // CP949 bytes for the installed Taekwon flying-kick WAV.
+        m_pendingPresentationSound = "data\\wav\\effect\\t_\263\257\266\363\302\367\261\342.wav";
+        break;
+    case 538: // EF_GREENBODY
+    case 626: // EF_MADNESS_RED (Fury sends this twice; sprite state does not stack).
+        m_handler = Handler::SpriteGlow;
+        m_duration = effectId == 538 ? 38 : 63;
+        break;
+    case 841: // EF_BEGINSPELL_N4: animated green casting cone.
+        m_handler = Handler::CastCone;
+        m_duration = 63;
+        for (size_t index = 0; index < m_castConeTextures.size(); ++index) {
+            char path[96];
+            std::snprintf(path, sizeof(path), "data\\texture\\effect\\W_bubble%02u.tga",
+                static_cast<unsigned int>(index + 1));
+            m_castConeTextures[index] = TryResolveEffectTextureCandidates({ path });
+            if (!m_castConeTextures[index]) DbgLog("[RagEffect] missing cone texture '%s'\n", path);
+        }
+        m_pendingPresentationSound = "data\\wav\\effect\\EF_BeginSpell.wav";
+        break;
+    case 847: // EF_DANCE1: red sprite glow and narrow rising rays.
+        m_handler = Handler::DanceRays;
+        m_duration = 63;
+        m_presentationTexture = TryResolveEffectTextureCandidates({ "data\\texture\\effect\\ac_center2.tga" });
+        for (int index = 0; index < 18; ++index) m_burstAngles.push_back(static_cast<float>(rand() % 360));
+        // Fury already has its own server-requested WAV; this visual is silent.
+        break;
+    case 548: // EF_RED_HIT: sent on each STATUS_BLEEDING tick by this server.
+        m_handler = Handler::SpriteFlash;
+        m_duration = static_cast<int>(std::ceil(kSpriteFlashDurationMs / kEffectTickMs));
+        break;
     case kRagEffectTrap:
     case kRagEffectMagentaTrap:
     case kRagEffectCobaltTrap:
@@ -6524,6 +6592,9 @@ u8 CRagEffect::OnProcess()
         m_lastProcessTick += m_startDelayMs;
         m_startDelayMs = 0;
     }
+    const bool nativeBuff = m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
+        || m_handler == Handler::DanceRays || m_handler == Handler::JumpKick;
+    if (nativeBuff && !m_presentationStarted) StartBuffEffect();
     if (m_handler == Handler::BodyBurst && !m_presentationStarted) {
         const auto& burst = m_proceduralPresentation->bodyBurst;
         m_presentationStarted = true;
@@ -6538,6 +6609,13 @@ u8 CRagEffect::OnProcess()
     if (m_handler == Handler::GuardSphere && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
+    }
+    if (m_handler == Handler::SpriteFlash && !m_presentationStarted) {
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+        if (CRenderObject* master = ResolveCurrentMaster()) {
+            master->m_additiveFlash = { m_presentationStartTick, kSpriteFlashDurationMs, 0xFF0000 };
+        }
     }
     if (!m_pendingPresentationSound.empty()) {
         // Play once when the animation starts, after any SetStartDelayMs delay.
@@ -6565,6 +6643,14 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (nativeBuff) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return m_stateCnt < m_duration ? 1 : 0;
+    }
+    if (m_handler == Handler::SpriteFlash) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < kSpriteFlashDurationMs ? 1 : 0;
+    }
     if (m_handler == Handler::GuardSphere) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return now - m_presentationStartTick < static_cast<u32>(m_proceduralPresentation->guardSphere.durationMs) ? 1 : 0;
@@ -6843,8 +6929,11 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         return;
     case 109:
         if (m_handler == Handler::BodyBurst
+            || m_handler == Handler::SpriteFlash
+            || m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
+            || m_handler == Handler::DanceRays || m_handler == Handler::JumpKick
             || m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
-            m_cancelled = true;
+            Cancel();
         }
         ClearPrims();
         m_loop = false;
@@ -6853,6 +6942,100 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         return;
     default:
         return;
+    }
+}
+
+void CRagEffect::Cancel()
+{
+    m_cancelled = true;
+    if ((m_handler == Handler::SpriteFlash || m_handler == Handler::SpriteGlow
+            || m_handler == Handler::DanceRays) && m_presentationStarted) {
+        if (CRenderObject* master = ResolveCurrentMaster()) {
+            if (master->m_additiveFlash.startTick == m_presentationStartTick) {
+                master->m_additiveFlash.durationMs = 0;
+            }
+        }
+    }
+}
+
+void CRagEffect::StartBuffEffect()
+{
+    m_presentationStarted = true;
+    m_presentationStartTick = timeGetTime();
+    CRenderObject* master = ResolveCurrentMaster();
+    if (!master) return;
+    if (m_handler == Handler::SpriteGlow || m_handler == Handler::DanceRays) {
+        const bool green = m_type == 538;
+        master->m_additiveFlash = { m_presentationStartTick,
+            static_cast<u32>(m_duration * kEffectTickMs), green ? 0x80FF80u : 0xFF6060u,
+            120, green ? 0.5f : 0.65f, green ? 2.0f : 0.0f };
+    } else if (m_handler == Handler::JumpKick) {
+        // A successful Stoneskin response already selects attack motion. Standalone
+        // notifications animate idle actors too, without restarting that response.
+        if (CGameActor* actor = dynamic_cast<CGameActor*>(master); actor && actor->m_stateId == 0) {
+            actor->SetModifyFactorOfmotionSpeed(360);
+            actor->SetState(kGameActorAttackStateId);
+        }
+    }
+}
+
+void CRagEffect::RenderCastCone(const matrix& viewMatrix)
+{
+    if (!m_presentationStarted) return;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    const u32 durationMs = static_cast<u32>(m_duration * kEffectTickMs);
+    if (elapsedMs >= durationMs) return;
+    // Preserve frame slots if an asset is missing rather than shifting the animation.
+    CTexture* texture = m_castConeTextures[(elapsedMs / 48) % m_castConeTextures.size()];
+    if (!texture) return;
+    const float fade = (std::min)(1.0f, (std::min)(elapsedMs / 100.0f,
+        (durationMs - elapsedMs) / 250.0f));
+    const float growth = (std::min)(1.0f, elapsedMs / 160.0f);
+    const unsigned int color = (static_cast<unsigned int>(fade * 150.0f) << 24) | 0x80FF80u;
+    const unsigned int colors[4] = { color, color, color, color };
+    const vector3d base = ResolveBasePosition();
+    constexpr int columns = 24;
+    constexpr int rows = 8;
+    const auto point = [&](float u, float v) {
+        const float angle = u * 2.0f * kPi + elapsedMs * 0.001f;
+        const float radius = growth * (14.0f * (1.0f - v) + 0.8f);
+        return vector3d{ base.x + std::cos(angle) * radius,
+            base.y - 26.0f * v, base.z + std::sin(angle) * radius };
+    };
+    for (int row = 0; row < rows; ++row) {
+        const float v0 = static_cast<float>(row) / rows;
+        const float v1 = static_cast<float>(row + 1) / rows;
+        for (int column = 0; column < columns; ++column) {
+            const float u0 = static_cast<float>(column) / columns;
+            const float u1 = static_cast<float>(column + 1) / columns;
+            const vector3d quad[4] = { point(u0, v0), point(u1, v0), point(u0, v1), point(u1, v1) };
+            const float textureU0 = static_cast<float>(column % 12) / 12;
+            const float textureU1 = static_cast<float>(column % 12 + 1) / 12;
+            const float uvs[4][2] = { { textureU0, v0 }, { textureU1, v0 },
+                { textureU0, v1 }, { textureU1, v1 } };
+            SubmitWorldQuad(quad, viewMatrix, texture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+        }
+    }
+}
+
+void CRagEffect::RenderDanceRays(const matrix& viewMatrix)
+{
+    if (!m_presentationStarted || !m_presentationTexture) return;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    const vector3d base = ResolveBasePosition();
+    for (size_t index = 0; index < m_burstAngles.size(); ++index) {
+        const u32 startMs = static_cast<u32>(index) * 43;
+        if (elapsedMs < startMs || elapsedMs - startMs >= 550) continue;
+        const float progress = static_cast<float>(elapsedMs - startMs) / 550;
+        const float fade = (std::min)(1.0f, (std::min)(progress * 5.0f, (1.0f - progress) * 5.0f));
+        const float angle = m_burstAngles[index] * (kPi / 180.0f);
+        const float radius = 2.0f + static_cast<float>(index % 5);
+        const vector3d center = { base.x + std::cos(angle) * radius,
+            base.y - 8.0f - progress * 18.0f, base.z + std::sin(angle) * radius };
+        SubmitBillboard(center, viewMatrix, m_presentationTexture, 4.0f, 160.0f,
+            PackColor(static_cast<unsigned int>(fade * 180.0f),
+                index % 3 == 0 ? RGB(255, 255, 255) : RGB(255, 96, 96)),
+            D3DBLEND_ONE, 0.0f, 1 | 4);
     }
 }
 
@@ -6953,8 +7136,9 @@ void CRagEffect::RenderGuardSphere(const matrix& viewMatrix)
                         point((column + u1) / columns, (row + v1) / rows),
                     };
                     const float uvs[4][2] = { { u0, v0 }, { u1, v0 }, { u0, v1 }, { u1, v1 } };
-                    // World depth keeps the rear crosses behind the caster and the front ones ahead.
-                    SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 2);
+                    // AlphaOP honors SRCALPHA, preserving the texture mask and the lifetime fade.
+                    // The emissive pass uses ONE/ONE and adds even fully transparent texels.
+                    SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 4);
                 }
             }
         }
@@ -6972,6 +7156,8 @@ void CRagEffect::Render(matrix* viewMatrix)
     }
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
+    if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
+    if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
         RenderRecoverySparkles(*viewMatrix);
     }

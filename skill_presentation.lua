@@ -12,6 +12,10 @@ return {
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
         },
+        [59] = { -- SK_KN_SPEARCANNON / Spear Boomerang impact
+            wav = [[data\wav\effect\ef_fireball.wav]],
+            trigger = "damage",
+        },
     },
     skills = {
         [3] = {
@@ -25,7 +29,7 @@ return {
             target = {
                 {
                     effect_id = 2003,
-                    str = [[data\texture\effect\chain_reaction_shot\chain_reaction_shot_hit\chain_reaction_shot_hit.str]],
+                    str = [[data\texture\effect\new_overbrand\new_overbrand_hit\new_overbrand_hit.str]],
                     wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
@@ -87,6 +91,18 @@ return {
                 },
             },
         },
+        [59] = {
+            name = "Spear Cannon", -- SK_KN_SPEARCANNON / Spear Boomerang
+            motion_type = 1,
+            source = {
+                {
+                    effect_id = 151,
+                    str = [[data\texture\effect\spearboomerang.str]],
+                    wav = [[data\wav\effect\knight_spear_boomerang.wav]],
+                    offset_y = -10,
+                },
+            },
+        },
         [399] = {
             name = "Arcane Strike", 
             motion_type = 2,
@@ -119,30 +135,139 @@ return {
                 }
             },
         },
-
-
-        -- [146] = {
-        --     name = "Counterstrike", -- SK_SM_AUTOBERSERK in this server's skill database.
-        --     server_notified = true,
-        --     source = { { effect_id = 1032 } }, -- The server sends EF_MAXPAIN once on the caster.
-        -- },
+        [835] = {
+            name = "Adrenaline Rush",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2009,
+                    str = [[data\texture\effect\judgement_cross\judgement_cross_cast\judgement_cross_cast.str]],
+                    wav = [[data\wav\effect\rush.wav]],
+                }
+            },
+        },
+        [876] = {
+            name = "Fury",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2010,
+                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster_hit\massivefblaster_hit.str]],
+                }
+            },
+        },
+        [61] = {
+            name = "Storm Slash",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2011,
+                    str = [[data\texture\effect\weakness.str]],
+                }
+            },
+        },  
+        [62] = {
+            name = "Bowling Bash",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2012,
+                    str = [[data\texture\effect\ultimate_sacrifice\ultimatesacrifice_bottom\ultimatesacrifice_bottom.str]],
+                },
+                {
+                    effect_id = 2013,
+                    str = [[data\texture\effect\bowling.str]],
+                }
+            },
+        },   
+        [355] = {
+            name = "Enchant Blade",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2014,
+                    str = [[data\texture\effect\new_battle_w\new_battle_w\new_battle_w.str]],
+                    wav = [[data\wav\effect\enchantblade.wav]],
+                },
+            },
+        },     
+        [2016] = {
+            name = "Vigor",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2015,
+                    str = [[data\texture\effect\new_reparatio\new_reparatio_target\new_reparatio_target.str]],
+                    wav = [[data\wav\effect\wm_frigg_song.wav]],
+                },
+            },
+        },
+        [2015] = {
+            name = "Stone Skin",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2017,
+                    str = [[data\texture\effect\holy_shield\holy_shield_cast\holy_shield_cast.str]],
+                    wav = [[data\wav\effect\ig_holy_shield1.wav]],
+                },
+            },
+        },
+        [57] = {
+            name = "Brandish Spear",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2018,
+                    str = [[data\texture\effect\brandish.str]],
+                },
+                {
+                    effect_id = 2019,
+                    str = [[data\texture\effect\brandish2.str]],
+                },
+            },
+        },
+        [56] = {
+            name = "Pierce",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2020,
+                    str = [[data\texture\effect\effligo\effligo\effligo.str]],
+                }
+            },
+        },
+        [146] = {
+            name = "Counterstrike", -- SK_SM_AUTOBERSERK in this server's skill database.
+            server_notified = true,
+            source = { { effect_id = 1032 }, {effect_id = 2016, str = [[data\texture\effect\attack_stance\attack_stance\attack_stance.str]]} }, -- The server sends EF_MAXPAIN once on the caster.
+        },
     },
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
-        -- [1032] = { -- EF_MAXPAIN: brief orange guard barrier; there is no authored STR.
-        --     renderer = "guard_sphere",
-        --     texture = [[data\texture\effect\guardK2.tga]],
-        --     wav = [[data\wav\effect\kyrie_guard.wav]],
-        --     offset_y = -7,
-        --     radius = 7,
-        --     height = 16,
-        --     color = 0xFF9F24,
-        --     alpha = 0.8,
-        --     duration_ms = 700,
-        --     fade_in_ms = 100,
-        --     fade_out_ms = 200,
-        -- },
+        [1032] = { -- EF_MAXPAIN: brief orange guard barrier; there is no authored STR.
+            renderer = "guard_sphere",
+            texture = [[data\texture\effect\guardK2.tga]],
+            wav = [[data\wav\effect\kyrie_guard.wav]],
+            offset_y = -7,
+            radius = 7,
+            height = 16,
+            color = 0xFF9F24,
+            alpha = 0.8,
+            duration_ms = 700,
+            fade_in_ms = 100,
+            fade_out_ms = 200,
+        },
         -- Uncomment either example and choose the STR you want for that boost.
         -- recovery.str is an installed example asset; it is the Priest Recovery visual.
         -- Entries here replace the built-in visual and audio; omit wav for silence.

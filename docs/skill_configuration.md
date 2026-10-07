@@ -136,6 +136,17 @@ Existing minimal-effect variants remain selected when `/mineffect` is enabled.
 Skill damage presentation accepts an unresolved source when the target is
 known, and server SP-restoration notifications show blue recovery numbers.
 
+Multi-hit skill damage numbers appear 160 ms apart, matching the bolt-effect
+timing. A larger yellow total appears 320 ms after the final hit in the packet,
+32 screen pixels above the usual number origin. Individual hits retain their
+existing damage, critical, or recovery color. Totals preserve the packet's exact
+damage, including division remainders, and can display more than six digits.
+Single hits, misses, and recovery amounts do not add a damage total. Delayed
+numbers retain their scheduled animation timestamps if a frame arrives late;
+totals from successive casts replace the previous visible total when they start.
+Floating hit numbers and totals finish at their captured position if the target
+dies or disappears before the sequence ends.
+
 Buff and debuff icons appear at the right edge in both the native and Qt UIs,
 independently of minimap visibility. Names and images come from
 `lua files/stateicon/efstids.lub`, `stateiconimginfo.lub`, and `stateiconinfo.lub`,
@@ -231,7 +242,9 @@ For a brief textured barrier, use `renderer = "guard_sphere"` with a full
 all in world units. `color` is an RGB integer and `alpha` ranges from 0 to 1.
 `duration_ms`, `fade_in_ms`, and `fade_out_ms` define its lifetime and fades.
 The fades must be positive and fit within the duration. These effects cannot
-loop; the texture repeats across six columns and three curved bands.
+loop; the texture repeats across six columns and three curved bands. The barrier
+uses `SRCALPHA` / `ONE` blending so texture transparency and lifetime fades both
+control its additive glow.
 Shared definitions can live in the top-level `effects` table, with skill entries
 referencing them using just `{ effect_id = ... }`. Define each effect once.
 
@@ -307,8 +320,8 @@ the coordinate scaling in its
 [ground loader](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/Loaders/Ground.js).
 The installed GRFs contain both resources. The server sends target effect `677`,
 mapped to `cwound.str`, so the client does not replay that effect from the skill
-damage packet. The server also sends `626` (`EF_MADNESS_RED`); its separate
-renderer remains unimplemented. The caster visual and sound need an in-game
+damage packet. The server also sends `626` (`EF_MADNESS_RED`), now handled by
+the shared, fading red sprite-glow renderer. The caster visual and sound need an in-game
 comparison with the official client.
 
 ### Coverage and play checks
@@ -380,8 +393,78 @@ and its [effect 1032 clip](https://github.com/lukasrmattos/ragnarok_effects_list
 No installed STR references this texture. The procedural barrier fades in over
 100 ms, holds, then fades out over 200 ms, ending after 700 ms. It follows the
 caster, uses world depth, respects delayed starts and cancellation, and plays
-the guard WAV once when it starts. Its geometry, scale, tint, and timing are an
-approximation of the capture and still need comparison in a running client.
+the guard WAV once when it starts. Its alpha-controlled additive pass preserves
+the cross texture's transparent background and the configured fades; using the
+`ONE` / `ONE` emissive pass instead produces a solid yellow sphere. Its geometry,
+scale, tint, and timing are an approximation of the capture and still need
+comparison in a running client.
+
+Bleeding (`STATUS_BLEEDING`) sends effect `548` (`EF_RED_HIT`) to the affected
+actor every 500 ms in this server's status timer. It is a brief red sprite flash;
+the [captured effect reference](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/videos/effect_548.webm)
+uses no STR, texture, or WAV. The client now handles each notification with a
+240 ms additive red flash that fades automatically. It follows the target's
+current sprite and alpha, keeps depth order with other actors, and leaves shared
+sprite textures intact. The server controls repetition, so no local status
+timer or skill-specific duplicate is launched. Tint and timing still need an
+in-game comparison with the capture.
+
+The Knight buffs below now have owned skill entries with `server_notified = true`.
+Gameplay logs confirm these effect notifications immediately before their
+successful skill-use responses. The response supplies the skill name and motion;
+it does not replay the server's effects or sounds.
+
+| Skill | Server effects | Client presentation |
+| --- | --- | --- |
+| Adrenaline Rush (`835`, `SK_KN_ADRENALINERUSH`) | `750` (`EF_CONCENTRATION2`) | `concentration.str` and `effect\ac_concentration.wav`, configured in the shared Lua effects table |
+| Fury (`876`, `SK_KN_FURY`) | `847` (`EF_DANCE1`), then `626` (`EF_MADNESS_RED`) twice | Brief red sprite glow and staggered white/red rising rays using `ac_center2.tga`; the existing server sound notification plays `SK_KN_FURY.wav` |
+| Vigor (`2016`, `SK_KN_VIGOR`) | `538` (`EF_GREENBODY`) and `841` (`EF_BEGINSPELL_N4`) | Special effects and their casting WAV are suppressed; normal skill motion, name, status icon, and buff remain |
+| Stoneskin (`2015`, `SK_KN_STONESKIN`) | `457` (`EF_JUMPKICK`) | Brief attack motion and the installed Taekwon flying-kick WAV (CP949 filename bytes `74 5f b3 af b6 f3 c2 f7 b1 e2`) |
+
+The [roBrowser effect table](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js)
+identifies Adrenaline Rush's STR and Stoneskin's sound. The
+[captured effect metadata](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/effects.json)
+and clips for effects `538`, `841`, and `847` guide the procedural visuals.
+The installed GRFs contain the STR, all its referenced textures, the complete
+27-frame cone sequence, the ray texture, and the sounds. The STR contains
+50 frames at 60 FPS. Procedural glow, cone, and ray sizes/timing are approximations
+that still need comparison in a running client. The capture of `626` reports
+no standalone visible change, so its fading red glow is an approximation,
+not a confirmed reconstruction of the official conditional effect.
+
+Vigor's cast acknowledgement suppresses its two special-effect notifications
+until the skill-use response. Cancellation, failure, another cast, or a timeout
+also clears the suppression. This includes instant casts, whose effect packets
+arrive before the skill-use response. The `server_notified` skill entry has no
+local effects or audio, preventing the legacy skill presentation from replaying
+them. The native green-glow and cone handlers remain available for other uses;
+Acid Terror also sends `EF_GREENBODY` and retains its presentation.
+
+Glows follow the actor's cached sprite, motion, transparency, and depth order.
+Fury's repeated `626` notifications refresh one glow instead of accumulating
+overlays. Green glow ends after 912 ms; red glow and the cone end after 1,512 ms.
+Cone/ray texture alpha and lifetime fades use `SRCALPHA` / `ONE` blending.
+All native handlers honor delayed starts and cancellation. The bleeding flash
+retains its original immediate 240 ms fade through the shared draw path.
+Stoneskin's server effect is a motion/sound effect; it does not reference a stone
+texture or STR. Its successful-use response selects attack motion, and standalone
+`457` notifications animate idle actors without restarting an existing attack.
+
+Spear Cannon (`59`, `SK_KN_SPEARCANNON`, the server's renamed Spear Boomerang)
+receives its presentation from damage notifications, including follow-up attacks
+without a cast acknowledgement. Its Lua entry uses `motion_type = 1` and locally
+plays caster effect `151` (`spearboomerang.str`) with
+`knight_spear_boomerang.wav`; the server does not notify these effects separately.
+The world projectile renderer uses the installed `data\sprite\이펙트\창.spr` /
+`.act` pair, sharing the effect frame cache. It rotates the spear toward the
+projected target, scales it with camera depth, fades it over a 140 ms flight,
+and resolves the target's current position when the spear is released. Flight
+starts late enough to end at the attack's impact time when that time exceeds
+140 ms. The existing skill-presentation guard prevents duplicate launches.
+The separate `sounds[59]` entry plays `ef_fireball.wav` at the damage position;
+the reference hit effect `80` is audio only, with no separate STR. These asset
+assignments follow the [Spear Boomerang skill reference](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Skills/SkillEffect.js)
+and [effect reference](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js).
 
 This repair does **not** establish complete parity with the official client.
 The customized database contains 455 skills. A static scan found 325 distinct
@@ -410,7 +493,14 @@ in a running updated client. Compare these cases against the official client:
 | Magnum Break (942), with nearby enemies | Same caster presentation, plus damage numbers on every hit enemy; following packets stay aligned |
 | Magnum Break (942), after-cast delay notification | No "Status 46" buff tile in either UI; actual buffs still display normally |
 | Traumatic Strike (398) | One caster body flash/halo, delayed radial burst, and Head Crush WAV; server-driven `cwound.str` on the target |
+| Bleeding from Traumatic Strike (398) / Spear Stab (58) | Each server effect `548` notification briefly flashes the affected target red; normal sprite color returns between the 500 ms ticks and after bleeding ends |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
+| Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear flies toward the target and fades; one `ef_fireball.wav` at the damage position |
+| Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart; one larger yellow total follows the last hit by 320 ms, without losing division remainders or truncating totals above 999,999 |
+| Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |
+| Fury (876) | Brief red sprite glow and white/red rising rays; duplicate `626` notifications do not intensify the glow; one server-requested Fury WAV |
+| Vigor (2016) | Buff and status icon apply with normal skill motion/name; no green glow, cone, or casting WAV; Acid Terror still shows its green glow |
+| Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |

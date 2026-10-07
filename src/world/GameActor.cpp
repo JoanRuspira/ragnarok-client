@@ -883,9 +883,9 @@ CMsgEffect* SpawnDamageNumberEffect(CGameActor& actor, CGameActor* sourceActor, 
         0);
     effect->SendMsg(&actor, 50, 0, 0, 0);
 
-    if (kind == 22) {
-        effect->m_zoom = 0.5f;
-        effect->m_orgZoom = 0.5f;
+    if (kind == kTotalDamageNumberKind) {
+        effect->m_zoom = 3.0f;
+        effect->m_orgZoom = 3.0f;
     }
 
     if (sourceActor) {
@@ -1117,16 +1117,6 @@ void SpawnCartEffect(CGameActor& actor, int effectType)
         actor.m_pos.z,
         sprPath.c_str(),
         actPath.c_str());
-}
-
-void MakeDamageNumber(CGameActor& actor, CGameActor* sourceActor, int value, u32 colorArgb, int kind)
-{
-    const int clampedValue = ClampDamageNumber(value);
-    if (kind == 22) {
-        actor.DeleteTotalNumber(kind);
-    }
-
-    SpawnDamageNumberEffect(actor, sourceActor, clampedValue, colorArgb, kind);
 }
 
 bool FindActivePathSegment(const CPathInfo& path, u32 now, size_t* outStartIndex)
@@ -4623,6 +4613,13 @@ CGameActor::~CGameActor()
         if (!IsLiveMsgEffectObject(effect)) {
             continue;
         }
+        // Floating numbers finish at their captured position even after a lethal hit removes the actor.
+        if (effect->m_msgEffectType == 14 || effect->m_msgEffectType == 16
+            || effect->m_msgEffectType == 21 || effect->m_msgEffectType == kTotalDamageNumberKind
+            || effect->m_msgEffectType == 114) {
+            effect->OnActorDeleted(this);
+            continue;
+        }
         effect->SendMsg(this, 49, 0, 0, 0);
         effect->SendMsg(this, 53, 0, 0, 0);
     }
@@ -5092,7 +5089,7 @@ void CGameActor::SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t 
         return;
     case 88: {
         CGameActor* sourceActor = dynamic_cast<CGameActor*>(src);
-        MakeDamageNumber(*this, sourceActor, static_cast<int>(par1), static_cast<u32>(par2), static_cast<int>(par3));
+        QueueDamageNumber(sourceActor, static_cast<int>(par1), static_cast<u32>(par2), static_cast<int>(par3));
         return;
     }
     case 89:
@@ -5343,6 +5340,18 @@ void CGameActor::QueueWillBeAttacked(const WBA& hitInfo)
     m_willBeAttackedList.push_back(hitInfo);
 }
 
+void CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs)
+{
+    // Totals can exceed six digits even when each individual hit does not.
+    const int clampedValue = kind == kTotalDamageNumberKind ? (std::max)(0, value) : ClampDamageNumber(value);
+    if (kind == kTotalDamageNumberKind && delayMs == 0) {
+        DeleteTotalNumber(kind);
+    }
+    if (CMsgEffect* effect = SpawnDamageNumberEffect(*this, sourceActor, clampedValue, colorArgb, kind)) {
+        effect->SetStartDelayMs(delayMs);
+    }
+}
+
 void CGameActor::SetModifyFactorOfmotionSpeed(int attackMT)
 {
     if (attackMT <= 0) {
@@ -5418,11 +5427,12 @@ void CGameActor::DeleteMatchingEffect(CMsgEffect* effect)
     }
 }
 
-void CGameActor::DeleteTotalNumber(int kind)
+void CGameActor::DeleteTotalNumber(int kind, const CMsgEffect* keepEffect)
 {
     std::vector<CMsgEffect*> matchingEffects;
     for (CMsgEffect* effect : m_msgEffectList) {
-        if (!effect || effect->m_msgEffectType != kind) {
+        if (!effect || effect->m_msgEffectType != kind || effect == keepEffect
+            || (keepEffect && effect->m_startDelayMs > 0)) {
             continue;
         }
         matchingEffects.push_back(effect);

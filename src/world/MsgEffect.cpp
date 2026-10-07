@@ -25,6 +25,8 @@ namespace {
 
 constexpr float kMsgEffectNearPlane = 10.0f;
 constexpr float kMsgEffectSubmitNearPlane = 80.0f;
+constexpr float kTotalDamageScaleMultiplier = 1.5f;
+constexpr float kTotalDamageScreenOffsetY = -32.0f;
 constexpr const char* kDamageNumberSpritePath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\\xBC\xFD\xC0\xDA.spr";
 constexpr const char* kDamageNumberActPath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\\xBC\xFD\xC0\xDA.act";
 constexpr const char* kMissEffectSpritePath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\msg.spr";
@@ -63,6 +65,7 @@ struct QueuedMsgEffectDraw {
     int alpha = 255;
     float zoom = 1.0f;
     int sprShift = 0;
+    bool isTotalDamage = false;
 };
 
 struct QueuedMsgSpriteEffectDraw {
@@ -281,10 +284,11 @@ CActRes* GetMissEffectAct()
     return act;
 }
 
-float ResolveDigitScale(float zoom)
+float ResolveDigitScale(float zoom, bool isTotalDamage = false)
 {
     const float scale = 1.8f + zoom * 0.6f;
-    return (std::max)(1.8f, (std::min)(4.8f, scale));
+    return (std::max)(1.8f, (std::min)(4.8f, scale))
+        * (isTotalDamage ? kTotalDamageScaleMultiplier : 1.0f);
 }
 
 float ResolveMsgSpriteScale(float zoom)
@@ -469,22 +473,12 @@ int ResolveDigitShiftPixels(const QueuedMsgEffectDraw& draw)
 
 int CountDamageDigits(int value)
 {
-    if (value >= 100000) {
-        return 6;
+    int count = 1;
+    while (value >= 10) {
+        value /= 10;
+        ++count;
     }
-    if (value >= 10000) {
-        return 5;
-    }
-    if (value >= 1000) {
-        return 4;
-    }
-    if (value >= 100) {
-        return 3;
-    }
-    if (value >= 10) {
-        return 2;
-    }
-    return 1;
+    return count;
 }
 
 int ResolveDigitAtIndex(int value, int index)
@@ -546,15 +540,15 @@ bool ResolveDigitClipBox(int digit, RECT* outClipBox)
     return true;
 }
 
-int ResolveDigitOutputWidth(int digit, float zoom)
+int ResolveDigitOutputWidth(int digit, float zoom, bool isTotalDamage)
 {
     RECT clipBox{};
     if (!ResolveDigitClipBox(digit, &clipBox)) {
-        return (std::max)(1, static_cast<int>(std::lround(8.0f * ResolveDigitScale(zoom))));
+        return (std::max)(1, static_cast<int>(std::lround(8.0f * ResolveDigitScale(zoom, isTotalDamage))));
     }
 
     const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
-    return (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * ResolveDigitScale(zoom))));
+    return (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * ResolveDigitScale(zoom, isTotalDamage))));
 }
 
 unsigned int PremultiplyArgb(unsigned int color)
@@ -752,7 +746,7 @@ bool QueueDigitSpriteQuad(const QueuedMsgEffectDraw& draw)
         return false;
     }
 
-    const float scale = ResolveDigitScale(draw.zoom);
+    const float scale = ResolveDigitScale(draw.zoom, draw.isTotalDamage);
     const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
     const int nativeHeight = (std::max)(1, static_cast<int>(clipBox.bottom - clipBox.top));
     const int outWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * scale)));
@@ -830,7 +824,7 @@ bool GetDigitDrawBounds(const QueuedMsgEffectDraw& draw, RECT* outRect)
 
     RECT clipBox{};
     if (ResolveDigitClipBox(draw.digit, &clipBox)) {
-        const float scale = ResolveDigitScale(draw.zoom);
+        const float scale = ResolveDigitScale(draw.zoom, draw.isTotalDamage);
         const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
         const int nativeHeight = (std::max)(1, static_cast<int>(clipBox.bottom - clipBox.top));
         const int outWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * scale)));
@@ -844,7 +838,9 @@ bool GetDigitDrawBounds(const QueuedMsgEffectDraw& draw, RECT* outRect)
         return true;
     }
 
-    const int fontHeight = (std::max)(14, (std::min)(32, static_cast<int>(std::lround(8.0f + draw.zoom * 4.0f))));
+    const int fontHeight = static_cast<int>(std::lround(
+        (std::max)(14.0f, (std::min)(32.0f, 8.0f + draw.zoom * 4.0f))
+        * (draw.isTotalDamage ? kTotalDamageScaleMultiplier : 1.0f)));
     const int drawX = draw.screenX + ResolveDigitShiftPixels(draw) - fontHeight / 4;
     const int drawY = draw.screenY - fontHeight / 2;
     outRect->left = drawX - 2;
@@ -1840,6 +1836,7 @@ CMsgEffect::CMsgEffect()
     , m_masterGid(0)
     , m_colorArgb(0xFFFFFFFFu)
     , m_stateStartTick(timeGetTime())
+    , m_startDelayMs(0)
     , m_pos{}
     , m_orgPos{}
     , m_destPos{}
@@ -1877,6 +1874,11 @@ void CMsgEffect::OnActorDeleted(const CGameActor* actor)
     m_removedFromOwner = 1;
 }
 
+void CMsgEffect::SetStartDelayMs(u32 milliseconds)
+{
+    m_startDelayMs = milliseconds;
+}
+
 u8 CMsgEffect::OnProcess()
 {
     if (m_isDisappear) {
@@ -1887,7 +1889,19 @@ u8 CMsgEffect::OnProcess()
         return 0;
     }
 
-    const float stateCount = static_cast<float>(timeGetTime() - m_stateStartTick) * 0.041666668f;
+    const u32 now = timeGetTime();
+    if (m_startDelayMs > 0) {
+        if (now - m_stateStartTick < m_startDelayMs) {
+            return 1;
+        }
+        // Keep the scheduled timestamp so a late frame does not stack all overdue hits.
+        m_stateStartTick += m_startDelayMs;
+        m_startDelayMs = 0;
+        if (m_msgEffectType == kTotalDamageNumberKind && m_masterActor) {
+            m_masterActor->DeleteTotalNumber(kTotalDamageNumberKind, this);
+        }
+    }
+    const float stateCount = static_cast<float>(now - m_stateStartTick) * 0.041666668f;
     switch (m_msgEffectType) {
     case kAttachedActorSpriteMsgEffectType:
         if (!m_masterActor) {
@@ -1994,14 +2008,9 @@ u8 CMsgEffect::OnProcess()
         }
         break;
     }
-    case 22:
+    case kTotalDamageNumberKind:
         m_pos.y = m_orgPos.y - stateCount * 0.1f;
-        if (m_zoom < 3.0f) {
-            m_zoom += stateCount * 0.18f;
-            if (m_zoom > 3.0f) {
-                m_zoom = 3.0f;
-            }
-        }
+        m_zoom = m_orgZoom;
         m_alpha = stateCount > 90.0f
             ? (std::max)(0, 250 - static_cast<int>((stateCount - 90.0f) * 8.0f))
             : 250;
@@ -2108,7 +2117,7 @@ void CMsgEffect::SendMsg(CGameObject* sender, int msg, msgparam_t par1, msgparam
 
 void CMsgEffect::Render(matrix* viewMatrix)
 {
-    if (!m_isVisible || !viewMatrix) {
+    if (!m_isVisible || m_isDisappear || !viewMatrix || m_startDelayMs > 0) {
         return;
     }
 
@@ -2150,15 +2159,19 @@ void CMsgEffect::Render(matrix* viewMatrix)
         return;
     }
 
+    const bool isTotalDamage = m_msgEffectType == kTotalDamageNumberKind;
+    if (isTotalDamage) {
+        projected.y += kTotalDamageScreenOffsetY;
+    }
     const int digitCount = CountDamageDigits(m_numberValue);
-    int digits[6] = {};
-    int digitWidths[6] = {};
+    int digits[10] = {};
+    int digitWidths[10] = {};
     int totalWidth = 0;
     const int digitGap = -2;
 
     for (int index = 0; index < digitCount; ++index) {
         digits[index] = ResolveDigitAtIndex(m_numberValue, digitCount - 1 - index);
-        digitWidths[index] = ResolveDigitOutputWidth(digits[index], m_zoom);
+        digitWidths[index] = ResolveDigitOutputWidth(digits[index], m_zoom, isTotalDamage);
         totalWidth += digitWidths[index];
     }
     if (digitCount > 1) {
@@ -2174,6 +2187,7 @@ void CMsgEffect::Render(matrix* viewMatrix)
         draw.colorArgb = m_colorArgb;
         draw.alpha = m_alpha;
         draw.zoom = m_zoom;
+        draw.isTotalDamage = isTotalDamage;
         draw.sprShift = currentLeft + digitWidths[index] / 2;
         g_queuedMsgEffects.push_back(draw);
         currentLeft += digitWidths[index] + digitGap;

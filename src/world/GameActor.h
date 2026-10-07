@@ -22,6 +22,8 @@ class UIPcGage;
 class C3dActor;
 class CTexture;
 
+constexpr int kTotalDamageNumberKind = 22;
+
 struct ACTOR_COLOR {
     u8 a, r, g, b;
 };
@@ -33,6 +35,15 @@ struct ActorPresentationFlash {
     u32 startColor = 0xFFFFFF;
     u32 peakColor = 0xFFFFFF;
     float haloAlpha = 0.0f;
+    float haloRadius = 0.0f;
+};
+
+struct ActorAdditiveFlash {
+    u32 startTick = 0;
+    u32 durationMs = 0;
+    u32 color = 0;
+    u32 peakMs = 0;
+    float opacity = 1.0f;
     float haloRadius = 0.0f;
 };
 
@@ -183,6 +194,7 @@ public:
     CActRes* m_actRes;
     // Transient draw state; never changes shared sprite textures or their cache keys.
     ActorPresentationFlash m_presentationFlash;
+    ActorAdditiveFlash m_additiveFlash;
 
     virtual void SetRenderInfo(RENDER_INFO_RECT* rect, float f1, float f2);
     virtual void SetTlvert(float x, float y);
@@ -274,6 +286,7 @@ public:
     std::string m_skillNameText;
     int m_lastPresentedSkillId = 0;
     u16 m_castingSkillId = 0;
+    u32 m_vigorEffectSuppressUntilTick = 0;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -292,8 +305,9 @@ public:
     bool IsHideFadeActive(u32 now) const;
     u32 GetHideFadeAlpha(u32 now) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
+    void QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);
     void DeleteMatchingEffect(CMsgEffect* effect);
-    void DeleteTotalNumber(int kind);
+    void DeleteTotalNumber(int kind, const CMsgEffect* keepEffect = nullptr);
     void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY, int clientHeight);
     void DestroySkillRechargeGage();
 };
@@ -305,6 +319,7 @@ public:
 
     u8 OnProcess() override;
     void OnActorDeleted(const CGameActor* actor) override;
+    void SetStartDelayMs(u32 milliseconds);
     void SendMsg(CGameObject* sender, int msg, msgparam_t par1, msgparam_t par2, msgparam_t par3) override;
     void Render(matrix* viewMatrix) override;
 
@@ -319,6 +334,7 @@ public:
     u32 m_masterGid;
     u32 m_colorArgb;
     u32 m_stateStartTick;
+    u32 m_startDelayMs;
     vector3d m_pos;
     vector3d m_orgPos;
     vector3d m_destPos;

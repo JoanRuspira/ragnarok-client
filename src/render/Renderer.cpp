@@ -1000,7 +1000,7 @@ void CRenderer::Flip(bool vertSync) {
     GetRenderDevice().Present(vertSync);
 }
 
-void CRenderer::AddRP(RPFace* face, int renderFlag) {
+void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
     if (face) {
         ApplyFogToVertices(face->verts, face->numVerts, m_isFoggy, m_fogPara);
     }
@@ -1022,7 +1022,7 @@ void CRenderer::AddRP(RPFace* face, int renderFlag) {
         } else if (renderFlag & 8) {
             m_rpAlphaNoDepthList.push_back({sortKey, face});
         } else {
-            m_rpAlphaList.push_back({sortKey, face});
+            m_rpAlphaList.push_back({sortKey, face, useFaceBlend});
         }
     } else {
         if (renderFlag & 0x800) {
@@ -1337,8 +1337,10 @@ void CRenderer::FlushRenderList() {
 
     std::vector<BlendedFaceEntry> blendedFaces;
     blendedFaces.reserve(m_rpAlphaList.size() + m_rpEmissiveList.size());
-    for (auto& pair : m_rpAlphaList) {
-        blendedFaces.push_back({ pair.first, pair.second, D3DBLEND_SRCALPHA, D3DBLEND_INVSRCALPHA });
+    for (const auto& entry : m_rpAlphaList) {
+        blendedFaces.push_back({ entry.sortKey, entry.face,
+            entry.useFaceBlend ? entry.face->srcAlphaMode : D3DBLEND_SRCALPHA,
+            entry.useFaceBlend ? entry.face->destAlphaMode : D3DBLEND_INVSRCALPHA });
     }
     for (auto& pair : m_rpEmissiveList) {
         blendedFaces.push_back({ pair.first, pair.second, D3DBLEND_ONE, D3DBLEND_ONE });

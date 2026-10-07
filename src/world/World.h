@@ -24,6 +24,7 @@ class C3dWorldRes;
 enum class WorldProjectileVisual {
     Arrow,
     Stone,
+    Spear,
 };
 
 struct CLMInfo {

@@ -12,6 +12,10 @@
 
 class CTexture;
 struct SkillEffectPresentation;
+struct tlvertex3d;
+
+// Shares the effect SPR/ACT frame cache with the world projectile renderer.
+bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float directionY, float alpha);
 
 enum EFFECTPRIMID {
     PP_3DCIRCLE = 0,
@@ -181,7 +185,7 @@ public:
     void SetLooping(bool looping);
     void SetCastDurationMs(int milliseconds);
     void SetStartDelayMs(u32 milliseconds);
-    void Cancel() { m_cancelled = true; }
+    void Cancel();
 
     u8 OnProcess() override;
     void OnActorDeleted(const CGameActor* actor) override;
@@ -204,6 +208,7 @@ private:
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
     std::vector<float> m_burstAngles;
+    std::array<CTexture*, 27> m_castConeTextures{};
     struct RecoverySparkle {
         vector3d startOffset{};
         float endHeight = 0.0f;
@@ -217,6 +222,11 @@ private:
         EzStr,
         BodyBurst,
         GuardSphere,
+        SpriteFlash,
+        SpriteGlow,
+        CastCone,
+        DanceRays,
+        JumpKick,
         GroundSurface,
         Sprite,
         Entry2,
@@ -270,6 +280,9 @@ private:
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
+    void StartBuffEffect();
+    void RenderCastCone(const matrix& viewMatrix);
+    void RenderDanceRays(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;

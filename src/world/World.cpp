@@ -1879,6 +1879,7 @@ public:
 
         const float travelElapsed = elapsedFrames - m_delayFrames;
         const float progress = (std::min)(1.0f, (std::max)(0.0f, travelElapsed / m_travelFrames));
+        m_travelProgress = progress;
         m_lastPos = m_currentPos;
         m_currentPos = LerpVec3(m_startPos, m_targetPos, progress);
         return progress < 1.0f ? 1 : 0;
@@ -1890,8 +1891,8 @@ public:
             return;
         }
 
-        CTexture* texture = ResolveTexture();
-        if (!texture) {
+        CTexture* texture = m_visual == WorldProjectileVisual::Spear ? nullptr : ResolveTexture();
+        if (m_visual != WorldProjectileVisual::Spear && !texture) {
             if (!m_loggedTextureFailure) {
                 DbgLog("[Projectile] render skipped visual=%d reason=no-texture start=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f)\n",
                     static_cast<int>(m_visual),
@@ -1938,6 +1939,16 @@ public:
         if (ProjectPoint(g_renderer, *viewMatrix, dirTarget, &dirAnchor)) {
             dirX = dirAnchor.x - anchor.x;
             dirY = dirAnchor.y - anchor.y;
+        }
+
+        if (m_visual == WorldProjectileVisual::Spear) {
+            const float alpha = (std::min)(1.0f, m_travelProgress * 5.0f)
+                * (std::min)(1.0f, (1.0f - m_travelProgress) * 5.0f);
+            if (!RenderSpearProjectile(anchor, dirX, dirY, alpha) && !m_loggedTextureFailure) {
+                DbgLog("[Projectile] render skipped visual=spear reason=no-sprite-frame\n");
+                m_loggedTextureFailure = true;
+            }
+            return;
         }
 
         const float screenSpeed = std::sqrt((std::max)(0.0f, dirX * dirX + dirY * dirY));
@@ -2063,6 +2074,7 @@ private:
     WorldProjectileVisual m_visual = WorldProjectileVisual::Arrow;
     float m_travelFrames = 8.0f;
     float m_delayFrames = 0.0f;
+    float m_travelProgress = 0.0f;
     u32 m_startTick = 0;
     bool m_initializedTravel = false;
     bool m_loggedFirstRender = false;
@@ -2642,7 +2654,8 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
     }
     const u32 billboardColor = (alpha << 24) | tint;
 
-    const auto submit = [&](u32 color, float offsetX, float offsetY, D3DBLEND destBlend) {
+    const auto submit = [&](u32 color, float offsetX, float offsetY, D3DBLEND destBlend,
+        bool useFaceBlend = false) {
         RPFace* face = g_renderer.BorrowNullRP();
         if (!face) {
             return false;
@@ -2679,10 +2692,33 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
 
         face->alphaSortKey = entry.depthKey;
 
-        g_renderer.AddRP(face, 1);
+        g_renderer.AddRP(face, 1, useFaceBlend);
         return true;
     };
     const bool rendered = submit(billboardColor, 0.0f, 0.0f, D3DBLEND_INVSRCALPHA);
+    const ActorAdditiveFlash& additiveFlash = actor->m_additiveFlash;
+    const u32 additiveAge = now - additiveFlash.startTick;
+    if (rendered && additiveAge < additiveFlash.durationMs) {
+        const float fade = additiveFlash.peakMs > 0 && additiveFlash.peakMs < additiveFlash.durationMs
+            ? (std::min)(static_cast<float>(additiveAge) / additiveFlash.peakMs,
+                static_cast<float>(additiveFlash.durationMs - additiveAge)
+                    / (additiveFlash.durationMs - additiveFlash.peakMs))
+            : 1.0f - static_cast<float>(additiveAge) / additiveFlash.durationMs;
+        const u32 flashColor = (static_cast<u32>(alpha * fade * additiveFlash.opacity) << 24)
+            | additiveFlash.color;
+        // Reuse the current sprite's silhouette, including motion and transparency.
+        // Keep this face beside its actor in depth order instead of the later AlphaOP pass.
+        submit(flashColor, 0.0f, 0.0f, D3DBLEND_ONE, true);
+        if (additiveFlash.haloRadius > 0.0f) {
+            const u32 haloColor = (static_cast<u32>(alpha * fade * additiveFlash.opacity / 8.0f) << 24)
+                | additiveFlash.color;
+            for (int index = 0; index < 8; ++index) {
+                const float angle = static_cast<float>(index) * 0.78539816f;
+                submit(haloColor, std::cos(angle) * additiveFlash.haloRadius,
+                    std::sin(angle) * additiveFlash.haloRadius, D3DBLEND_ONE, true);
+            }
+        }
+    }
     if (rendered && flashing && flash.haloAlpha > 0.0f && flash.haloRadius > 0.0f) {
         const float fade = 1.0f - static_cast<float>(flashAge) / flash.endMs;
         const u32 haloColor = (static_cast<u32>(alpha * flash.haloAlpha * fade / 8.0f) << 24) | tint;

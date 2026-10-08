@@ -7134,6 +7134,18 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
         mode.m_world->m_player = static_cast<CPlayer*>(actor);
     }
 
+    if (createdActor) {
+        const u32 serverNow = g_session.GetServerTime();
+        for (const auto& status : g_session.GetActiveStatusIcons()) {
+            if (status.statusType == kStatusTypeFrenzy
+                && (!status.hasTimer || static_cast<s32>(status.expireServerTime - serverNow) > 0)) {
+                // Restore an active Frenzy received before bootstrap or carried
+                // through a map change, including its remaining timer if present.
+                actor->SetFrenzyStatus(true, status.hasTimer ? status.expireServerTime - serverNow : 0);
+            }
+        }
+    }
+
     if (CPc* pc = dynamic_cast<CPc*>(actor)) {
         pc->m_job = g_session.m_playerJob;
         pc->m_sex = g_session.GetSex();

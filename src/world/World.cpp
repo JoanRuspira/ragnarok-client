@@ -2696,6 +2696,25 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
         return true;
     };
     const bool rendered = submit(billboardColor, 0.0f, 0.0f, D3DBLEND_INVSRCALPHA);
+    const auto submitGlow = [&](u32 color, float opacity, float haloRadius) {
+        const u32 glowColor = (static_cast<u32>(alpha * opacity) << 24) | color;
+        // Reuse the current sprite's silhouette, including motion and transparency.
+        // Keep these faces beside their actor in depth order.
+        submit(glowColor, 0.0f, 0.0f, D3DBLEND_ONE, true);
+        if (haloRadius > 0.0f) {
+            const u32 haloColor = (static_cast<u32>(alpha * opacity / 8.0f) << 24) | color;
+            for (int index = 0; index < 8; ++index) {
+                const float angle = static_cast<float>(index) * 0.78539816f;
+                submit(haloColor, std::cos(angle) * haloRadius,
+                    std::sin(angle) * haloRadius, D3DBLEND_ONE, true);
+            }
+        }
+    };
+    if (rendered && g_session.m_isEffectOn && actor->IsFrenzyStatusActive(now)) {
+        // Status-owned glow has no animation timeout and cannot be overwritten by
+        // the separate short-lived hit/buff flashes. The status removal ends it.
+        submitGlow(0xFF2020u, 0.65f, 2.5f);
+    }
     const ActorAdditiveFlash& additiveFlash = actor->m_additiveFlash;
     const u32 additiveAge = now - additiveFlash.startTick;
     if (rendered && additiveAge < additiveFlash.durationMs) {
@@ -2704,20 +2723,7 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
                 static_cast<float>(additiveFlash.durationMs - additiveAge)
                     / (additiveFlash.durationMs - additiveFlash.peakMs))
             : 1.0f - static_cast<float>(additiveAge) / additiveFlash.durationMs;
-        const u32 flashColor = (static_cast<u32>(alpha * fade * additiveFlash.opacity) << 24)
-            | additiveFlash.color;
-        // Reuse the current sprite's silhouette, including motion and transparency.
-        // Keep this face beside its actor in depth order instead of the later AlphaOP pass.
-        submit(flashColor, 0.0f, 0.0f, D3DBLEND_ONE, true);
-        if (additiveFlash.haloRadius > 0.0f) {
-            const u32 haloColor = (static_cast<u32>(alpha * fade * additiveFlash.opacity / 8.0f) << 24)
-                | additiveFlash.color;
-            for (int index = 0; index < 8; ++index) {
-                const float angle = static_cast<float>(index) * 0.78539816f;
-                submit(haloColor, std::cos(angle) * additiveFlash.haloRadius,
-                    std::sin(angle) * additiveFlash.haloRadius, D3DBLEND_ONE, true);
-            }
-        }
+        submitGlow(additiveFlash.color, fade * additiveFlash.opacity, additiveFlash.haloRadius);
     }
     if (rendered && flashing && flash.haloAlpha > 0.0f && flash.haloRadius > 0.0f) {
         const float fade = 1.0f - static_cast<float>(flashAge) / flash.endMs;

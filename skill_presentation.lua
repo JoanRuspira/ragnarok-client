@@ -194,6 +194,10 @@ return {
                     str = [[data\texture\effect\new_battle_w\new_battle_w\new_battle_w.str]],
                     wav = [[data\wav\effect\enchantblade.wav]],
                 },
+                {
+                    effect_id = 2023,
+                    str = [[data\texture\effect\new_battle_w\new_battle_w_bottom\new_battle_w_bottom.str]],
+                },
             },
         },     
         [2016] = {
@@ -243,6 +247,48 @@ return {
                 {
                     effect_id = 2020,
                     str = [[data\texture\effect\effligo\effligo\effligo.str]],
+                }
+            },
+        },
+        [2005] = {
+            name = "Wind Cutter",
+            motion_type = 2,
+            server_notified = true,
+            source = {
+                {
+                    effect_id = 2021,
+                    str = [[data\texture\effect\new_windcutter\new_windcutter_bottom_01clock\new_windcutter_bottom_01clock.str]],
+                    wav = [[data\wav\effect\wind_cutter.wav]],
+                }
+            },
+            target = {
+                {
+                    effect_id = 2022,
+                    str = [[data\texture\effect\new_windcutter\new_windcutter_target\new_windcutter_target.str]],
+                }
+            },
+        },
+        [2002] = { -- SK_KN_SONICWAVE; skill IDs and effect IDs are separate.
+            name = "Sonic Wave",
+            motion_type = 2,
+            -- The server sends skill damage, without a separate effect notification.
+            source = {
+                {
+                    effect_id = 1678,
+                    renderer = "sonic_wave",
+                    texture = [[data\texture\effect\new_sonicwave\new_sonicwave\son_wave_00.tga]],
+                    trail_texture = [[data\texture\effect\new_sonicwave\new_sonicwave\son_wave_01.tga]],
+                    offset_y = -1,
+                    radius = 18,
+                    height = 21,
+                    wave_count = 3,
+                    wave_interval_ms = 336,
+                    wave_duration_ms = 360,
+                    wav = [[data\wav\effect\sonic_blade.wav]],
+                },
+                {
+                    effect_id = 2024,
+                    str = [[data\texture\effect\new_chainlightning\new_chainlightning_cast_bottom\new_chainlightning_cast_bottom.str]],
                 }
             },
         },

@@ -4811,6 +4811,20 @@ u32 CGameActor::GetHideFadeAlpha(u32 now) const
     return (std::min)(255u, (remaining * 255u) / total);
 }
 
+void CGameActor::SetFrenzyStatus(bool active, u32 remainingMs)
+{
+    m_frenzyStatusActive = active;
+    m_frenzyStatusStartTick = timeGetTime();
+    // Legacy 0196 has no timer; an infinite duration also waits for removal.
+    m_frenzyStatusDurationMs = active && remainingMs != 0xFFFFFFFFu ? remainingMs : 0;
+}
+
+bool CGameActor::IsFrenzyStatusActive(u32 now) const
+{
+    return m_frenzyStatusActive && m_stateId != kDeathStateId
+        && (m_frenzyStatusDurationMs == 0 || now - m_frenzyStatusStartTick < m_frenzyStatusDurationMs);
+}
+
 void CGameActor::ProcessStatusEffects()
 {
     if (m_effectState == 0) {
@@ -5318,6 +5332,7 @@ void CGameActor::SetState(int state) {
         break;
     case kDeathStateId:
         m_isMoving = 0;
+        SetFrenzyStatus(false, 0);
         m_path.Reset();
         m_moveStartPos = m_pos;
         m_moveEndPos = m_pos;
@@ -5429,6 +5444,9 @@ void CGameActor::ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTo
 void CGameActor::ProcessWillBeAttacked()
 {
     const u32 now = timeGetTime();
+    if (m_hasNextWhiteDamageNumberTick && static_cast<s32>(now - m_nextWhiteDamageNumberTick) >= 0) {
+        m_hasNextWhiteDamageNumberTick = false;
+    }
     for (auto it = m_willBeAttackedList.begin(); it != m_willBeAttackedList.end(); ) {
         if (now < it->time) {
             ++it;
@@ -5445,7 +5463,7 @@ void CGameActor::QueueWillBeAttacked(const WBA& hitInfo)
     m_willBeAttackedList.push_back(hitInfo);
 }
 
-void CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs)
+u32 CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs)
 {
     // Totals can exceed six digits even when each individual hit does not.
     const int clampedValue = kind == kTotalDamageNumberKind ? (std::max)(0, value) : ClampDamageNumber(value);
@@ -5453,8 +5471,21 @@ void CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 color
         DeleteTotalNumber(kind);
     }
     if (CMsgEffect* effect = SpawnDamageNumberEffect(*this, sourceActor, clampedValue, colorArgb, kind)) {
+        if (IsWhiteDamageNumber(kind, colorArgb)) {
+            const u32 intervalMs = GetWhiteDamageNumberSettings().delayBetweenNumbersMs;
+            if (m_hasNextWhiteDamageNumberTick && intervalMs > 0) {
+                // Signed tick differences also handle the timer wrapping around.
+                const s32 remainingMs = static_cast<s32>(m_nextWhiteDamageNumberTick - effect->m_stateStartTick);
+                if (remainingMs > 0) {
+                    delayMs = (std::max)(delayMs, static_cast<u32>(remainingMs));
+                }
+            }
+            m_nextWhiteDamageNumberTick = effect->m_stateStartTick + delayMs + intervalMs;
+            m_hasNextWhiteDamageNumberTick = intervalMs > 0;
+        }
         effect->SetStartDelayMs(delayMs);
     }
+    return delayMs;
 }
 
 void CGameActor::SetModifyFactorOfmotionSpeed(int attackMT)

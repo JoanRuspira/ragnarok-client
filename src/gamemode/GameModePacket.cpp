@@ -39,6 +39,7 @@
 #include "ui/UIStatusWnd.h"
 #include "ui/UIWindowMgr.h"
 #include "world/GameActor.h"
+#include "world/MsgEffect.h"
 #include "world/RagEffect.h"
 #include "world/World.h"
 
@@ -838,8 +839,23 @@ void HandleIgnorePacket(CGameMode&, const PacketView&)
 {
 }
 
-void ApplySelfStatusIconPacket(int statusType, u32 actorId, bool active, u32 remainingMs)
+CGameActor* EnsureRuntimeActor(CGameMode& mode, u32 gid, bool preferPc);
+
+void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool active, u32 remainingMs)
 {
+    // This server maps STATUS_FRENZY to EFST_BERSERK (107). Its activation and
+    // removal are area notifications; only the local player's icon belongs in the UI.
+    if (statusType == kStatusTypeFrenzy && actorId != 0) {
+        CGameActor* actor = ResolveNotifyEffectActor(mode, actorId);
+        // The local bootstrap creates a CPlayer; do not replace it with a generic
+        // placeholder if the status arrives first. Its icon retains the status.
+        if (!actor && active && !IsLocalActorId(actorId)) actor = EnsureRuntimeActor(mode, actorId, false);
+        if (actor) {
+            actor->SetFrenzyStatus(active, remainingMs);
+            DbgLog("[GameMode] frenzy status actor=%u active=%d remainingMs=%u\n",
+                actorId, active ? 1 : 0, remainingMs);
+        }
+    }
     const bool matchesLocalPlayer = actorId != 0
         && (actorId == g_session.m_gid || actorId == g_session.m_aid);
     if (!matchesLocalPlayer) {
@@ -854,7 +870,7 @@ void ApplySelfStatusIconPacket(int statusType, u32 actorId, bool active, u32 rem
         remainingMs);
 }
 
-void HandlePacket0196(CGameMode&, const PacketView& packet)
+void HandlePacket0196(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 9) {
         return;
@@ -863,10 +879,10 @@ void HandlePacket0196(CGameMode&, const PacketView& packet)
     const int statusType = static_cast<int>(ReadLE16(packet.data + 2));
     const u32 actorId = ReadLE32(packet.data + 4);
     const bool active = packet.data[8] != 0;
-    ApplySelfStatusIconPacket(statusType, actorId, active, 0);
+    ApplyStatusChangePacket(mode, statusType, actorId, active, 0);
 }
 
-void HandlePacket043F(CGameMode&, const PacketView& packet)
+void HandlePacket043F(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 25) {
         return;
@@ -876,7 +892,7 @@ void HandlePacket043F(CGameMode&, const PacketView& packet)
     const u32 actorId = ReadLE32(packet.data + 4);
     const bool active = packet.data[8] != 0;
     const u32 remainingMs = ReadLE32(packet.data + 9);
-    ApplySelfStatusIconPacket(statusType, actorId, active, remainingMs);
+    ApplyStatusChangePacket(mode, statusType, actorId, active, remainingMs);
 }
 
 int ResolvePotionEffectId(unsigned int itemId)
@@ -3515,7 +3531,6 @@ constexpr int kDefaultAttackMotionTime = 1440;
 constexpr int kDefaultSkillMotionTime = 450;
 constexpr u32 kRefDoubleAttackTermMs = 200;
 constexpr u32 kSkillHitNumberIntervalMs = 160;
-constexpr u32 kSkillTotalNumberDelayMs = 320;
 
 struct ScheduledAttackHit {
     int damage = 0;
@@ -3754,24 +3769,28 @@ void SpawnAttackProjectile(CGameMode& mode, CGameActor* sourceActor, CGameActor*
         delayFrames);
 }
 
-void EmitCombatNumber(CGameActor* sourceActor, CGameActor* targetActor, int damage, u8 actionType, u32 delayMs = 0)
+u32 ResolveCombatNumberColor(CGameActor* sourceActor, const CGameActor& targetActor, int damage, u8 actionType)
+{
+    const bool isLocalPlayerTarget = targetActor.m_gid == g_session.m_gid || targetActor.m_gid == g_session.m_aid;
+    const bool isLocalPlayerSource = sourceActor && (sourceActor->m_gid == g_session.m_gid || sourceActor->m_gid == g_session.m_aid);
+    return (isLocalPlayerTarget && !isLocalPlayerSource)
+        ? 0xFFFF4040u
+        : ResolveCombatNumberColor(damage, actionType);
+}
+
+u32 EmitCombatNumber(CGameActor* sourceActor, CGameActor* targetActor, int damage, u8 actionType, u32 delayMs = 0)
 {
     if (!targetActor || damage == 0 || actionType == kNotifyActLuckyDodge) {
-        return;
+        return 0;
     }
 
     const int numberValue = damage < 0 ? -damage : damage;
     if (numberValue <= 0) {
-        return;
+        return 0;
     }
 
-    const bool isLocalPlayerTarget = targetActor->m_gid == g_session.m_gid || targetActor->m_gid == g_session.m_aid;
-    const bool isLocalPlayerSource = sourceActor && (sourceActor->m_gid == g_session.m_gid || sourceActor->m_gid == g_session.m_aid);
-    const u32 numberColor = (isLocalPlayerTarget && !isLocalPlayerSource)
-        ? 0xFFFF4040u
-        : ResolveCombatNumberColor(damage, actionType);
-
-    targetActor->QueueDamageNumber(sourceActor, numberValue, numberColor,
+    const u32 numberColor = ResolveCombatNumberColor(sourceActor, *targetActor, damage, actionType);
+    return targetActor->QueueDamageNumber(sourceActor, numberValue, numberColor,
         ResolveCombatNumberKind(damage, actionType), delayMs);
 }
 
@@ -3900,10 +3919,17 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const s
         return;
     }
     s64 totalDamage = 0;
+    u32 lastHitDelayMs = 0;
     for (size_t hitIndex = 0; hitIndex < hitDamages.size(); ++hitIndex) {
         const int hitDamage = hitDamages[hitIndex];
-        EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
-            static_cast<u32>(hitIndex) * kSkillHitNumberIntervalMs);
+        const bool isWhite = IsWhiteDamageNumber(ResolveCombatNumberKind(hitDamage, actionType),
+            ResolveCombatNumberColor(sourceActor, *targetActor, hitDamage, actionType));
+        const u32 intervalMs = isWhite
+            ? GetWhiteDamageNumberSettings().delayBetweenNumbersMs
+            : kSkillHitNumberIntervalMs;
+        const u32 displayDelayMs = EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
+            static_cast<u32>(hitIndex) * intervalMs);
+        lastHitDelayMs = (std::max)(lastHitDelayMs, displayDelayMs);
         if (hitDamage > 0) {
             totalDamage += hitDamage;
         }
@@ -3911,8 +3937,7 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const s
     if (hitDamages.size() > 1 && totalDamage > 0) {
         const int totalValue = static_cast<int>((std::min)(totalDamage,
             static_cast<s64>((std::numeric_limits<int>::max)())));
-        const u32 totalDelayMs = static_cast<u32>(hitDamages.size() - 1) * kSkillHitNumberIntervalMs
-            + kSkillTotalNumberDelayMs;
+        const u32 totalDelayMs = lastHitDelayMs + GetYellowDamageNumberSettings().delayAfterLastHitMs;
         targetActor->QueueDamageNumber(sourceActor, totalValue, 0xFFFFFF00u,
             kTotalDamageNumberKind, totalDelayMs);
     }
@@ -4054,11 +4079,7 @@ void QueueTimedAttackHit(CGameActor* sourceActor,
     hitInfo.attackedMotionTime = attackedMT;
     hitInfo.damage = damage < 0 ? -damage : damage;
     if (damage != 0) {
-        const bool isLocalPlayerTarget = targetActor->m_gid == g_session.m_gid || targetActor->m_gid == g_session.m_aid;
-        const bool isLocalPlayerSource = sourceActor && (sourceActor->m_gid == g_session.m_gid || sourceActor->m_gid == g_session.m_aid);
-        hitInfo.damageColor = (isLocalPlayerTarget && !isLocalPlayerSource)
-            ? 0xFFFF4040u
-            : ResolveCombatNumberColor(damage, actionType);
+        hitInfo.damageColor = ResolveCombatNumberColor(sourceActor, *targetActor, damage, actionType);
         hitInfo.damageKind = ResolveCombatNumberKind(damage, actionType);
     }
     hitInfo.damageDestX = targetActor->m_pos.x;

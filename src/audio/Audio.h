@@ -69,6 +69,7 @@ public:
     };
 
     static CAudio* GetInstance();
+    // Disabled audio is a successful no-op so client startup can continue.
     bool Init();
     void Shutdown();
     bool PlaySound(const char* fName, float vol = 1.0f);
@@ -98,6 +99,8 @@ private:
     static std::string CanonicalizeMapName(const char* rswName);
     static std::string NormalizeAudioPath(const char* path);
 
+    // Master switch read from the INI once; changing it requires a restart.
+    const bool m_enabled;
     float m_soundVolume;
     float m_loopedSoundVolume;
     bool m_loopedSoundPlaying;

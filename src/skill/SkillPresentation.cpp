@@ -186,6 +186,28 @@ bool ReadGuardSphere(lua_State* state, int table, SkillGuardSpherePresentation& 
     return true;
 }
 
+bool ReadSonicWave(lua_State* state, int table, SkillSonicWavePresentation& wave, std::string& error)
+{
+    if (!ReadString(state, table, "texture", wave.texturePath, true, error)
+        || !ValidateResourcePath(wave.texturePath, "data\\texture\\effect\\", ".tga", error)
+        || !ReadString(state, table, "trail_texture", wave.trailTexturePath, true, error)
+        || !ValidateResourcePath(wave.trailTexturePath, "data\\texture\\effect\\", ".tga", error)
+        || !ReadString(state, table, "wav", wave.wavPath, false, error)
+        || (!wave.wavPath.empty() && !ValidateResourcePath(wave.wavPath, "data\\wav\\", ".wav", error))
+        || !ReadInteger(state, table, "wave_count", wave.waveCount, error)
+        || !ReadInteger(state, table, "wave_interval_ms", wave.waveIntervalMs, error)
+        || !ReadInteger(state, table, "wave_duration_ms", wave.waveDurationMs, error)
+        || !ReadNumber(state, table, "radius", wave.radius, 0.1f, 1000.0f, error)
+        || !ReadNumber(state, table, "height", wave.height, 0.1f, 1000.0f, error)) return false;
+    if (wave.waveCount <= 0 || wave.waveCount > 8
+        || wave.waveIntervalMs < 0 || wave.waveIntervalMs > 5000
+        || wave.waveDurationMs <= 0 || wave.waveDurationMs > 5000) {
+        error = "invalid sonic_wave timing or count";
+        return false;
+    }
+    return true;
+}
+
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
@@ -200,7 +222,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         }
         return ReadBodyBurst(state, table, effect.bodyBurst, error);
     }
-    if (!renderer.empty() && renderer != "str" && renderer != "guard_sphere") {
+    if (!renderer.empty() && renderer != "str" && renderer != "guard_sphere" && renderer != "sonic_wave") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -214,6 +236,14 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         effect.offsetY = static_cast<float>(offset);
     }
     lua_pop(state, 1);
+    if (renderer == "sonic_wave") {
+        effect.renderer = SkillEffectPresentation::Renderer::SonicWave;
+        if (effect.loop) {
+            error = "sonic_wave cannot loop";
+            return false;
+        }
+        return ReadSonicWave(state, table, effect.sonicWave, error);
+    }
     if (renderer == "guard_sphere") {
         effect.renderer = SkillEffectPresentation::Renderer::GuardSphere;
         if (effect.loop) {

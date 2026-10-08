@@ -136,9 +136,23 @@ Existing minimal-effect variants remain selected when `/mineffect` is enabled.
 Skill damage presentation accepts an unresolved source when the target is
 known, and server SP-restoration notifications show blue recovery numbers.
 
-Multi-hit skill damage numbers appear 160 ms apart, matching the bolt-effect
-timing. A larger yellow total appears 320 ms after the final hit in the packet,
-32 screen pixels above the usual number origin. Individual hits retain their
+Multi-hit skill damage numbers appear 160 ms apart by default, matching the
+bolt-effect timing. White numbers use the `[WhiteDamageNumbers]` settings in
+`open-midgard.ini`: `RightDisplacement` (default `16` screen pixels),
+`MaxTravelHeight` (`48`), `MaxTravelWidth` (`32` additional pixels right), and
+`DelayBetweenNumbersMs` (`160` ms). White numbers rise in an arc and move right
+in screen space; their delay also sets minimum spacing for repeated numbers on
+the same actor. Restart after editing the settings. Bolt effects retain their
+160 ms timing when number spacing is changed.
+A larger yellow total appears 320 ms after the final displayed hit in the packet
+by default. Its `[YellowDamageNumbers]` settings in `open-midgard.ini` are
+`DelayAfterLastHitMs` (default `320`), `StartingHeightDisplacement` (`0` screen
+pixels above the target), and `MaxTravelHeight` (`48` additional pixels upward).
+The total starts centered on the target, fades in over 160 ms, rises in screen
+space, and fades out during the final 720 ms of its 2880 ms animation. Delayed
+totals capture the target's position when they appear, or its last position if
+it disappears first. Restart after editing these settings.
+Individual hits retain their
 existing damage, critical, or recovery color. Totals preserve the packet's exact
 damage, including division remainders, and can display more than six digits.
 Single hits, misses, and recovery amounts do not add a damage total. Delayed
@@ -450,6 +464,47 @@ Stoneskin's server effect is a motion/sound effect; it does not reference a ston
 texture or STR. Its successful-use response selects attack motion, and standalone
 `457` notifications animate idle actors without restarting an existing attack.
 
+Frenzy (`359`, `SK_CM_FRENZY`) maps `STATUS_FRENZY` to status notification
+`107` (`EFST_BERSERK`) in the local server. The client now applies that status
+to the affected actor as well as updating the local player's icon. While active,
+the actor's current sprite has a steady red additive glow and a small red halo.
+The glow follows movement, motion, transparency, and depth order, respects the
+effect visibility setting, and uses separate state from brief hit/buff flashes.
+It remains active until a removal notification arrives; duration-bearing `043f`
+packets also provide an expiry. Legacy `0196` activations have no guessed timeout.
+Repeated activations refresh one glow, and death clears it. Area notifications
+apply it to other visible actors without adding their statuses to the local UI.
+No build was attempted; compare its brightness and halo size in a running client.
+
+Sonic Wave (`2002`, `SK_KN_SONICWAVE`) now uses an owned Lua skill entry with
+attack motion and locally launched caster effect `1678`. The local server sends
+skill-damage notifications for this skill, without a separate special-effect
+notification. Skill ID `2002` is distinct from effect ID `2002`, which remains
+Spirit Growth's configured effect. The installed GRF has no Sonic Wave STR;
+the new `sonic_wave` renderer uses its `new_sonicwave` core and trail textures,
+matching the assets in the
+[captured effect metadata](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/effects.json)
+and the blue crescents in the
+[effect 1678 clip](https://github.com/lukasrmattos/ragnarok_effects_list/blob/main/videos/effect_1678.webm).
+The older effect `832` is a different presentation and is not substituted here.
+
+The renderer emits three 360 ms crescents, 336 ms apart, for a total lifetime of
+1,032 ms. Each travels from the caster's position to the target position supplied
+by the skill packet. The positions and direction are captured when the effect
+starts, so subsequent caster movement or removal does not move the wave's path.
+Direct effect notifications without a target use a short path in the caster's
+facing direction. The effect respects delayed starts, cancellation, world depth,
+and the effect visibility setting. Culling includes the whole path. Core and
+trail alpha fade separately with `SRCALPHA` / `ONE` blending; the captured modern
+effect is silent, so this entry omits `wav`.
+
+The Lua entry exposes `texture`, `trail_texture`, `radius`, `height`, `offset_y`,
+`wave_count`, `wave_interval_ms`, and `wave_duration_ms`; an optional `wav` plays
+once when the effect starts. Counts are limited to 1–8, intervals to 0–5,000 ms,
+and durations to 1–5,000 ms. This renderer cannot loop. The geometry and timing
+approximate the capture and still need comparison in a running updated client.
+No build was attempted.
+
 Spear Cannon (`59`, `SK_KN_SPEARCANNON`, the server's renamed Spear Boomerang)
 receives its presentation from damage notifications, including follow-up attacks
 without a cast acknowledgement. Its Lua entry uses `motion_type = 1` and locally
@@ -496,9 +551,13 @@ in a running updated client. Compare these cases against the official client:
 | Bleeding from Traumatic Strike (398) / Spear Stab (58) | Each server effect `548` notification briefly flashes the affected target red; normal sprite color returns between the 500 ms ticks and after bleeding ends |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
 | Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear flies toward the target and fades; one `ef_fireball.wav` at the damage position |
-| Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart; one larger yellow total follows the last hit by 320 ms, without losing division remainders or truncating totals above 999,999 |
+| Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
+| Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
+| White damage numbers, with varied camera angles and attacker positions | Numbers start `RightDisplacement` pixels right of the actor, rise at most `MaxTravelHeight` pixels, and travel an additional `MaxTravelWidth` pixels right; zero values disable the corresponding motion, and spacing is tracked separately for each target |
+| Yellow totals, with varied delays and heights | Totals fade in after the configured delay, start `StartingHeightDisplacement` pixels above the target, and rise an additional `MaxTravelHeight` pixels while fading out; zero delay starts with the last hit, and zero travel holds the starting height |
 | Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |
 | Fury (876) | Brief red sprite glow and white/red rising rays; duplicate `626` notifications do not intensify the glow; one server-requested Fury WAV |
+| Frenzy (359), activation, movement/attacks, refresh, and removal | Red glow and halo persist while status `107` is active, including after brief hit/buff flashes; toggle-off, expiry, and death end the glow; remote actors have their own glow and no local status icon |
 | Vigor (2016) | Buff and status icon apply with normal skill motion/name; no green glow, cone, or casting WAV; Acid Terror still shows its green glow |
 | Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |

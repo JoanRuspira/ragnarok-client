@@ -4043,6 +4043,10 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_pendingPresentationSound.clear();
     m_proceduralPresentation = nullptr;
     m_presentationTexture = nullptr;
+    m_sonicWaveTrailTexture = nullptr;
+    m_sonicWaveStartPos = vector3d{};
+    m_sonicWaveEndPos = vector3d{};
+    m_sonicWaveDirection = vector3d{};
     m_presentationStarted = false;
     m_presentationStartTick = 0;
     m_burstAngles.clear();
@@ -4072,6 +4076,20 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
+            const auto& wave = presentation->sonicWave;
+            m_handler = Handler::SonicWave;
+            m_proceduralPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            const int durationMs = wave.waveDurationMs + (wave.waveCount - 1) * wave.waveIntervalMs;
+            m_duration = static_cast<int>(std::ceil(durationMs / kEffectTickMs));
+            m_presentationTexture = TryResolveEffectTextureCandidates({ wave.texturePath.c_str() });
+            m_sonicWaveTrailTexture = TryResolveEffectTextureCandidates({ wave.trailTexturePath.c_str() });
+            m_pendingPresentationSound = wave.wavPath;
+            if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", wave.texturePath.c_str());
+            if (!m_sonicWaveTrailTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", wave.trailTexturePath.c_str());
+            return;
+        }
         if (presentation->renderer == SkillEffectPresentation::Renderer::GuardSphere) {
             const auto& sphere = presentation->guardSphere;
             m_handler = Handler::GuardSphere;
@@ -4650,6 +4668,16 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::SonicWave: {
+        const auto& wave = m_proceduralPresentation->sonicWave;
+        const vector3d start = m_presentationStarted ? m_sonicWaveStartPos : base;
+        const vector3d end = m_presentationStarted ? m_sonicWaveEndPos : (m_hasTargetPos ? m_targetPos : base);
+        center = ScaleVec3(AddVec3(start, end), 0.5f);
+        const vector3d delta = AddVec3(end, ScaleVec3(start, -1.0f));
+        radius = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z) * 0.5f
+            + wave.radius * 2.0f + wave.height;
+        break;
+    }
     case Handler::GuardSphere:
         center.y += m_presentationOffsetY;
         radius = (std::max)(m_proceduralPresentation->guardSphere.radius,
@@ -4712,7 +4740,7 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
         break;
     }
 
-    if (m_hasTargetPos) {
+    if (m_hasTargetPos && m_handler != Handler::SonicWave) {
         center.x = (base.x + m_targetPos.x) * 0.5f;
         center.y = (base.y + m_targetPos.y) * 0.5f;
         center.z = (base.z + m_targetPos.z) * 0.5f;
@@ -6610,6 +6638,23 @@ u8 CRagEffect::OnProcess()
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }
+    if (m_handler == Handler::SonicWave && !m_presentationStarted) {
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+        m_sonicWaveStartPos = ResolveBasePosition();
+        m_sonicWaveStartPos.y += m_presentationOffsetY;
+        const float angle = ResolveBaseRotation() * (kPi / 180.0f);
+        m_sonicWaveDirection = { std::sin(angle), 0.0f, -std::cos(angle) };
+        m_sonicWaveEndPos = AddVec3(m_sonicWaveStartPos, ScaleVec3(m_sonicWaveDirection, 30.0f));
+        if (m_hasTargetPos) {
+            m_sonicWaveEndPos = m_targetPos;
+            m_sonicWaveEndPos.y += m_presentationOffsetY;
+            const float dx = m_sonicWaveEndPos.x - m_sonicWaveStartPos.x;
+            const float dz = m_sonicWaveEndPos.z - m_sonicWaveStartPos.z;
+            const float distance = std::sqrt(dx * dx + dz * dz);
+            if (distance > 0.0001f) m_sonicWaveDirection = { dx / distance, 0.0f, dz / distance };
+        }
+    }
     if (m_handler == Handler::SpriteFlash && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
@@ -6643,6 +6688,12 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (m_handler == Handler::SonicWave) {
+        const auto& wave = m_proceduralPresentation->sonicWave;
+        const int durationMs = wave.waveDurationMs + (wave.waveCount - 1) * wave.waveIntervalMs;
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < static_cast<u32>(durationMs) ? 1 : 0;
+    }
     if (nativeBuff) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return m_stateCnt < m_duration ? 1 : 0;
@@ -6856,6 +6907,11 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
 {
     switch (msg) {
     case 14:
+        if (m_handler == Handler::SonicWave && par1 != 0 && !m_presentationStarted) {
+            m_targetPos = *reinterpret_cast<const vector3d*>(par1);
+            m_hasTargetPos = true;
+            return;
+        }
         if ((m_type == 24 || m_type == 123) && par1 != 0) {
             const vector3d* targetPos = reinterpret_cast<const vector3d*>(par1);
             m_targetPos = *targetPos;
@@ -6929,6 +6985,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         return;
     case 109:
         if (m_handler == Handler::BodyBurst
+            || m_handler == Handler::SonicWave
             || m_handler == Handler::SpriteFlash
             || m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
             || m_handler == Handler::DanceRays || m_handler == Handler::JumpKick
@@ -7145,6 +7202,48 @@ void CRagEffect::RenderGuardSphere(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderSonicWave(const matrix& viewMatrix)
+{
+    if (!m_presentationStarted) return;
+    const auto& wave = m_proceduralPresentation->sonicWave;
+    const float elapsedMs = static_cast<float>(timeGetTime() - m_presentationStartTick);
+    const vector3d delta = AddVec3(m_sonicWaveEndPos, ScaleVec3(m_sonicWaveStartPos, -1.0f));
+    const vector3d side{ -m_sonicWaveDirection.z, 0.0f, m_sonicWaveDirection.x };
+    constexpr int columns = 16;
+    for (int index = 0; index < wave.waveCount; ++index) {
+        const float progress = (elapsedMs - index * wave.waveIntervalMs) / wave.waveDurationMs;
+        if (progress < 0.0f || progress >= 1.0f) continue;
+        const float radius = wave.radius * (0.4f + 0.6f * (std::min)(1.0f, progress * 4.0f));
+        // The front of the crescent reaches the target; its sides trail behind.
+        const vector3d center = AddVec3(AddVec3(m_sonicWaveStartPos, ScaleVec3(delta, progress)),
+            ScaleVec3(m_sonicWaveDirection, -radius));
+        const float height = wave.height * (1.0f - progress * 0.3f);
+        const auto point = [&](float u, float v) {
+            const float angle = (u - 0.5f) * kPi;
+            vector3d position = AddVec3(center, AddVec3(
+                ScaleVec3(m_sonicWaveDirection, std::cos(angle) * radius),
+                ScaleVec3(side, std::sin(angle) * radius)));
+            position.y -= v * height;
+            return position;
+        };
+        for (int layer = 0; layer < 2; ++layer) {
+            CTexture* texture = layer == 0 ? m_presentationTexture : m_sonicWaveTrailTexture;
+            if (!texture) continue;
+            const float fadeIn = std::clamp(progress / 0.15f, 0.0f, 1.0f);
+            const float fadeOut = std::clamp((layer == 0 ? 0.8f - progress : 1.0f - progress) / 0.3f, 0.0f, 1.0f);
+            const u32 color = (static_cast<u32>(240.0f * (std::min)(fadeIn, fadeOut)) << 24) | 0xFFFFFFu;
+            const unsigned int colors[4] = { color, color, color, color };
+            for (int column = 0; column < columns; ++column) {
+                const float u0 = static_cast<float>(column) / columns;
+                const float u1 = static_cast<float>(column + 1) / columns;
+                const vector3d quad[4] = { point(u0, 0.0f), point(u1, 0.0f), point(u0, 1.0f), point(u1, 1.0f) };
+                const float uvs[4][2] = { { u0, 1.0f }, { u1, 1.0f }, { u0, 0.0f }, { u1, 0.0f } };
+                SubmitWorldQuad(quad, viewMatrix, texture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+            }
+        }
+    }
+}
+
 void CRagEffect::Render(matrix* viewMatrix)
 {
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
@@ -7156,6 +7255,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     }
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
+    if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {

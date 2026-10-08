@@ -30,7 +30,15 @@ struct DefaultIniValue {
 };
 
 constexpr DefaultIniValue kDefaultIniValues[] = {
+    { "Audio", "Enabled", "1" },
     { "Gameplay", "AutoAttack", "1" },
+    { "WhiteDamageNumbers", "RightDisplacement", "16" },
+    { "WhiteDamageNumbers", "MaxTravelHeight", "48" },
+    { "WhiteDamageNumbers", "MaxTravelWidth", "32" },
+    { "WhiteDamageNumbers", "DelayBetweenNumbersMs", "160" },
+    { "YellowDamageNumbers", "DelayAfterLastHitMs", "320" },
+    { "YellowDamageNumbers", "StartingHeightDisplacement", "0" },
+    { "YellowDamageNumbers", "MaxTravelHeight", "48" },
     { "Weather", "Rain", "0" },
     { "Weather", "Night", "0" },
     { "Effects", "ModernFireWater", "0" },

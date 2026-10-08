@@ -2,6 +2,7 @@
 
 #include "AudioBackend.h"
 #include "core/File.h"
+#include "core/SettingsIni.h"
 
 #include <algorithm>
 #include <cctype>
@@ -48,7 +49,8 @@ std::unique_ptr<IAudioBackend> CreateDefaultAudioBackend()
 } // namespace
 
 CAudio::CAudio()
-    : m_soundVolume(1.0f)
+    : m_enabled(LoadSettingsIniInt("Audio", "Enabled", 1) != 0)
+    , m_soundVolume(1.0f)
     , m_loopedSoundVolume(1.0f)
     , m_loopedSoundPlaying(false)
     , m_bgmVolume(kMaxVolume)
@@ -70,6 +72,10 @@ CAudio* CAudio::GetInstance()
 
 bool CAudio::Init()
 {
+    if (!m_enabled) {
+        return true;
+    }
+
     if (!m_backend) {
         m_backend = CreateDefaultAudioBackend();
     }
@@ -90,7 +96,7 @@ void CAudio::Shutdown()
 
 bool CAudio::PlaySound(const char* fName, float vol)
 {
-    if (!fName || !*fName || !g_soundMode || !g_isSoundOn) {
+    if (!m_enabled || !fName || !*fName || !g_soundMode || !g_isSoundOn) {
         return false;
     }
 
@@ -104,6 +110,10 @@ bool CAudio::PlaySound(const char* fName, float vol)
 
 bool CAudio::PlayLoopedSound(const char* fName, float vol)
 {
+    if (!m_enabled) {
+        return false;
+    }
+
     const std::string path = NormalizeAudioPath(fName);
     if (path.empty()) {
         StopLoopedSound();
@@ -129,7 +139,7 @@ void CAudio::StopLoopedSound()
 
 bool CAudio::SyncLoopedSound()
 {
-    if (m_loopedSoundPath.empty()) {
+    if (!m_enabled || m_loopedSoundPath.empty()) {
         return false;
     }
 
@@ -177,7 +187,7 @@ bool CAudio::PlaySound3D(const char* fName, const vector3d& soundPos, const vect
 
 void CAudio::PlayBGM(const char* fName)
 {
-    if (m_bgmSuppressed || !fName || !*fName || !Init()) {
+    if (!m_enabled || m_bgmSuppressed || !fName || !*fName || !Init()) {
         return;
     }
 

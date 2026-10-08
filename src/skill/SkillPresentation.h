@@ -41,12 +41,25 @@ struct SkillGuardSpherePresentation {
     float alpha = 0.8f;
 };
 
+// Traveling crescents for Sonic Wave, whose GRF contains textures but no STR.
+struct SkillSonicWavePresentation {
+    std::string texturePath;
+    std::string trailTexturePath;
+    std::string wavPath;
+    int waveCount = 3;
+    int waveIntervalMs = 336;
+    int waveDurationMs = 360;
+    float radius = 12.0f;
+    float height = 14.0f;
+};
+
 struct SkillEffectPresentation {
-    enum class Renderer { Str, BodyBurst, GuardSphere };
+    enum class Renderer { Str, BodyBurst, GuardSphere, SonicWave };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
+    SkillSonicWavePresentation sonicWave;
     float offsetY = 0.0f;
     bool loop = false;
 };

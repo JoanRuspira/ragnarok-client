@@ -2,6 +2,7 @@
 
 #include "World.h"
 #include "audio/Audio.h"
+#include "core/SettingsIni.h"
 #include "DebugLog.h"
 #include "gamemode/GameMode.h"
 #include "gamemode/Mode.h"
@@ -26,7 +27,10 @@ namespace {
 constexpr float kMsgEffectNearPlane = 10.0f;
 constexpr float kMsgEffectSubmitNearPlane = 80.0f;
 constexpr float kTotalDamageScaleMultiplier = 1.5f;
-constexpr float kTotalDamageScreenOffsetY = -32.0f;
+constexpr u32 kTotalDamageLifetimeMs = 2880;
+constexpr u32 kTotalDamageFadeInMs = 160;
+constexpr u32 kTotalDamageFadeOutMs = 720;
+constexpr float kHitNumberLifetimeFrames = 70.0f;
 constexpr const char* kDamageNumberSpritePath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\\xBC\xFD\xC0\xDA.spr";
 constexpr const char* kDamageNumberActPath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\\xBC\xFD\xC0\xDA.act";
 constexpr const char* kMissEffectSpritePath = "data\\sprite\\\xC0\xCC\xC6\xD1\xC6\xAE\\msg.spr";
@@ -1824,6 +1828,46 @@ bool UpdateAttachedActorSpritePose(CMsgEffect& effect)
 
 } // namespace
 
+const WhiteDamageNumberSettings& GetWhiteDamageNumberSettings()
+{
+    static const WhiteDamageNumberSettings settings = [] {
+        WhiteDamageNumberSettings loaded;
+        const auto loadDistance = [](const char* key, int defaultValue) {
+            return std::clamp(LoadSettingsIniInt("WhiteDamageNumbers", key, defaultValue), 0, 4096);
+        };
+        loaded.rightDisplacement = loadDistance("RightDisplacement", loaded.rightDisplacement);
+        loaded.maxTravelHeight = loadDistance("MaxTravelHeight", loaded.maxTravelHeight);
+        loaded.maxTravelWidth = loadDistance("MaxTravelWidth", loaded.maxTravelWidth);
+        loaded.delayBetweenNumbersMs = static_cast<u32>(std::clamp(
+            LoadSettingsIniInt("WhiteDamageNumbers", "DelayBetweenNumbersMs",
+                static_cast<int>(loaded.delayBetweenNumbersMs)), 0, 10000));
+        return loaded;
+    }();
+    return settings;
+}
+
+const YellowDamageNumberSettings& GetYellowDamageNumberSettings()
+{
+    static const YellowDamageNumberSettings settings = [] {
+        YellowDamageNumberSettings loaded;
+        loaded.delayAfterLastHitMs = static_cast<u32>(std::clamp(
+            LoadSettingsIniInt("YellowDamageNumbers", "DelayAfterLastHitMs",
+                static_cast<int>(loaded.delayAfterLastHitMs)), 0, 10000));
+        loaded.startingHeightDisplacement = std::clamp(
+            LoadSettingsIniInt("YellowDamageNumbers", "StartingHeightDisplacement",
+                loaded.startingHeightDisplacement), 0, 4096);
+        loaded.maxTravelHeight = std::clamp(
+            LoadSettingsIniInt("YellowDamageNumbers", "MaxTravelHeight", loaded.maxTravelHeight), 0, 4096);
+        return loaded;
+    }();
+    return settings;
+}
+
+bool IsWhiteDamageNumber(int kind, u32 colorArgb)
+{
+    return (kind == 14 || kind == 21) && (colorArgb & 0x00FFFFFFu) == 0x00FFFFFFu;
+}
+
 CMsgEffect::CMsgEffect()
     : m_msgEffectType(0)
     , m_digit(0)
@@ -1870,6 +1914,11 @@ void CMsgEffect::OnActorDeleted(const CGameActor* actor)
         return;
     }
 
+    if (m_msgEffectType == kTotalDamageNumberKind && m_startDelayMs > 0) {
+        // A pending total starts at the target's last position if the hit removed it.
+        m_pos = actor->m_pos;
+        m_orgPos = m_pos;
+    }
     m_masterActor = nullptr;
     m_removedFromOwner = 1;
 }
@@ -1898,6 +1947,9 @@ u8 CMsgEffect::OnProcess()
         m_stateStartTick += m_startDelayMs;
         m_startDelayMs = 0;
         if (m_msgEffectType == kTotalDamageNumberKind && m_masterActor) {
+            // Capture the target when the total appears, after its final hit.
+            m_pos = m_masterActor->m_pos;
+            m_orgPos = m_pos;
             m_masterActor->DeleteTotalNumber(kTotalDamageNumberKind, this);
         }
     }
@@ -1977,16 +2029,21 @@ u8 CMsgEffect::OnProcess()
     }
     case 14:
     case 21: {
-        if (m_destPos.x == 0.0f && m_masterActor) {
-            ResolveLateralOffset(m_masterActor->m_roty, &m_destPos.x, &m_destPos.z);
-        }
+        if (IsWhiteDamageNumber(m_msgEffectType, m_colorArgb)) {
+            // Animate after projection so rightward travel is independent of the camera.
+            m_pos = m_orgPos;
+        } else {
+            if (m_destPos.x == 0.0f && m_masterActor) {
+                ResolveLateralOffset(m_masterActor->m_roty, &m_destPos.x, &m_destPos.z);
+            }
 
-        m_pos.x = m_orgPos.x + (stateCount * 0.33333334f + 3.0f) * m_destPos.x + m_destPos2.x;
-        m_pos.z = m_orgPos.z + (stateCount * 0.33333334f + 3.0f) * m_destPos.z + m_destPos2.z;
-        m_pos.y = m_orgPos.y + 8.0f - (2.0f - stateCount * 0.033333335f) * stateCount + m_destPos.y;
+            m_pos.x = m_orgPos.x + (stateCount * 0.33333334f + 3.0f) * m_destPos.x + m_destPos2.x;
+            m_pos.z = m_orgPos.z + (stateCount * 0.33333334f + 3.0f) * m_destPos.z + m_destPos2.z;
+            m_pos.y = m_orgPos.y + 8.0f - (2.0f - stateCount * 0.033333335f) * stateCount + m_destPos.y;
+        }
         m_zoom = stateCount >= 0.0f ? (std::max)(1.2f, m_orgZoom - stateCount * 0.23999999f) : m_orgZoom;
         m_alpha = (std::max)(0, static_cast<int>(250.0f - stateCount * 3.4f));
-        if (stateCount >= 70.0f) {
+        if (stateCount >= kHitNumberLifetimeFrames) {
             m_isDisappear = 1;
         }
         break;
@@ -2008,16 +2065,20 @@ u8 CMsgEffect::OnProcess()
         }
         break;
     }
-    case kTotalDamageNumberKind:
-        m_pos.y = m_orgPos.y - stateCount * 0.1f;
+    case kTotalDamageNumberKind: {
+        m_pos = m_orgPos;
         m_zoom = m_orgZoom;
-        m_alpha = stateCount > 90.0f
-            ? (std::max)(0, 250 - static_cast<int>((stateCount - 90.0f) * 8.0f))
-            : 250;
-        if (stateCount >= 120.0f) {
+        const u32 elapsedMs = now - m_stateStartTick;
+        const float fadeIn = std::clamp(static_cast<float>(elapsedMs)
+            / static_cast<float>(kTotalDamageFadeInMs), 0.0f, 1.0f);
+        const float fadeOut = std::clamp((static_cast<float>(kTotalDamageLifetimeMs)
+            - static_cast<float>(elapsedMs)) / static_cast<float>(kTotalDamageFadeOutMs), 0.0f, 1.0f);
+        m_alpha = static_cast<int>(std::lround(250.0f * (std::min)(fadeIn, fadeOut)));
+        if (elapsedMs >= kTotalDamageLifetimeMs) {
             m_isDisappear = 1;
         }
         break;
+    }
     case 114:
     default:
         if (m_masterActor) {
@@ -2097,7 +2158,12 @@ void CMsgEffect::SendMsg(CGameObject* sender, int msg, msgparam_t par1, msgparam
         m_pos = *pos;
         m_orgPos = *pos;
 
-        if (m_msgEffectType == 114) {
+        if (m_msgEffectType == kTotalDamageNumberKind) {
+            // Totals use the target position directly; their height is applied in screen pixels.
+            m_alpha = 0;
+            m_zoom = 3.0f;
+            m_orgZoom = 3.0f;
+        } else if (m_msgEffectType == 114) {
             m_pos.y -= 12.0f;
             m_orgPos.y = m_pos.y;
             m_zoom = 5.0f;
@@ -2161,7 +2227,18 @@ void CMsgEffect::Render(matrix* viewMatrix)
 
     const bool isTotalDamage = m_msgEffectType == kTotalDamageNumberKind;
     if (isTotalDamage) {
-        projected.y += kTotalDamageScreenOffsetY;
+        const YellowDamageNumberSettings& settings = GetYellowDamageNumberSettings();
+        const float progress = std::clamp(static_cast<float>(timeGetTime() - m_stateStartTick)
+            / static_cast<float>(kTotalDamageLifetimeMs), 0.0f, 1.0f);
+        projected.y -= static_cast<float>(settings.startingHeightDisplacement)
+            + static_cast<float>(settings.maxTravelHeight) * progress;
+    } else if (IsWhiteDamageNumber(m_msgEffectType, m_colorArgb)) {
+        const WhiteDamageNumberSettings& settings = GetWhiteDamageNumberSettings();
+        const float stateCount = static_cast<float>(timeGetTime() - m_stateStartTick) * 0.041666668f;
+        const float progress = std::clamp(stateCount / kHitNumberLifetimeFrames, 0.0f, 1.0f);
+        projected.x += static_cast<float>(settings.rightDisplacement)
+            + static_cast<float>(settings.maxTravelWidth) * progress;
+        projected.y -= static_cast<float>(settings.maxTravelHeight) * 4.0f * progress * (1.0f - progress);
     }
     const int digitCount = CountDamageDigits(m_numberValue);
     int digits[10] = {};

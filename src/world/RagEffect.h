@@ -205,6 +205,10 @@ private:
     std::string m_pendingPresentationSound;
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;
     CTexture* m_presentationTexture = nullptr;
+    CTexture* m_sonicWaveTrailTexture = nullptr;
+    vector3d m_sonicWaveStartPos{};
+    vector3d m_sonicWaveEndPos{};
+    vector3d m_sonicWaveDirection{};
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
     std::vector<float> m_burstAngles;
@@ -222,6 +226,7 @@ private:
         EzStr,
         BodyBurst,
         GuardSphere,
+        SonicWave,
         SpriteFlash,
         SpriteGlow,
         CastCone,
@@ -280,6 +285,7 @@ private:
     void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
+    void RenderSonicWave(const matrix& viewMatrix);
     void StartBuffEffect();
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);

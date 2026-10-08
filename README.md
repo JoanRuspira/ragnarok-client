@@ -204,6 +204,65 @@ enemy for 200 ms enables continuous attacks regardless of `AutoAttack`; with `Au
 releasing it stops continuous attacks. Short clicks remain single attacks.
 Restart the client after changing the setting.
 
+All music and sound can be disabled in the same `open-midgard.ini` file:
+
+```ini
+[Audio]
+Enabled=0
+```
+
+`Enabled=1` is the default. Setting it to `0` skips audio device initialization
+and disables music, UI sounds, gameplay sound effects, and ambient loops,
+including rain. This master switch takes precedence over the in-game audio
+controls. Restart the client after changing it.
+
+White damage numbers can be tuned in the same `open-midgard.ini` file:
+
+```ini
+[WhiteDamageNumbers]
+RightDisplacement=16
+MaxTravelHeight=48
+MaxTravelWidth=32
+DelayBetweenNumbersMs=160
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `RightDisplacement` | Initial offset of the number's center to the right of the damaged actor, in screen pixels. |
+| `MaxTravelHeight` | Maximum rise above the starting position, in screen pixels. |
+| `MaxTravelWidth` | Additional travel to the right from the starting position, in screen pixels. |
+| `DelayBetweenNumbersMs` | Interval between multi-hit skill numbers and minimum spacing between white numbers on the same actor, in milliseconds. |
+
+White numbers follow an arc upward and back toward their starting height while
+moving right, independently of camera rotation and attacker direction. Distances
+accept `0` to `4096`; the delay accepts `0` to `10000`. Zero disables the
+corresponding displacement, travel, or spacing. Attack numbers still wait for
+their scheduled impact. Restart the client after editing these settings.
+
+Yellow damage totals have their own settings in the same file:
+
+```ini
+[YellowDamageNumbers]
+DelayAfterLastHitMs=320
+StartingHeightDisplacement=0
+MaxTravelHeight=48
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `DelayAfterLastHitMs` | Delay after the packet's last displayed hit before the yellow total begins fading in, in milliseconds. |
+| `StartingHeightDisplacement` | Initial height above the target's position, in screen pixels. Zero starts on the target. |
+| `MaxTravelHeight` | Additional upward travel from the starting position, in screen pixels. |
+
+The total stays horizontally centered on the target, fades in over 160 ms,
+and rises while fading out during the last 720 ms of its 2880 ms animation.
+Distances accept `0` to `4096`; the delay accepts `0` to `10000`. Zero delay
+starts the fade-in with the final hit, and zero travel keeps the starting height.
+Delayed totals capture the target's position when they appear; if the target
+disappears first, they use its last position. Restart after changing settings.
+These options require an executable containing the yellow-number settings;
+editing the INI alone does not add them to an older executable.
+
 Procedural rain and particle mist can be enabled for outdoor gameplay maps in the same INI file:
 
 ```ini

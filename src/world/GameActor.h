@@ -23,6 +23,8 @@ class C3dActor;
 class CTexture;
 
 constexpr int kTotalDamageNumberKind = 22;
+// The local server maps STATUS_FRENZY to the wire status EFST_BERSERK.
+constexpr int kStatusTypeFrenzy = 107;
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -277,6 +279,8 @@ public:
     CMsgEffect* m_birdEffect;
     CMsgEffect* m_cartEffect;
     CMsgEffect* m_lastDamageNumberEffect;
+    u32 m_nextWhiteDamageNumberTick = 0;
+    bool m_hasNextWhiteDamageNumberTick = false;
     std::list<CMsgEffect*> m_msgEffectList;
     vector3d m_moveStartPos;
     vector3d m_moveEndPos;
@@ -287,6 +291,9 @@ public:
     int m_lastPresentedSkillId = 0;
     u16 m_castingSkillId = 0;
     u32 m_vigorEffectSuppressUntilTick = 0;
+    bool m_frenzyStatusActive = false;
+    u32 m_frenzyStatusStartTick = 0;
+    u32 m_frenzyStatusDurationMs = 0;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -304,8 +311,11 @@ public:
     void CancelHideFade();
     bool IsHideFadeActive(u32 now) const;
     u32 GetHideFadeAlpha(u32 now) const;
+    void SetFrenzyStatus(bool active, u32 remainingMs);
+    bool IsFrenzyStatusActive(u32 now) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
-    void QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);
+    // Returns the display delay after applying per-actor white-number spacing.
+    u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);
     void DeleteMatchingEffect(CMsgEffect* effect);
     void DeleteTotalNumber(int kind, const CMsgEffect* keepEffect = nullptr);
     void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY, int clientHeight);

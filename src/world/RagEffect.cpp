@@ -36,6 +36,8 @@ constexpr float kEffectSpriteDepthBias = 0.0002f;
 constexpr u32 kRecoverySparkleDurationMs = 500;
 constexpr u32 kRecoverySparkleStaggerMs = 10;
 constexpr u32 kSpriteFlashDurationMs = 240;
+constexpr u32 kBloodsportMistNotifyDurationMs = 5000;
+constexpr u32 kBloodsportMistCycleMs = 2400;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
 constexpr float kMapPillarDurationFrames = 960.0f;
 constexpr float kWaterfallSegmentHeight = 40.0f;
@@ -4022,6 +4024,9 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
         vert = anchor;
         vert.x = rotatedX + m_tlvertX;
         vert.y = rotatedY + m_tlvertY;
+        // STR layers are flat screen-space artwork. Using the anchor's world
+        // depth lets foreground terrain cut through the lower half of the quad.
+        // The bottom-effect pass puts actors on top without changing this depth.
         vert.z = 0.000031f;
         vert.color = color;
         vert.specular = 0xFFFFFFFFu;
@@ -4040,6 +4045,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_startDelayMs = 0;
     m_castEndTick = 0;
     m_presentationOffsetY = 0.0f;
+    m_presentationBottomEffect = false;
+    m_presentationBottomOffsetPx = 4.0f;
     m_pendingPresentationSound.clear();
     m_proceduralPresentation = nullptr;
     m_presentationTexture = nullptr;
@@ -4049,6 +4056,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_sonicWaveDirection = vector3d{};
     m_presentationStarted = false;
     m_presentationStartTick = 0;
+    m_bloodsportMistStatusOwned = false;
+    m_bloodsportMistLastNotifyTick = 0;
     m_burstAngles.clear();
     m_castConeTextures.fill(nullptr);
     m_master = master;
@@ -4076,6 +4085,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        m_presentationBottomEffect = presentation->bottomEffect;
+        m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
         if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
             const auto& wave = presentation->sonicWave;
             m_handler = Handler::SonicWave;
@@ -4135,6 +4146,11 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
 
     switch (effectId) {
+    case kRagEffectBloodsportMist: // EF_CIRCLEPOWER5: red mist, without a STR or sound.
+        m_handler = Handler::BloodsportMist;
+        m_presentationTexture = ResolveEffectTextureCandidates({ "data\\texture\\effect\\freeze_a.bmp" }, true);
+        RefreshBloodsportMist();
+        break;
     case 457: // EF_JUMPKICK: actor motion and sound, without a texture/STR.
         m_handler = Handler::JumpKick;
         m_duration = 15;
@@ -6638,6 +6654,11 @@ u8 CRagEffect::OnProcess()
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }
+    if (m_handler == Handler::BloodsportMist && !m_presentationStarted) {
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+        m_bloodsportMistLastNotifyTick = m_presentationStartTick;
+    }
     if (m_handler == Handler::SonicWave && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
@@ -6688,6 +6709,15 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (m_handler == Handler::BloodsportMist) {
+        if (m_bloodsportMistStatusOwned) {
+            const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+            return actor && actor->IsBloodsportStatusActive(now) ? 1 : 0;
+        }
+        // Standalone effect notifications (including remote actors without a
+        // status packet) last until the next five-second server notification.
+        return now - m_bloodsportMistLastNotifyTick < kBloodsportMistNotifyDurationMs ? 1 : 0;
+    }
     if (m_handler == Handler::SonicWave) {
         const auto& wave = m_proceduralPresentation->sonicWave;
         const int durationMs = wave.waveDurationMs + (wave.waveCount - 1) * wave.waveIntervalMs;
@@ -7015,6 +7045,18 @@ void CRagEffect::Cancel()
     }
 }
 
+void CRagEffect::RefreshBloodsportMist()
+{
+    if (m_handler != Handler::BloodsportMist || m_cancelled) return;
+    m_bloodsportMistLastNotifyTick = timeGetTime();
+    const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+    if (actor && actor->IsBloodsportStatusActive(m_bloodsportMistLastNotifyTick)) {
+        // Adopt a mist notification that arrived before status activation.
+        // Keeping its animation phase avoids flashes on periodic refreshes.
+        m_bloodsportMistStatusOwned = true;
+    }
+}
+
 void CRagEffect::StartBuffEffect()
 {
     m_presentationStarted = true;
@@ -7093,6 +7135,44 @@ void CRagEffect::RenderDanceRays(const matrix& viewMatrix)
             PackColor(static_cast<unsigned int>(fade * 180.0f),
                 index % 3 == 0 ? RGB(255, 255, 255) : RGB(255, 96, 96)),
             D3DBLEND_ONE, 0.0f, 1 | 4);
+    }
+}
+
+void CRagEffect::RenderBloodsportMist(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
+    const u32 now = timeGetTime();
+    const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+    if (m_bloodsportMistStatusOwned && (!actor || !actor->IsBloodsportStatusActive(now))) return;
+    if (actor && (!actor->m_isVisible || !actor->m_isVisibleBody)) return;
+    const u32 notifyElapsedMs = now - m_bloodsportMistLastNotifyTick;
+    if (!m_bloodsportMistStatusOwned && notifyElapsedMs >= kBloodsportMistNotifyDurationMs) return;
+
+    const u32 elapsedMs = now - m_presentationStartTick;
+    const float fadeIn = (std::min)(1.0f, static_cast<float>(elapsedMs) / 200.0f);
+    const float fadeOut = m_bloodsportMistStatusOwned ? 1.0f
+        : (std::min)(1.0f, static_cast<float>(kBloodsportMistNotifyDurationMs - notifyElapsedMs) / 400.0f);
+    const float actorAlpha = actor ? static_cast<float>(actor->GetHideFadeAlpha(now)) / 255.0f : 1.0f;
+    const vector3d base = ResolveBasePosition();
+    constexpr int kMistCount = 10;
+    for (int index = 0; index < kMistCount; ++index) {
+        const u32 phaseMs = (elapsedMs + index * (kBloodsportMistCycleMs / kMistCount)) % kBloodsportMistCycleMs;
+        const float progress = static_cast<float>(phaseMs) / kBloodsportMistCycleMs;
+        const float envelope = std::sin(kPi * progress);
+        const float angle = static_cast<float>(index) * 2.399963f + progress * 1.2f;
+        const float radius = 5.0f + envelope * 3.0f;
+        const vector3d center = { base.x + std::cos(angle) * radius,
+            base.y - 3.0f - progress * 18.0f, base.z + std::sin(angle) * radius };
+        tlvertex3d anchor{};
+        if (!ProjectPoint(center, viewMatrix, &anchor)) continue;
+        const float pixelRatio = ResolveEffectPixelRatio(anchor);
+        if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) continue;
+        const float width = (72.0f + progress * 56.0f) * pixelRatio;
+        const float height = (100.0f + progress * 56.0f) * pixelRatio;
+        const unsigned int alpha = static_cast<unsigned int>(envelope * fadeIn * fadeOut * actorAlpha * 140.0f);
+        SubmitScreenQuadPivot(anchor, m_presentationTexture, width * 0.5f, height * 0.5f,
+            width, height, index * 37.0f + progress * 70.0f,
+            PackColor(alpha, RGB(255, 24, 16)), D3DBLEND_ONE, 0.0f, 1 | 4);
     }
 }
 
@@ -7249,6 +7329,10 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
         return;
     }
+    // Apply the layer and screen-pixel shift to every face submitted by this
+    // effect, including procedural renderers and nested components.
+    const CRenderer::BottomEffectScope bottomScope(g_renderer,
+        m_presentationBottomEffect, m_presentationBottomOffsetPx);
     if (m_handler == Handler::Torch && g_renderer.ModernFireWater().IsEnabled()) {
         g_renderer.ModernFireWater().QueueTorch(g_renderer, *viewMatrix, ResolveBasePosition(), m_param[0]);
         return;
@@ -7258,6 +7342,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
+    if (m_handler == Handler::BloodsportMist) RenderBloodsportMist(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
         RenderRecoverySparkles(*viewMatrix);
     }

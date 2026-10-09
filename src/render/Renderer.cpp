@@ -1000,6 +1000,24 @@ void CRenderer::Flip(bool vertSync) {
     GetRenderDevice().Present(vertSync);
 }
 
+CRenderer::BottomEffectScope::BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx)
+    : m_renderer(renderer)
+    , m_previousActive(renderer.m_bottomEffectActive)
+    , m_previousOffsetPx(renderer.m_bottomEffectOffsetPx)
+{
+    // Unconfigured nested components inherit the containing effect's layer.
+    if (enabled) {
+        renderer.m_bottomEffectActive = true;
+        renderer.m_bottomEffectOffsetPx = offsetPx;
+    }
+}
+
+CRenderer::BottomEffectScope::~BottomEffectScope()
+{
+    m_renderer.m_bottomEffectActive = m_previousActive;
+    m_renderer.m_bottomEffectOffsetPx = m_previousOffsetPx;
+}
+
 void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
     if (face) {
         ApplyFogToVertices(face->verts, face->numVerts, m_isFoggy, m_fogPara);
@@ -1013,7 +1031,17 @@ void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
             }
         }
 
-        if ((renderFlag & 8) && (renderFlag & 4)) {
+        if (m_bottomEffectActive) {
+            for (int index = 0; index < face->numVerts; ++index) {
+                face->verts[index].y += m_bottomEffectOffsetPx;
+            }
+            const bool faceBlend = (renderFlag & 4) || useFaceBlend;
+            const bool emissive = (renderFlag & 2) != 0;
+            m_rpBottomEffectList.push_back({ sortKey, face,
+                faceBlend ? face->srcAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA),
+                faceBlend ? face->destAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA),
+                (renderFlag & 4) != 0 });
+        } else if ((renderFlag & 8) && (renderFlag & 4)) {
             m_rpAlphaOPNoDepthList.push_back({sortKey, face});
         } else if (renderFlag & 4) {
             m_rpAlphaOPList.push_back(face);
@@ -1327,6 +1355,27 @@ void CRenderer::FlushRenderList() {
         SetTexture(face->tex);
         RPFace::DrawPri(face, *m_renderDevice);
     }
+
+    // Bottom effects cover the terrain and contact shadows, then actors cover
+    // them. Preserve STR overlay depth, procedural world depth, and authored blends.
+    if (!m_rpBottomEffectList.empty()) {
+        std::stable_sort(m_rpBottomEffectList.begin(), m_rpBottomEffectList.end(),
+            [](const BottomEffectFaceEntry& a, const BottomEffectFaceEntry& b) {
+                return a.sortKey < b.sortKey;
+            });
+        for (const auto& entry : m_rpBottomEffectList) {
+            SetMultiTextureMode(entry.face->mtPreset);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, entry.colorKey ? TRUE : FALSE);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, entry.srcBlend);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, entry.destBlend);
+            SetTexture(entry.face->tex);
+            RPFace::DrawPri(entry.face, *m_renderDevice);
+        }
+        SetMultiTextureMode(0);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    }
     
     struct BlendedFaceEntry {
         float sortKey;
@@ -1440,6 +1489,7 @@ void CRenderer::FlushRenderList() {
         m_rpRawList.clear();
         m_rpAlphaList.clear();
         m_rpGroundShadowList.clear();
+        m_rpBottomEffectList.clear();
         m_rpAlphaNoDepthList.clear();
         m_rpEmissiveList.clear();
         m_rpEmissiveNoDepthList.clear();
@@ -1551,6 +1601,7 @@ void CRenderer::FlushRenderList() {
     m_rpRawList.clear();
     m_rpAlphaList.clear();
     m_rpGroundShadowList.clear();
+    m_rpBottomEffectList.clear();
     m_rpAlphaNoDepthList.clear();
     m_rpEmissiveList.clear();
     m_rpRawAlphaList.clear();

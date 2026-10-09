@@ -34,6 +34,8 @@
 
 namespace {
 
+constexpr int kSkillIdRend = 953;
+
 void SetTextureDebugName(CTexture* texture, const char* name)
 {
     if (!texture || !name || name[0] == '\0') {
@@ -4536,6 +4538,17 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
         return nullptr;
     }
 
+    // Blood Sport's server timer sends 871 every five seconds. Refresh the
+    // existing mist rather than stacking another layer over the status aura.
+    if (effectId == kRagEffectBloodsportMist) {
+        for (CRagEffect* effect : m_effectList) {
+            if (effect && effect->GetEffectType() == effectId) {
+                effect->RefreshBloodsportMist();
+                return effect;
+            }
+        }
+    }
+
     CGameMode* gameMode = g_modeMgr.GetCurrentGameMode();
     if (!gameMode || !gameMode->m_world) {
         return nullptr;
@@ -4762,7 +4775,9 @@ bool CGameActor::BeginSkillPresentation(int skillId, const std::string& name, u3
     }
     m_lastPresentedSkillId = skillId;
     m_lastSkillPresentationTick = now;
-    if (!name.empty()) {
+    // Rend is an automatic attack: keep its presentation without creating or
+    // refreshing a skill-name shout over the actor.
+    if (skillId != kSkillIdRend && !name.empty()) {
         m_skillNameText = name;
         while (!m_skillNameText.empty() && m_skillNameText.back() == '!') {
             m_skillNameText.pop_back();
@@ -4825,8 +4840,37 @@ bool CGameActor::IsFrenzyStatusActive(u32 now) const
         && (m_frenzyStatusDurationMs == 0 || now - m_frenzyStatusStartTick < m_frenzyStatusDurationMs);
 }
 
+void CGameActor::SetBloodsportStatus(bool active, u32 remainingMs)
+{
+    m_bloodsportStatusActive = active;
+    m_bloodsportStatusStartTick = timeGetTime();
+    // Legacy 0196 and infinite timers wait for the removal notification.
+    m_bloodsportStatusDurationMs = active && remainingMs != 0xFFFFFFFFu ? remainingMs : 0;
+    if (IsBloodsportStatusActive(m_bloodsportStatusStartTick)) {
+        LaunchEffect(kRagEffectBloodsportMist);
+    } else {
+        RemoveEffectById(kRagEffectBloodsportMist);
+    }
+}
+
+bool CGameActor::IsBloodsportStatusActive(u32 now) const
+{
+    return m_bloodsportStatusActive && m_stateId != kDeathStateId
+        && (m_bloodsportStatusDurationMs == 0
+            || now - m_bloodsportStatusStartTick < m_bloodsportStatusDurationMs);
+}
+
 void CGameActor::ProcessStatusEffects()
 {
+    if (m_bloodsportStatusActive) {
+        if (IsBloodsportStatusActive(timeGetTime())) {
+            // Also restores the aura if effects were disabled when it started.
+            LaunchEffect(kRagEffectBloodsportMist);
+        } else {
+            SetBloodsportStatus(false, 0);
+        }
+    }
+
     if (m_effectState == 0) {
         m_effectLaunchCnt = 36000;
     } else {
@@ -5333,6 +5377,7 @@ void CGameActor::SetState(int state) {
     case kDeathStateId:
         m_isMoving = 0;
         SetFrenzyStatus(false, 0);
+        SetBloodsportStatus(false, 0);
         m_path.Reset();
         m_moveStartPos = m_pos;
         m_moveEndPos = m_pos;

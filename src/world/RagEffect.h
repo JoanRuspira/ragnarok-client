@@ -73,6 +73,7 @@ struct EffectSegmentState {
     matrix transform{};
 };
 
+constexpr int kRagEffectBloodsportMist = 871; // EF_CIRCLEPOWER5
 constexpr int kRagEffectPortal = 50001;
 constexpr int kRagEffectReadyPortal = 50002;
 constexpr int kRagEffectWarpZone = 50003;
@@ -186,6 +187,7 @@ public:
     void SetCastDurationMs(int milliseconds);
     void SetStartDelayMs(u32 milliseconds);
     void Cancel();
+    void RefreshBloodsportMist();
 
     u8 OnProcess() override;
     void OnActorDeleted(const CGameActor* actor) override;
@@ -202,6 +204,8 @@ private:
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
     float m_presentationOffsetY = 0.0f;
+    bool m_presentationBottomEffect = false;
+    float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;
     CTexture* m_presentationTexture = nullptr;
@@ -211,6 +215,8 @@ private:
     vector3d m_sonicWaveDirection{};
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
+    bool m_bloodsportMistStatusOwned = false;
+    u32 m_bloodsportMistLastNotifyTick = 0;
     std::vector<float> m_burstAngles;
     std::array<CTexture*, 27> m_castConeTextures{};
     struct RecoverySparkle {
@@ -231,6 +237,7 @@ private:
         SpriteGlow,
         CastCone,
         DanceRays,
+        BloodsportMist,
         JumpKick,
         GroundSurface,
         Sprite,
@@ -289,6 +296,7 @@ private:
     void StartBuffEffect();
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);
+    void RenderBloodsportMist(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;

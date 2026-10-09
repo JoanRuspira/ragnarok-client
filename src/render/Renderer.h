@@ -166,6 +166,19 @@ public:
     // useFaceBlend keeps explicit blend modes in the depth-sorted alpha queue.
     void AddRP(RPFace* face, int renderFlag, bool useFaceBlend = false);
     void AddGroundShadowRP(RPFace* face);
+    // Route an effect's faces below actors, restoring the previous layer on exit.
+    class BottomEffectScope {
+    public:
+        BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx);
+        ~BottomEffectScope();
+        BottomEffectScope(const BottomEffectScope&) = delete;
+        BottomEffectScope& operator=(const BottomEffectScope&) = delete;
+
+    private:
+        CRenderer& m_renderer;
+        bool m_previousActive;
+        float m_previousOffsetPx;
+    };
     void AddLmRP(RPLmFace* face, int renderFlag);
     void AddRawRP(RPRaw* face, int renderFlag);
     
@@ -230,6 +243,14 @@ public:
     };
     std::vector<AlphaFaceEntry> m_rpAlphaList;
     std::vector<RPFace*> m_rpGroundShadowList;
+    struct BottomEffectFaceEntry {
+        float sortKey;
+        RPFace* face;
+        D3DBLEND srcBlend;
+        D3DBLEND destBlend;
+        bool colorKey;
+    };
+    std::vector<BottomEffectFaceEntry> m_rpBottomEffectList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaNoDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveList;
@@ -254,6 +275,8 @@ public:
     std::list<CacheSurface> m_cacheSurfaces[16];
 
 private:
+    bool m_bottomEffectActive = false;
+    float m_bottomEffectOffsetPx = 0.0f;
     CRainEffect m_rainEffect;
     CFireflyEffect m_fireflyEffect;
     CModernFireWater m_modernFireWater;

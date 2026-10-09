@@ -532,7 +532,7 @@ bool ApplySelfStatusUpdate(CGameMode& mode, u32 statusType, u32 value);
 void ClearAttachedSkillEffects(CGameActor* actor, int preserveBeginEffectId = -1);
 CRagEffect* SpawnWorldSkillEffect(CGameMode& mode, int effectId, const vector3d& position);
 void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
-    u16 skillId = 0, CGameActor* targetActor = nullptr);
+    u16 skillId = 0, CGameActor* targetActor = nullptr, u16 hitCount = 1);
 
 int ResolveHealVisualEffectId(u32 amount)
 {
@@ -843,17 +843,18 @@ CGameActor* EnsureRuntimeActor(CGameMode& mode, u32 gid, bool preferPc);
 
 void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool active, u32 remainingMs)
 {
-    // This server maps STATUS_FRENZY to EFST_BERSERK (107). Its activation and
-    // removal are area notifications; only the local player's icon belongs in the UI.
-    if (statusType == kStatusTypeFrenzy && actorId != 0) {
+    // Status visuals belong to the affected actor; only the local player's
+    // status icons belong in the UI.
+    if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport) && actorId != 0) {
         CGameActor* actor = ResolveNotifyEffectActor(mode, actorId);
         // The local bootstrap creates a CPlayer; do not replace it with a generic
         // placeholder if the status arrives first. Its icon retains the status.
         if (!actor && active && !IsLocalActorId(actorId)) actor = EnsureRuntimeActor(mode, actorId, false);
         if (actor) {
-            actor->SetFrenzyStatus(active, remainingMs);
-            DbgLog("[GameMode] frenzy status actor=%u active=%d remainingMs=%u\n",
-                actorId, active ? 1 : 0, remainingMs);
+            if (statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(active, remainingMs);
+            else actor->SetBloodsportStatus(active, remainingMs);
+            DbgLog("[GameMode] actor status type=%d actor=%u active=%d remainingMs=%u\n",
+                statusType, actorId, active ? 1 : 0, remainingMs);
         }
     }
     const bool matchesLocalPlayer = actorId != 0
@@ -3967,6 +3968,23 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, int dam
     EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType);
 }
 
+template <typename LaunchEffect>
+void EmitSkillPresentationEffects(const std::vector<int>& effectIds, bool serverNotified,
+    u16 hitCountRaw, LaunchEffect launch)
+{
+    const int hitCount = (std::max)(1, static_cast<int>(hitCountRaw));
+    for (int effectId : effectIds) {
+        const SkillEffectPresentation* effectPresentation = FindSkillEffectPresentation(effectId);
+        const int playbackCount = effectPresentation && effectPresentation->oncePerHit ? hitCount : 1;
+        // Server-notified effects already have their first playback supplied by the server.
+        for (int hitIndex = serverNotified ? 1 : 0; hitIndex < playbackCount; ++hitIndex) {
+            if (CRagEffect* effect = launch(effectId)) {
+                effect->SetStartDelayMs(static_cast<u32>(hitIndex) * kSkillHitNumberIntervalMs);
+            }
+        }
+    }
+}
+
 void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
 {
     if (!targetActor) {
@@ -3976,12 +3994,6 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
     const auto launch = [targetActor, delayMs](int effectId) {
         if (CRagEffect* effect = targetActor->LaunchEffect(effectId, vector3d{}, 0.0f)) effect->SetStartDelayMs(delayMs);
     };
-    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
-        if (!presentation->passive && !presentation->targetServerNotified) {
-            for (int effectId : presentation->targetEffects) launch(effectId);
-        }
-        return;
-    }
     LuaSkillEffectInfo luaInfo;
     if (g_buabridge.GetSkillEffectInfoBySkillId(static_cast<int>(skillId), &luaInfo) && !luaInfo.targetEffectIds.empty()) {
         for (int effectId : luaInfo.targetEffectIds) {
@@ -4031,6 +4043,18 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
 
 void EmitSkillImpactEffects(CGameActor* targetActor, u16 skillId, u16 hitCountRaw)
 {
+    if (!targetActor) {
+        return;
+    }
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        if (!presentation->passive) {
+            EmitSkillPresentationEffects(presentation->targetEffects, presentation->targetServerNotified,
+                hitCountRaw, [targetActor](int effectId) {
+                    return targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
+                });
+        }
+        return;
+    }
     const bool isBolt = skillId == 14 || skillId == 19 || skillId == 20;
     const int hitCount = isBolt ? (std::max)(1, (std::min)(64, static_cast<int>(hitCountRaw))) : 1;
     for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex) {
@@ -4864,7 +4888,7 @@ void MaybeStartGrimtoothSourcePresentation(CGameActor* sourceActor, u32 srcGid, 
 }
 
 void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
-    u16 skillId, CGameActor* targetActor)
+    u16 skillId, CGameActor* targetActor, u16 hitCount)
 {
     if (!actor) {
         return;
@@ -4914,18 +4938,29 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     actor->ProcessMotion();
     InvalidateActorBillboard(actor);
 
-    if (packetInfo.launchUseSkill) {
-        CGameActor* effectActor = packetInfo.useTargetSlot && targetActor ? targetActor : actor;
-        for (int effectId : packetInfo.sourceEffectIds) {
-            if (effectId <= 0) {
-                continue;
-            }
-            if (CRagEffect* effect = effectActor->LaunchEffect(effectId, vector3d{}, 0.0f)) {
-                if (targetPos) {
-                    effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(targetPos), 0, 0);
-                }
-            }
+    CGameActor* effectActor = packetInfo.useTargetSlot && targetActor ? targetActor : actor;
+    const auto launchSourceEffect = [effectActor, targetPos](int effectId) -> CRagEffect* {
+        if (effectId <= 0) {
+            return nullptr;
         }
+        CRagEffect* effect = effectActor->LaunchEffect(effectId, vector3d{}, 0.0f);
+        if (effect && targetPos) {
+            effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(targetPos), 0, 0);
+        }
+        return effect;
+    };
+    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+        if (!presentation->passive) {
+            EmitSkillPresentationEffects(presentation->sourceEffects, presentation->sourceServerNotified,
+                hitCount, launchSourceEffect);
+        }
+    } else if (packetInfo.launchUseSkill) {
+        for (int effectId : packetInfo.sourceEffectIds) {
+            launchSourceEffect(effectId);
+        }
+    }
+
+    if (packetInfo.launchUseSkill) {
         if (skillId == 59 && targetPos && (!targetActor || targetActor != actor)) { // SK_KN_SPEARCANNON
             constexpr float travelFrames = 140.0f / 24.0f;
             const float impactFrames = static_cast<float>(ResolveAttackImpactDelayMs(*actor)) / 24.0f;
@@ -4996,11 +5031,15 @@ int ResolveGroundSkillEffectId(u16 skillId, u16 level)
     }
 }
 
-void EmitGroundSkillEffects(CGameMode& mode, u16 skillId, u16 level, const vector3d& position)
+void EmitGroundSkillEffects(CGameMode& mode, u16 skillId, u16 level, const vector3d& position,
+    u16 hitCount = 1)
 {
     if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
-        if (!presentation->passive && !presentation->groundServerNotified) {
-            for (int effectId : presentation->groundEffects) SpawnWorldSkillEffect(mode, effectId, position);
+        if (!presentation->passive) {
+            EmitSkillPresentationEffects(presentation->groundEffects, presentation->groundServerNotified,
+                hitCount, [&mode, &position](int effectId) {
+                    return SpawnWorldSkillEffect(mode, effectId, position);
+                });
         }
         return;
     }
@@ -5445,7 +5484,7 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
             return;
         }
     } else {
-        StartSkillSourceAnimation(sourceActor, &targetActor->m_pos, attackMT, skillId, targetActor);
+        StartSkillSourceAnimation(sourceActor, &targetActor->m_pos, attackMT, skillId, targetActor, displayHitCount);
     }
     QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
     EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
@@ -5511,7 +5550,7 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
                 cellY);
             MaybeStartGrimtoothSourcePresentation(sourceActor, srcGid, impactPos);
         } else {
-            StartSkillSourceAnimation(sourceActor, &impactPos, attackMT, skillId, targetActor);
+            StartSkillSourceAnimation(sourceActor, &impactPos, attackMT, skillId, targetActor, displayHitCount);
         }
     }
     if (skillId == kSkillIdGrimtooth && damage == -30000) {
@@ -5530,7 +5569,7 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
         EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
     }
 
-    EmitGroundSkillEffects(mode, skillId, level, impactPos);
+    EmitGroundSkillEffects(mode, skillId, level, impactPos, displayHitCount);
     if (!PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, impactPos)) {
         PlayGroundSkillImpactSound(skillId, impactPos);
     }
@@ -5624,7 +5663,7 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && FindSkillPresentation(skillId)) {
-        EmitSkillImpactEffect(targetActor, skillId, 0);
+        EmitSkillImpactEffects(targetActor, skillId, 1);
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
         if (!packetInfo.impactEffectIds.empty()) {
             for (int effectId : packetInfo.impactEffectIds) {

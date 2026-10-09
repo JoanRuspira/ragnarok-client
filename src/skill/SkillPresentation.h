@@ -60,8 +60,11 @@ struct SkillEffectPresentation {
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
+    bool bottomEffect = false;
+    float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
     bool loop = false;
+    bool oncePerHit = false;
 };
 
 struct SkillPresentation {

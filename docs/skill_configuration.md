@@ -240,6 +240,61 @@ an `effect_id` and full GRF resource paths: `str` begins with
 means silence. A `variants` array pairs visual and audio paths so both use the
 same random variant. `offset_y` sets the vertical attachment offset, and `loop`
 controls repetition; STR playback uses the animation's authored FPS.
+
+Set `once_per_hit = true` on an effect definition to play it once for each hit
+reported by a skill damage packet. Omitted or false plays it once for the skill
+notification. This works for inline and shared `effects` definitions in `source`,
+`target`, and `ground` arrays, including variants and procedural renderers. Each
+playback is a separate effect instance, with its own animation and optional WAV;
+variants are selected independently for each hit. Playbacks are staggered by the
+existing skill-hit interval of `160` ms. `loop` still controls the lifetime of
+each instance rather than the number of hits.
+
+For `server_notified` attachments, the server's effect notification supplies the
+first playback; the damage packet schedules only hits two onward. Unmarked
+effects continue to play only from their server notifications. This assumes the
+server sends each configured effect once per skill use. Packets without a hit
+count, including successful no-damage and ground notifications, use one hit and
+add no per-hit replays for server-notified effects. A zero hit count also uses one
+hit.
+
+For example, Hundred Spear's hit effect can repeat while its other components
+remain single-playback effects:
+
+```lua
+{
+    effect_id = 2037,
+    str = [[data\texture\effect\servant_demolition\servant_demolition_hit\servant_demolition_hit.str]],
+    once_per_hit = true,
+    bottom_effect = true,
+    bottom_offset_px = 25,
+},
+```
+
+Set `bottom_effect = true` on an effect definition to draw its visual behind
+actor sprites. `bottom_offset_px` sets an additional downward shift in screen
+pixels, defaulting to `4`; use `0` for the draw order alone. The value must be a
+finite number between `0` and `10000`, and fractional pixels are allowed. The
+shift is independent of camera zoom and adds to the existing world-space
+`offset_y`. These fields work for inline effects and shared `effects` definitions,
+including variants and procedural renderers. Omitted or false `bottom_effect`
+uses the normal draw order and ignores `bottom_offset_px`.
+
+```lua
+{
+    effect_id = 2026,
+    str = [[data\texture\effect\4ig_explosionblaster\explosionblaster_bottom\explosionblaster_bottom.str]],
+    bottom_effect = true,
+    bottom_offset_px = 6,
+},
+```
+
+Bottom effects draw after terrain and contact shadows, before actor sprites,
+with their authored blend modes. Flat STR artwork keeps its original overlay
+depth so terrain cannot cut through the image; actor sprites cover it through
+draw order. Procedural effects retain their usual world depth testing.
+Restart the client after changing the configuration.
+
 For a procedural caster flash and camera-facing radial burst, use
 `renderer = "body_burst"` with a full `texture` TGA path and optional `wav`.
 Its `flash_start_color` and `flash_peak_color` are RGB integers, with
@@ -304,8 +359,9 @@ duplicate Lua sound entry. The `[GameMode] sound notify` log records the WAV,
 actor resolution, and playback result.
 
 `server_notified = true` means that effect-notification packets already trigger
-the configured effects. Skill-use packets then suppress their own effect replay,
-avoiding duplicates. Direct server packets carry only an effect ID; inline skill
+the configured effects. Skill-use packets suppress the first playback, and only
+schedule additional hits for effects marked `once_per_hit = true`. Direct server
+packets carry only an effect ID; inline skill
 definitions are also indexed by that ID. `source_server_notified`,
 `target_server_notified`, and `ground_server_notified` can override the default
 independently. This lets a skill play a missing caster presentation locally while
@@ -476,6 +532,39 @@ Repeated activations refresh one glow, and death clears it. Area notifications
 apply it to other visible actors without adding their statuses to the local UI.
 No build was attempted; compare its brightness and halo size in a running client.
 
+Blood Sport (`2001`, `SK_CM_AURABLADE`) maps `STATUS_BLOODSPORT` to wire status
+`103` (`EFST_AURABLADE`). Its red mist is server effect `871` (`EF_CIRCLEPOWER5`),
+which previously had no client presentation. The native handler uses the installed
+`freeze_a.bmp` texture for red wisps that rise around and follow the actor, with
+additive alpha fades and no sound. Status activation starts the mist immediately;
+the server's five-second effect notifications refresh the existing aura without
+stacking layers or restarting its animation. A notification received before the
+status is adopted by the status aura. Standalone `871` notifications last five
+seconds and can be refreshed by later notifications.
+
+The status aura ends on removal, timed expiry, death, or actor deletion. Legacy
+`0196` activations wait for removal; `043f` supplies the remaining duration.
+Bootstrap/map changes restore the local player's remaining status, and the
+effect visibility setting hides/restores the mist while the status stays active.
+Blood Sport's configured cast effects `2033`/`2034` remain separate from this aura.
+No build or in-game test was attempted; compare the mist's size and opacity in a
+running updated client.
+
+Rend (`953`, `SK_CM_REND`) is the automatic attack triggered by Release the Beast.
+The server's damage sender previously replaced its skill ID with `413`, causing
+the client to display Tornado Kick and use that skill's presentation. The sender
+now preserves `953`. Rend's damage calculator sends target effects `2031` and
+`2032`, matching its configured Massive Flame Blaster and Axe Boomerang STRs,
+instead of the older Cart Cannon effects `1361` and `1359`. Those older IDs keep
+their existing meanings for other skills. Rend uses attack motion, and
+`server_notified = true` prevents its damage packets from replaying the target
+effects. Configured presentation names take priority over GRF labels in the skill
+UI and actor shouts. Rend is the exception: its UI name remains "Rend", but its
+automatic hits do not create or refresh an overhead skill-name shout. Its attack
+motion and effects still run. Both the client and server changes must be deployed
+together.
+No build or in-game test was attempted.
+
 Sonic Wave (`2002`, `SK_KN_SONICWAVE`) now uses an owned Lua skill entry with
 attack motion and locally launched caster effect `1678`. The local server sends
 skill-damage notifications for this skill, without a separate special-effect
@@ -553,11 +642,15 @@ in a running updated client. Compare these cases against the official client:
 | Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear flies toward the target and fades; one `ef_fireball.wav` at the damage position |
 | Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
+| Hundred Spear (2312), one hit and multiple hits | Effect `2037` plays once per reported hit at 160 ms intervals, counting the server's first playback; effects `2035`, `2036`, and `2038` play once |
+| Mixed per-hit and single-playback effects, with server notification enabled/disabled | Only `once_per_hit = true` effects repeat; locally played effects include hit one, server-notified effects add only hits two onward, and each repeated WAV starts with its visual |
 | White damage numbers, with varied camera angles and attacker positions | Numbers start `RightDisplacement` pixels right of the actor, rise at most `MaxTravelHeight` pixels, and travel an additional `MaxTravelWidth` pixels right; zero values disable the corresponding motion, and spacing is tracked separately for each target |
 | Yellow totals, with varied delays and heights | Totals fade in after the configured delay, start `StartingHeightDisplacement` pixels above the target, and rise an additional `MaxTravelHeight` pixels while fading out; zero delay starts with the last hit, and zero travel holds the starting height |
 | Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |
 | Fury (876) | Brief red sprite glow and white/red rising rays; duplicate `626` notifications do not intensify the glow; one server-requested Fury WAV |
 | Frenzy (359), activation, movement/attacks, refresh, and removal | Red glow and halo persist while status `107` is active, including after brief hit/buff flashes; toggle-off, expiry, and death end the glow; remote actors have their own glow and no local status icon |
+| Blood Sport (2001), activation, movement/attacks, refresh, expiry, and effects visibility | Red mist starts with status `103` and follows the actor for its full duration; five-second `871` packets do not stack or restart it; removal and death end it, and re-enabling effects restores an active aura |
+| Rend (953), automatic hits while Release the Beast is active | Attack motion without an overhead Rend shout, one target effect each for `2031` and `2032`, and no Tornado Kick presentation or old Cart Cannon effects |
 | Vigor (2016) | Buff and status icon apply with normal skill motion/name; no green glow, cone, or casting WAV; Acid Terror still shows its green glow |
 | Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |

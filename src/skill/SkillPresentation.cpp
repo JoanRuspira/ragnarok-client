@@ -211,7 +211,20 @@ bool ReadSonicWave(lua_State* state, int table, SkillSonicWavePresentation& wave
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
-    if (!lua_istable(state, table) || !ReadBoolean(state, table, "loop", effect.loop, error)) return false;
+    if (!lua_istable(state, table)
+        || !ReadBoolean(state, table, "loop", effect.loop, error)
+        || !ReadBoolean(state, table, "once_per_hit", effect.oncePerHit, error)
+        || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)) return false;
+    lua_getfield(state, table, "bottom_offset_px");
+    if (!lua_isnil(state, -1)) {
+        const double offset = lua_tonumber(state, -1);
+        if (lua_type(state, -1) != LUA_TNUMBER || !std::isfinite(offset) || offset < 0 || offset > 10000) {
+            error = "expected a finite bottom_offset_px between 0 and 10000";
+            return false;
+        }
+        effect.bottomOffsetPx = static_cast<float>(offset);
+    }
+    lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
     if (renderer == "body_burst") {

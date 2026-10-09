@@ -3,6 +3,10 @@
 -- source/target/ground select the attachment. server_notified means the server
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
+-- Effect entries support bottom_effect = true to draw behind actors, with
+-- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
+-- once_per_hit = true repeats an effect at the damage packet's hit cadence.
+-- For server-notified effects, the server supplies the first playback.
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -35,6 +39,8 @@ return {
                 {
                     effect_id = 2004,
                     str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_b_bottom\acidified_zone_fire_b_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 }
             },
         },
@@ -56,6 +62,8 @@ return {
                 {
                     effect_id = 2001,
                     str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_b_bottom\acidified_zone_ground_b_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
             },
         },
@@ -87,7 +95,9 @@ return {
                 },
                 { 
                     effect_id = 2007,
-                    str = [[data\texture\effect\servantweapon\new_servantweapon\new_servantweapon_hit_bottom\new_servantweapon_hit_bottom.str]] 
+                    str = [[data\texture\effect\servantweapon\new_servantweapon\new_servantweapon_hit_bottom\new_servantweapon_hit_bottom.str]], 
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
             },
         },
@@ -116,6 +126,8 @@ return {
                 {
                     effect_id = 1538,
                     str = [[data\texture\effect\new_comet\new_comet_sub_explosion_bottom\new_comet_sub_explosion_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
                 {
                     effect_id = 1539,
@@ -154,7 +166,13 @@ return {
             target = {
                 {
                     effect_id = 2010,
-                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster_hit\massivefblaster_hit.str]],
+                    str = [[data\texture\effect\madness_crusher\madness_crusher\madness_crusher.str]],
+                },
+                {
+                    effect_id = 2030,
+                    str = [[data\texture\effect\madness_crusher\madness_crusher_bottom\madness_crusher_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 }
             },
         },
@@ -177,6 +195,8 @@ return {
                 {
                     effect_id = 2012,
                     str = [[data\texture\effect\ultimate_sacrifice\ultimatesacrifice_bottom\ultimatesacrifice_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
                 {
                     effect_id = 2013,
@@ -197,6 +217,8 @@ return {
                 {
                     effect_id = 2023,
                     str = [[data\texture\effect\new_battle_w\new_battle_w_bottom\new_battle_w_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
             },
         },     
@@ -247,6 +269,12 @@ return {
                 {
                     effect_id = 2020,
                     str = [[data\texture\effect\effligo\effligo\effligo.str]],
+                },
+                {
+                    effect_id = 2029,
+                    str = [[data\texture\effect\effligo\effligo_bottom\effligo_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 }
             },
         },
@@ -289,6 +317,8 @@ return {
                 {
                     effect_id = 2024,
                     str = [[data\texture\effect\new_chainlightning\new_chainlightning_cast_bottom\new_chainlightning_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 }
             },
         },
@@ -296,6 +326,105 @@ return {
             name = "Counterstrike", -- SK_SM_AUTOBERSERK in this server's skill database.
             server_notified = true,
             source = { { effect_id = 1032 }, {effect_id = 2016, str = [[data\texture\effect\attack_stance\attack_stance\attack_stance.str]]} }, -- The server sends EF_MAXPAIN once on the caster.
+        },
+        [359] = { -- SK_CM_FRENZY; 2015 belongs to Stone Skin.
+            name = "Frenzy",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2025,
+                    str = [[data\texture\effect\4ig_explosionblaster\explosionblaster\explosionblaster.str]],
+                },
+                {
+                    effect_id = 2026,
+                    str = [[data\texture\effect\4ig_explosionblaster\explosionblaster_bottom\explosionblaster_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [863] = {
+            name = "Release the Beast",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2027,
+                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster_hit\massivefblaster_hit.str]],
+                },
+                {
+                    effect_id = 2028,
+                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster_hit_bottom\massivefblaster_hit_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [953] = { -- SK_CM_REND; the server must preserve this ID in damage packets.
+            name = "Rend",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2031,
+                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster\massivefblaster.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+                {
+                    effect_id = 2032,
+                    str = [[data\texture\effect\new_axeboomerang\new_axeboomerang_cast\new_axeboomerang_cast.str]],
+                },
+            },
+        },
+        [2001] = {
+            name = "Blood Sport",
+            motion_type = 1,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2033,
+                    str = [[data\texture\effect\new_chargingpierce\new_chargingpierce_cast\new_chargingpierce_cast.str]],
+                },
+                {
+                    effect_id = 2034,
+                    str = [[data\texture\effect\new_axe_stomp\new_axe_stomp_bottom\new_axe_stomp_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [2312] = {
+            name = "A Hundred Spears",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2035,
+                    str = [[data\texture\effect\servant_phantom\data\texture\effect\servant_phantom\servant_phantom_shot\servant_phantom_shot.str]],
+                    once_per_hit = true
+                },
+                {
+                    effect_id = 2036,
+                    str = [[data\texture\effect\servant_demolition\servant_demolition_leftdown\servant_demolition_leftdown.str]],
+                    once_per_hit = true
+                },
+                
+                {
+                    effect_id = 2037,
+                    str = [[data\texture\effect\servant_demolition\servant_demolition_hit\servant_demolition_hit.str]],
+                    once_per_hit = true,
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+                {
+                    effect_id = 2038,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_cast_bottom\acidified_zone_water_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
         },
     },
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.

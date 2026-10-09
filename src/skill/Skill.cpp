@@ -1,5 +1,6 @@
 // Skill.cpp - Skill data and usage logic
 #include "Skill.h"
+#include "SkillPresentation.h"
 
 #include "core/File.h"
 #include "lua/LuaBridge.h"
@@ -154,6 +155,13 @@ bool CSkillMgr::LoadSkillMetadata()
     LoadSkillDescriptions();
     LoadSkillLevelSpCosts();
     LoadLuaSkillMetadata();
+    // Owned presentation names take precedence over legacy GRF labels in both
+    // the skill UI and actor shouts.
+    for (auto& entry : m_byId) {
+        if (const SkillPresentation* presentation = FindSkillPresentation(entry.first)) {
+            entry.second.displayName = presentation->name;
+        }
+    }
     return !m_byId.empty();
 }
 

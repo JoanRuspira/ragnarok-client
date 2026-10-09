@@ -25,6 +25,8 @@ class CTexture;
 constexpr int kTotalDamageNumberKind = 22;
 // The local server maps STATUS_FRENZY to the wire status EFST_BERSERK.
 constexpr int kStatusTypeFrenzy = 107;
+// STATUS_BLOODSPORT uses EFST_AURABLADE on the wire.
+constexpr int kStatusTypeBloodsport = 103;
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -294,6 +296,9 @@ public:
     bool m_frenzyStatusActive = false;
     u32 m_frenzyStatusStartTick = 0;
     u32 m_frenzyStatusDurationMs = 0;
+    bool m_bloodsportStatusActive = false;
+    u32 m_bloodsportStatusStartTick = 0;
+    u32 m_bloodsportStatusDurationMs = 0;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -313,6 +318,8 @@ public:
     u32 GetHideFadeAlpha(u32 now) const;
     void SetFrenzyStatus(bool active, u32 remainingMs);
     bool IsFrenzyStatusActive(u32 now) const;
+    void SetBloodsportStatus(bool active, u32 remainingMs);
+    bool IsBloodsportStatusActive(u32 now) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
     // Returns the display delay after applying per-actor white-number spacing.
     u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);

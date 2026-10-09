@@ -7137,12 +7137,12 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
     if (createdActor) {
         const u32 serverNow = g_session.GetServerTime();
         for (const auto& status : g_session.GetActiveStatusIcons()) {
-            if (status.statusType == kStatusTypeFrenzy
-                && (!status.hasTimer || static_cast<s32>(status.expireServerTime - serverNow) > 0)) {
-                // Restore an active Frenzy received before bootstrap or carried
-                // through a map change, including its remaining timer if present.
-                actor->SetFrenzyStatus(true, status.hasTimer ? status.expireServerTime - serverNow : 0);
-            }
+            if (status.hasTimer && static_cast<s32>(status.expireServerTime - serverNow) <= 0) continue;
+            // Restore actor visuals received before bootstrap or carried through
+            // a map change, including their remaining timers if present.
+            const u32 remainingMs = status.hasTimer ? status.expireServerTime - serverNow : 0;
+            if (status.statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(true, remainingMs);
+            if (status.statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(true, remainingMs);
         }
     }
 

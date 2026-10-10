@@ -9,6 +9,20 @@ struct SkillEffectVariant {
     std::string wavPath;
 };
 
+// Authored screen-space clips aimed between a caster and a skill target.
+struct SkillDirectionalStrVariant {
+    std::string strPath;
+    float originX = 0.0f;
+    float originY = 0.0f;
+    float endX = 0.0f;
+    float endY = 0.0f;
+};
+
+struct SkillDirectionalStrPresentation {
+    std::vector<SkillDirectionalStrVariant> directions;
+    std::string wavPath;
+};
+
 // A reusable procedural presentation for effects without an authored STR.
 struct SkillBodyBurstPresentation {
     std::string texturePath;
@@ -54,9 +68,10 @@ struct SkillSonicWavePresentation {
 };
 
 struct SkillEffectPresentation {
-    enum class Renderer { Str, BodyBurst, GuardSphere, SonicWave };
+    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
+    SkillDirectionalStrPresentation directionalStr;
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
@@ -65,6 +80,7 @@ struct SkillEffectPresentation {
     float offsetY = 0.0f;
     bool loop = false;
     bool oncePerHit = false;
+    int delayMs = 0;
 };
 
 struct SkillPresentation {
@@ -75,6 +91,7 @@ struct SkillPresentation {
     bool groundServerNotified = false;
     int beginEffectId = -1;
     int motionType = 7;
+    std::vector<int> castingEffects;
     std::vector<int> sourceEffects;
     std::vector<int> targetEffects;
     std::vector<int> groundEffects;

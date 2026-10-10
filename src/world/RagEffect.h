@@ -12,6 +12,7 @@
 
 class CTexture;
 struct SkillEffectPresentation;
+struct SkillDirectionalStrVariant;
 struct tlvertex3d;
 
 // Shares the effect SPR/ACT frame cache with the world projectile renderer.
@@ -89,6 +90,7 @@ constexpr int kRagEffectMagentaTrap = 50012;
 constexpr int kRagEffectCobaltTrap = 50013;
 constexpr int kRagEffectMaizeTrap = 50014;
 constexpr int kRagEffectVerdureTrap = 50015;
+constexpr int kRagEffectMilleniumShields = 50016; // Status-owned Holy Shield loop.
 
 class CRagEffect;
 
@@ -185,6 +187,7 @@ public:
     u32 GetSkillUnitId() const { return m_skillUnitId; }
     void SetLooping(bool looping);
     void SetCastDurationMs(int milliseconds);
+    // Scheduling offset, added to this effect's configured delay_ms.
     void SetStartDelayMs(u32 milliseconds);
     void Cancel();
     void RefreshBloodsportMist();
@@ -208,6 +211,8 @@ private:
     float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;
+    const SkillEffectPresentation* m_directionalPresentation = nullptr;
+    int m_directionalVariant = 0;
     CTexture* m_presentationTexture = nullptr;
     CTexture* m_sonicWaveTrailTexture = nullptr;
     vector3d m_sonicWaveStartPos{};
@@ -289,7 +294,9 @@ private:
     bool ProcessEZ2STR();
     void SpawnGroundSurface();
     void SpawnSprite();
-    void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix);
+    void RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix,
+        const SkillDirectionalStrVariant* direction = nullptr, float targetX = 0.0f, float targetY = 0.0f);
+    void RenderDirectionalStr(matrix* viewMatrix);
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
     void RenderSonicWave(const matrix& viewMatrix);

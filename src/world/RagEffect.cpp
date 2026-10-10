@@ -3832,6 +3832,7 @@ CRagEffect::~CRagEffect()
 
     if (CAbleToMakeEffect* owner = ResolveCurrentEffectOwner()) {
         owner->m_effectList.remove(this);
+        owner->m_castingEffects.remove(this);
         if (owner->m_beginSpellEffect == this) {
             owner->m_beginSpellEffect = nullptr;
         }
@@ -3950,7 +3951,8 @@ bool CRagEffect::ProcessEZ2STR()
     return true;
 }
 
-void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix)
+void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC_XFORMDATA& xform, matrix* viewMatrix,
+    const SkillDirectionalStrVariant* direction, float targetX, float targetY)
 {
     if (!viewMatrix) {
         return;
@@ -4017,9 +4019,29 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
         | (clampColor(xform.crG) << 8)
         | clampColor(xform.crB);
 
+    float axisX = 0.0f, axisY = 0.0f, authoredLength = 1.0f, targetLength = 1.0f;
+    if (direction) {
+        axisX = direction->endX - direction->originX;
+        axisY = direction->endY - direction->originY;
+        authoredLength = std::sqrt(axisX * axisX + axisY * axisY);
+        targetLength = std::sqrt(targetX * targetX + targetY * targetY);
+        if (authoredLength < 1.0f || targetLength < 1.0f) return;
+        axisX /= authoredLength;
+        axisY /= authoredLength;
+    }
     for (int index = 0; index < 4; ++index) {
-        const float rotatedX = (xs[index] * c - ys[index] * s + xform.x - 320.0f) * pixelRatio;
-        const float rotatedY = (ys[index] * c + xs[index] * s + xform.y - 320.0f) * pixelRatio;
+        const float localX = xs[index] * c - ys[index] * s + xform.x - 320.0f;
+        const float localY = ys[index] * c + xs[index] * s + xform.y - 320.0f;
+        float rotatedX = localX * pixelRatio;
+        float rotatedY = localY * pixelRatio;
+        if (direction) {
+            const float dx = localX - direction->originX;
+            const float dy = localY - direction->originY;
+            const float along = (dx * axisX + dy * axisY) / authoredLength;
+            const float across = (-dx * axisY + dy * axisX) * pixelRatio / targetLength;
+            rotatedX = along * targetX - across * targetY;
+            rotatedY = along * targetY + across * targetX;
+        }
         tlvertex3d& vert = face->m_verts[index];
         vert = anchor;
         vert.x = rotatedX + m_tlvertX;
@@ -4049,6 +4071,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationBottomOffsetPx = 4.0f;
     m_pendingPresentationSound.clear();
     m_proceduralPresentation = nullptr;
+    m_directionalPresentation = nullptr;
+    m_directionalVariant = 0;
     m_presentationTexture = nullptr;
     m_sonicWaveTrailTexture = nullptr;
     m_sonicWaveStartPos = vector3d{};
@@ -4085,6 +4109,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
         if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
@@ -4128,6 +4153,20 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
                 }
             }
             if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", burst.texturePath.c_str());
+            return;
+        }
+        if (presentation->renderer == SkillEffectPresentation::Renderer::DirectionalStr) {
+            m_directionalPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            LoadEzEffect(presentation->directionalStr.directions.front().strPath.c_str());
+            InitEZ2STRFrame();
+            if (m_aniClips && m_aniClips->cFrame > 0 && m_aniClips->nFPS > 0) {
+                m_handler = Handler::EzStr;
+                m_duration = m_aniClips->cFrame + 1;
+                m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
+                m_pendingPresentationSound = presentation->directionalStr.wavPath;
+                SetLooping(presentation->loop);
+            }
             return;
         }
         const SkillEffectVariant& variant = presentation->variants[static_cast<size_t>(rand()) % presentation->variants.size()];
@@ -4493,7 +4532,10 @@ void CRagEffect::SetLooping(bool looping)
 void CRagEffect::SetStartDelayMs(u32 milliseconds)
 {
     m_startDelayMs = milliseconds;
-    for (const auto& component : m_componentEffects) component->SetStartDelayMs(milliseconds);
+    if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(m_type)) {
+        m_startDelayMs += static_cast<u32>(presentation->delayMs);
+    }
+    for (const auto& component : m_componentEffects) component->SetStartDelayMs(m_startDelayMs);
 }
 
 void CRagEffect::SetCastDurationMs(int milliseconds)
@@ -4585,6 +4627,11 @@ void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
     const vector3d base = AddVec3(masterPos, m_deltaPos);
 
     if (CAbleToMakeEffect* owner = dynamic_cast<CAbleToMakeEffect*>(ownerMaster)) {
+        if (std::find(owner->m_castingEffects.begin(), owner->m_castingEffects.end(), this)
+            != owner->m_castingEffects.end()) {
+            Cancel();
+            owner->m_castingEffects.remove(this);
+        }
         if (owner->m_beginSpellEffect == this) {
             owner->m_beginSpellEffect = nullptr;
         }
@@ -6636,6 +6683,14 @@ u8 CRagEffect::OnProcess()
         m_lastProcessTick += m_startDelayMs;
         m_startDelayMs = 0;
     }
+    if (m_directionalPresentation && !m_presentationStarted) {
+        const u32 now = timeGetTime();
+        // A standalone server effect contains no target. Give the following
+        // skill damage packet time to supply it before starting the breath.
+        if (!m_hasTargetPos && now - m_lastProcessTick < 250u) return 1;
+        m_presentationStarted = true;
+        m_lastProcessTick = now;
+    }
     const bool nativeBuff = m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
         || m_handler == Handler::DanceRays || m_handler == Handler::JumpKick;
     if (nativeBuff && !m_presentationStarted) StartBuffEffect();
@@ -6937,6 +6992,11 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
 {
     switch (msg) {
     case 14:
+        if (m_directionalPresentation && par1 != 0 && !m_hasTargetPos) {
+            m_targetPos = *reinterpret_cast<const vector3d*>(par1);
+            m_hasTargetPos = true;
+            return;
+        }
         if (m_handler == Handler::SonicWave && par1 != 0 && !m_presentationStarted) {
             m_targetPos = *reinterpret_cast<const vector3d*>(par1);
             m_hasTargetPos = true;
@@ -7324,6 +7384,64 @@ void CRagEffect::RenderSonicWave(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderDirectionalStr(matrix* viewMatrix)
+{
+    if (!m_presentationStarted || !m_aniClips) return;
+    vector3d start = ResolveBasePosition();
+    vector3d end = m_targetPos;
+    if (!m_hasTargetPos) {
+        const float angle = ResolveBaseRotation() * (kPi / 180.0f);
+        end = AddVec3(start, { std::sin(angle) * 30.0f, 0.0f, -std::cos(angle) * 30.0f });
+    }
+    start.y += m_presentationOffsetY;
+    end.y += m_presentationOffsetY;
+    tlvertex3d projectedStart{}, projectedEnd{};
+    if (!ProjectPoint(start, *viewMatrix, &projectedStart) || !ProjectPoint(end, *viewMatrix, &projectedEnd)) return;
+    const float dx = projectedEnd.x - projectedStart.x;
+    const float dy = projectedEnd.y - projectedStart.y;
+    if (!std::isfinite(dx) || !std::isfinite(dy) || dx * dx + dy * dy < 1.0f) return;
+
+    // Select screen-space artwork after projection, so rotating the camera
+    // selects the matching view while keeping the flame aimed at the target.
+    const auto& directions = m_directionalPresentation->directionalStr.directions;
+    int selected = 0;
+    float bestAlignment = -1.0e30f;
+    for (size_t index = 0; index < directions.size(); ++index) {
+        const auto& direction = directions[index];
+        const float axisX = direction.endX - direction.originX;
+        const float axisY = direction.endY - direction.originY;
+        const float alignment = (axisX * dx + axisY * dy) / std::sqrt(axisX * axisX + axisY * axisY);
+        if (alignment > bestAlignment) {
+            bestAlignment = alignment;
+            selected = static_cast<int>(index);
+        }
+    }
+    if (selected != m_directionalVariant) {
+        const auto& direction = directions[static_cast<size_t>(selected)];
+        CEZeffectRes* clip = g_resMgr.GetAs<CEZeffectRes>(direction.strPath.c_str());
+        if (!clip || clip->m_aniClips.nFPS != m_aniClips->nFPS || clip->m_aniClips.cFrame != m_aniClips->cFrame) {
+            DbgLog("[SkillPresentation] missing directional STR or mismatched timeline '%s'\n", direction.strPath.c_str());
+            return;
+        }
+        // Direction clips share a timeline. A camera turn changes the artwork
+        // without restarting its animation, lifetime, delay, or sound.
+        const int nextFrame = m_stateCnt;
+        LoadEzEffect(direction.strPath.c_str());
+        InitEZ2STRFrame();
+        m_stateCnt = (std::max)(0, nextFrame - 1);
+        ProcessEZ2STR();
+        m_stateCnt = nextFrame;
+        m_directionalVariant = selected;
+    }
+    const auto& direction = directions[static_cast<size_t>(selected)];
+    for (int layerIndex = 0; layerIndex < m_aniClips->cLayer && layerIndex < static_cast<int>(m_isLayerDrawn.size()); ++layerIndex) {
+        if (m_isLayerDrawn[static_cast<size_t>(layerIndex)]) {
+            RenderAniClip(layerIndex, m_aniClips->aLayer[static_cast<size_t>(layerIndex)],
+                m_actXformData[static_cast<size_t>(layerIndex)], viewMatrix, &direction, dx, dy);
+        }
+    }
+}
+
 void CRagEffect::Render(matrix* viewMatrix)
 {
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
@@ -7333,6 +7451,10 @@ void CRagEffect::Render(matrix* viewMatrix)
     // effect, including procedural renderers and nested components.
     const CRenderer::BottomEffectScope bottomScope(g_renderer,
         m_presentationBottomEffect, m_presentationBottomOffsetPx);
+    if (m_directionalPresentation) {
+        RenderDirectionalStr(viewMatrix);
+        return;
+    }
     if (m_handler == Handler::Torch && g_renderer.ModernFireWater().IsEnabled()) {
         g_renderer.ModernFireWater().QueueTorch(g_renderer, *viewMatrix, ResolveBasePosition(), m_param[0]);
         return;

@@ -107,9 +107,9 @@ constexpr int kActorTextPaddingY = 4;
 constexpr int kActorTextMaxWidth = 320;
 constexpr unsigned int kActorTextBackground = 0xA6000000u;
 constexpr u32 kPickupRetryIntervalMs = 250;
-constexpr int kPlayerVitalsBarWidth = 56;
-constexpr int kPlayerVitalsBarHeight = 4;
-constexpr int kPlayerVitalsBorderThickness = 1;
+constexpr int kPlayerVitalsBarWidth = uitheme::kActorVitalsBarWidth;
+constexpr int kPlayerVitalsBarHeight = uitheme::kActorVitalsBarHeight;
+constexpr int kPlayerVitalsBorderThickness = uitheme::kActorVitalsBorderThickness;
 constexpr int kPlayerVitalsNameTopPadding = 3;
 constexpr int kPlayerVitalsVerticalOffset = 10;
 constexpr float kPlayerVitalsOverlaySortKey = 0.95f;
@@ -7143,6 +7143,7 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
             const u32 remainingMs = status.hasTimer ? status.expireServerTime - serverNow : 0;
             if (status.statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(true, remainingMs);
             if (status.statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(true, remainingMs);
+            if (status.statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(true, remainingMs);
         }
     }
 

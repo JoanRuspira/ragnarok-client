@@ -302,6 +302,8 @@ public:
             { QStringLiteral("accentHover"), color(uitheme::kAccentHover) },
             { QStringLiteral("hpBar"), color(uitheme::kHpBar) },
             { QStringLiteral("spBar"), color(uitheme::kSpBar) },
+            { QStringLiteral("castBar"), color(uitheme::kCastBar) },
+            { QStringLiteral("actorVitalsBorderThickness"), uitheme::kActorVitalsBorderThickness },
         };
         return palette;
     }

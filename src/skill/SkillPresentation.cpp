@@ -208,13 +208,53 @@ bool ReadSonicWave(lua_State* state, int table, SkillSonicWavePresentation& wave
     return true;
 }
 
+bool ReadDirectionalStr(lua_State* state, int table, SkillDirectionalStrPresentation& effect, std::string& error)
+{
+    if (!ReadString(state, table, "wav", effect.wavPath, false, error)
+        || (!effect.wavPath.empty() && !ValidateResourcePath(effect.wavPath, "data\\wav\\", ".wav", error))) return false;
+    lua_getfield(state, table, "directions");
+    if (!lua_istable(state, -1) || lua_objlen(state, -1) == 0 || lua_objlen(state, -1) > 8) {
+        error = "expected between one and eight directional STR clips";
+        return false;
+    }
+    const int directions = lua_gettop(state);
+    const size_t count = lua_objlen(state, directions);
+    for (size_t index = 1; index <= count; ++index) {
+        lua_rawgeti(state, directions, static_cast<int>(index));
+        const int entry = lua_gettop(state);
+        SkillDirectionalStrVariant variant;
+        if (!lua_istable(state, entry)
+            || !ReadString(state, entry, "str", variant.strPath, true, error)
+            || !ValidateResourcePath(variant.strPath, "data\\texture\\effect\\", ".str", error)
+            || !ReadNumber(state, entry, "origin_x", variant.originX, -10000.0f, 10000.0f, error)
+            || !ReadNumber(state, entry, "origin_y", variant.originY, -10000.0f, 10000.0f, error)
+            || !ReadNumber(state, entry, "end_x", variant.endX, -10000.0f, 10000.0f, error)
+            || !ReadNumber(state, entry, "end_y", variant.endY, -10000.0f, 10000.0f, error)) return false;
+        const float dx = variant.endX - variant.originX;
+        const float dy = variant.endY - variant.originY;
+        if (dx * dx + dy * dy < 1.0f) {
+            error = "directional STR endpoints must be at least one pixel apart";
+            return false;
+        }
+        effect.directions.push_back(std::move(variant));
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    return true;
+}
+
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
     if (!lua_istable(state, table)
         || !ReadBoolean(state, table, "loop", effect.loop, error)
         || !ReadBoolean(state, table, "once_per_hit", effect.oncePerHit, error)
+        || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)) return false;
+    if (effect.delayMs < 0) {
+        error = "expected a nonnegative delay_ms";
+        return false;
+    }
     lua_getfield(state, table, "bottom_offset_px");
     if (!lua_isnil(state, -1)) {
         const double offset = lua_tonumber(state, -1);
@@ -235,7 +275,8 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         }
         return ReadBodyBurst(state, table, effect.bodyBurst, error);
     }
-    if (!renderer.empty() && renderer != "str" && renderer != "guard_sphere" && renderer != "sonic_wave") {
+    if (!renderer.empty() && renderer != "str" && renderer != "directional_str"
+        && renderer != "guard_sphere" && renderer != "sonic_wave") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -249,6 +290,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         effect.offsetY = static_cast<float>(offset);
     }
     lua_pop(state, 1);
+    if (renderer == "directional_str") {
+        effect.renderer = SkillEffectPresentation::Renderer::DirectionalStr;
+        return ReadDirectionalStr(state, table, effect.directionalStr, error);
+    }
     if (renderer == "sonic_wave") {
         effect.renderer = SkillEffectPresentation::Renderer::SonicWave;
         if (effect.loop) {
@@ -418,6 +463,7 @@ struct PresentationCatalog {
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
+                || !ReadSkillEffects(state, entry, "casting", skill.castingEffects, error)
                 || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
                 || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)) return false;
@@ -441,7 +487,7 @@ struct PresentationCatalog {
                 error = "passive skill must have no cast-start effect";
                 return false;
             }
-            for (const auto* ids : { &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
+            for (const auto* ids : { &skill.castingEffects, &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
                 for (int effectId : *ids) {
                     if (!effects.count(effectId)) {
                         error = "undefined effect reference: " + std::to_string(effectId);

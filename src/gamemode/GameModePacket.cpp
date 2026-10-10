@@ -494,6 +494,8 @@ constexpr u32 kNotifyEffectJobLevelUpSuperNovice = 8;
 constexpr u32 kNotifyEffectBaseLevelUpTaekwon = 9;
 constexpr u16 kSkillIdHeal = 28;
 constexpr u16 kSkillIdGrimtooth = 137;
+constexpr u16 kSkillIdParry = 356;
+constexpr int kSkillAnimationOnlyDamage = -30000;
 constexpr u32 kEffectIdRecoveryHp = 331;
 constexpr u32 kEffectIdRecoverySp = 332;
 constexpr u32 kEffectIdHealSmall = 7;
@@ -824,6 +826,7 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
 
     ClearAttachedSkillEffects(actor);
     actor->m_vigorEffectSuppressUntilTick = 0;
+    actor->m_parryCastAckUntilTick = 0;
     actor->m_isMotionFreezed = 0;
     actor->m_freezeEndTick = 0;
     actor->m_attackMotion = -1.0f;
@@ -845,14 +848,16 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
 {
     // Status visuals belong to the affected actor; only the local player's
     // status icons belong in the UI.
-    if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport) && actorId != 0) {
+    if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport
+            || statusType == kStatusTypeMilleniumShields) && actorId != 0) {
         CGameActor* actor = ResolveNotifyEffectActor(mode, actorId);
         // The local bootstrap creates a CPlayer; do not replace it with a generic
         // placeholder if the status arrives first. Its icon retains the status.
         if (!actor && active && !IsLocalActorId(actorId)) actor = EnsureRuntimeActor(mode, actorId, false);
         if (actor) {
             if (statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(active, remainingMs);
-            else actor->SetBloodsportStatus(active, remainingMs);
+            else if (statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(active, remainingMs);
+            else actor->SetMilleniumShieldsStatus(active, remainingMs);
             DbgLog("[GameMode] actor status type=%d actor=%u active=%d remainingMs=%u\n",
                 statusType, actorId, active ? 1 : 0, remainingMs);
         }
@@ -3976,10 +3981,16 @@ void EmitSkillPresentationEffects(const std::vector<int>& effectIds, bool server
     for (int effectId : effectIds) {
         const SkillEffectPresentation* effectPresentation = FindSkillEffectPresentation(effectId);
         const int playbackCount = effectPresentation && effectPresentation->oncePerHit ? hitCount : 1;
+        const u32 configuredDelayMs = effectPresentation ? static_cast<u32>(effectPresentation->delayMs) : 0;
+        const u64 hitIntervalMs = kSkillHitNumberIntervalMs + static_cast<u64>(configuredDelayMs);
         // Server-notified effects already have their first playback supplied by the server.
         for (int hitIndex = serverNotified ? 1 : 0; hitIndex < playbackCount; ++hitIndex) {
             if (CRagEffect* effect = launch(effectId)) {
-                effect->SetStartDelayMs(static_cast<u32>(hitIndex) * kSkillHitNumberIntervalMs);
+                // SetStartDelayMs adds delay_ms for this playback; each earlier hit
+                // contributes its own configured delay as well as the normal hit interval.
+                const u32 hitOffsetMs = static_cast<u32>((std::min)(static_cast<u64>(hitIndex) * hitIntervalMs,
+                    static_cast<u64>((std::numeric_limits<u32>::max)() - configuredDelayMs)));
+                effect->SetStartDelayMs(hitOffsetMs);
             }
         }
     }
@@ -4406,6 +4417,9 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
     if (skillId == 2016 && mode.m_world && mode.m_world->m_player) {
         mode.m_world->m_player->m_vigorEffectSuppressUntilTick = 0;
     }
+    if (skillId == kSkillIdParry && mode.m_world && mode.m_world->m_player) {
+        mode.m_world->m_player->m_parryCastAckUntilTick = 0;
+    }
     const u32 btype = ReadLE16(packet.data + 4);
     const u8 result = packet.data[8];
     const u8 cause = packet.data[9];
@@ -4826,6 +4840,7 @@ void ClearAttachedSkillEffects(CGameActor* actor, int preserveBeginEffectId)
         return;
     }
 
+    actor->CancelCastingEffects();
     if (actor->m_beginSpellEffect && actor->m_beginSpellEffect->GetEffectType() != preserveBeginEffectId) {
         actor->m_beginSpellEffect->Cancel();
         actor->m_beginSpellEffect = nullptr;
@@ -4951,6 +4966,19 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     };
     if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
         if (!presentation->passive) {
+            if (presentation->sourceServerNotified && targetPos) {
+                // Server effect packets carry only the caster. Supply the skill
+                // target to their existing instances without launching a copy.
+                for (CRagEffect* effect : effectActor->m_effectList) {
+                    const SkillEffectPresentation* effectPresentation = effect
+                        ? FindSkillEffectPresentation(effect->GetEffectType()) : nullptr;
+                    if (effect && std::find(presentation->sourceEffects.begin(), presentation->sourceEffects.end(),
+                            effect->GetEffectType()) != presentation->sourceEffects.end()
+                        && effectPresentation && effectPresentation->renderer == SkillEffectPresentation::Renderer::DirectionalStr) {
+                        effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(targetPos), 0, 0);
+                    }
+                }
+            }
             EmitSkillPresentationEffects(presentation->sourceEffects, presentation->sourceServerNotified,
                 hitCount, launchSourceEffect);
         }
@@ -5339,6 +5367,11 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     sourceActor->m_vigorEffectSuppressUntilTick = skillId == 2016
         ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
 
+    // Parry blocks use the same successful-use packet as activation, but only
+    // a manual cast has this acknowledgement. Track it even for instant casts.
+    sourceActor->m_parryCastAckUntilTick = skillId == kSkillIdParry
+        ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
+
     // Instant skills receive their action/effects from the successful-use packet.
     if (castTimeMs <= 0) {
         DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
@@ -5349,7 +5382,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
-    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    if (presentation) {
         beginEffectId = presentation->beginEffectId;
         motionType = presentation->motionType;
     } else {
@@ -5404,12 +5438,18 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
             }
             sourceActor->SetState(motionToApply);
         }
-        if (beginEffectId >= 0) {
+        if (beginEffectId >= 0 && (!presentation || presentation->castingEffects.empty())) {
             sourceActor->SendMsg(sourceActor, 85, beginEffectId, 0, 0);
             if (sourceActor->m_beginSpellEffect) sourceActor->m_beginSpellEffect->SetCastDurationMs(castTimeMs);
         }
         if (castTimeMs > 0) {
             sourceActor->SendMsg(sourceActor, 82, castTimeMs, 0, 0);
+        }
+    }
+
+    if (presentation) {
+        for (int effectId : presentation->castingEffects) {
+            sourceActor->LaunchCastingEffect(effectId, castTimeMs);
         }
     }
 
@@ -5474,17 +5514,20 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
             damage,
             static_cast<unsigned int>(actionType));
         MaybeStartGrimtoothSourcePresentation(sourceActor, srcGid, targetActor->m_pos);
-        if (damage == -30000) {
-            DbgLog("[GameMode] grimtooth sentinel suppressed opcode=0x%04X src=%u dst=%u level=%u div=%u\n",
-                packet.packetId,
-                srcGid,
-                dstGid,
-                static_cast<unsigned int>(level),
-                static_cast<unsigned int>(div));
-            return;
-        }
     } else {
         StartSkillSourceAnimation(sourceActor, &targetActor->m_pos, attackMT, skillId, targetActor, displayHitCount);
+    }
+    // Area skills such as Ignition Break send this marker to animate the
+    // caster even without victims. A hit reaction here interrupts that action.
+    if (damage == kSkillAnimationOnlyDamage) {
+        DbgLog("[GameMode] skill animation only opcode=0x%04X src=%u dst=%u skill=%u level=%u div=%u\n",
+            packet.packetId,
+            srcGid,
+            dstGid,
+            static_cast<unsigned int>(skillId),
+            static_cast<unsigned int>(level),
+            static_cast<unsigned int>(div));
+        return;
     }
     QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
     EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
@@ -5553,10 +5596,11 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
             StartSkillSourceAnimation(sourceActor, &impactPos, attackMT, skillId, targetActor, displayHitCount);
         }
     }
-    if (skillId == kSkillIdGrimtooth && damage == -30000) {
-        DbgLog("[GameMode] grimtooth sentinel suppressed pos src=%u dst=%u level=%u div=%u cell=(%d,%d)\n",
+    if (damage == kSkillAnimationOnlyDamage) {
+        DbgLog("[GameMode] skill animation only pos src=%u dst=%u skill=%u level=%u div=%u cell=(%d,%d)\n",
             srcGid,
             dstGid,
+            static_cast<unsigned int>(skillId),
             static_cast<unsigned int>(level),
             static_cast<unsigned int>(div),
             cellX,
@@ -5638,11 +5682,19 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
     const u32 now = timeGetTime();
     if (sourceActor && skillId == 2016) sourceActor->m_vigorEffectSuppressUntilTick = 0;
+    const bool parryTrigger = skillId == kSkillIdParry
+        && (!sourceActor || sourceActor->m_parryCastAckUntilTick == 0
+            || static_cast<s32>(sourceActor->m_parryCastAckUntilTick - now) <= 0);
+    if (sourceActor && skillId == kSkillIdParry) {
+        sourceActor->m_parryCastAckUntilTick = 0;
+    }
     const bool receivingBuffDuringCast = sourceActor && sourceActor == targetActor
         && sourceActor->m_castingSkillId != 0 && sourceActor->m_castingSkillId != skillId
         && (static_cast<s32>(sourceActor->m_skillRechargeEndTick - now) > 0
             || (sourceActor->m_isMotionFreezed && static_cast<s32>(sourceActor->m_freezeEndTick - now) > 0));
-    if (sourceActor && result != 0 && !receivingBuffDuringCast) {
+    // Automatic blocks keep the actor's current action and attached cast effects.
+    // Their target barrier is emitted independently below.
+    if (sourceActor && result != 0 && !receivingBuffDuringCast && !parryTrigger) {
         ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
@@ -7267,6 +7319,7 @@ CGameActor* EnsureRuntimeActor(CGameMode& mode, u32 gid, bool preferPc)
             upgraded->m_cartEffect = preservedCartEffect;
             upgraded->m_lastDamageNumberEffect = preservedLastDamageNumber;
             upgraded->m_effectList.clear();
+            upgraded->m_castingEffects.clear();
             upgraded->m_beginSpellEffect = nullptr;
             upgraded->m_magicTargetEffect = nullptr;
             upgraded->m_msgEffectList = preservedMsgEffects;

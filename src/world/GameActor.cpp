@@ -35,6 +35,8 @@
 namespace {
 
 constexpr int kSkillIdRend = 953;
+// Screen-pixel gap between the actor's top and the casting bar's bottom.
+constexpr int kCastingBarActorGapPx = 4;
 
 void SetTextureDebugName(CTexture* texture, const char* name)
 {
@@ -4548,6 +4550,12 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
             }
         }
     }
+    if (effectId == kRagEffectMilleniumShields) {
+        // Status refreshes and frame updates keep one continuous STR loop.
+        for (CRagEffect* effect : m_effectList) {
+            if (effect && effect->GetEffectType() == effectId) return effect;
+        }
+    }
 
     CGameMode* gameMode = g_modeMgr.GetCurrentGameMode();
     if (!gameMode || !gameMode->m_world) {
@@ -4571,6 +4579,24 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
     gameMode->m_world->m_gameObjectList.push_back(effect);
     m_effectList.push_back(effect);
     return effect;
+}
+
+CRagEffect* CAbleToMakeEffect::LaunchCastingEffect(int effectId, int castTimeMs)
+{
+    CRagEffect* effect = LaunchEffect(effectId);
+    if (effect) {
+        effect->SetCastDurationMs(castTimeMs);
+        m_castingEffects.push_back(effect);
+    }
+    return effect;
+}
+
+void CAbleToMakeEffect::CancelCastingEffects()
+{
+    for (CRagEffect* effect : m_castingEffects) {
+        if (effect) effect->Cancel();
+    }
+    m_castingEffects.clear();
 }
 
 void CAbleToMakeEffect::RemoveEffectById(int effectId)
@@ -4598,6 +4624,7 @@ void CAbleToMakeEffect::RemoveEffectById(int effectId)
             m_magicTargetEffect = nullptr;
         }
 
+        if (effectId == kRagEffectMilleniumShields) effect->Cancel();
         effect->SendMsg(effect, 109, 0, 0, 0);
         effect->DetachFromMaster(this);
         it = m_effectList.erase(it);
@@ -4606,8 +4633,10 @@ void CAbleToMakeEffect::RemoveEffectById(int effectId)
 
 void CAbleToMakeEffect::DetachEffects()
 {
+    CancelCastingEffects();
     for (CRagEffect* effect : m_effectList) {
         if (effect) {
+            if (effect->GetEffectType() == kRagEffectMilleniumShields) effect->Cancel();
             effect->DetachFromMaster(this);
         }
     }
@@ -4860,8 +4889,39 @@ bool CGameActor::IsBloodsportStatusActive(u32 now) const
             || now - m_bloodsportStatusStartTick < m_bloodsportStatusDurationMs);
 }
 
+void CGameActor::SetMilleniumShieldsStatus(bool active, u32 remainingMs)
+{
+    m_milleniumShieldsStatusActive = active;
+    m_milleniumShieldsStatusStartTick = timeGetTime();
+    // Legacy 0196 and infinite timers wait for the removal notification.
+    m_milleniumShieldsStatusDurationMs = active && remainingMs != 0xFFFFFFFFu ? remainingMs : 0;
+    if (IsMilleniumShieldsStatusActive(m_milleniumShieldsStatusStartTick)) {
+        LaunchEffect(kRagEffectMilleniumShields);
+    } else {
+        RemoveEffectById(kRagEffectMilleniumShields);
+    }
+}
+
+bool CGameActor::IsMilleniumShieldsStatusActive(u32 now) const
+{
+    return m_milleniumShieldsStatusActive && m_stateId != kDeathStateId
+        && (m_milleniumShieldsStatusDurationMs == 0
+            || now - m_milleniumShieldsStatusStartTick < m_milleniumShieldsStatusDurationMs);
+}
+
 void CGameActor::ProcessStatusEffects()
 {
+    if (m_milleniumShieldsStatusActive) {
+        if (!IsMilleniumShieldsStatusActive(timeGetTime())) {
+            SetMilleniumShieldsStatus(false, 0);
+        } else if (g_session.m_isEffectOn) {
+            // Restores the loop if effects were disabled when the status started.
+            LaunchEffect(kRagEffectMilleniumShields);
+        } else {
+            RemoveEffectById(kRagEffectMilleniumShields);
+        }
+    }
+
     if (m_bloodsportStatusActive) {
         if (IsBloodsportStatusActive(timeGetTime())) {
             // Also restores the aura if effects were disabled when it started.
@@ -5138,7 +5198,8 @@ void CGameActor::SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t 
         if (!m_skillRechargeGage) {
             auto* gage = new UIRechargeGage();
             if (gage) {
-                gage->Create(60, 6);
+                gage->Create(uitheme::kActorVitalsBarWidth + uitheme::kActorVitalsBorderThickness * 2,
+                    uitheme::kActorVitalsBarHeight + uitheme::kActorVitalsBorderThickness * 2);
                 g_windowMgr.AddWindowFront(gage);
                 m_skillRechargeGage = gage;
             }
@@ -5376,8 +5437,10 @@ void CGameActor::SetState(int state) {
         break;
     case kDeathStateId:
         m_isMoving = 0;
+        CancelCastingEffects();
         SetFrenzyStatus(false, 0);
         SetBloodsportStatus(false, 0);
+        SetMilleniumShieldsStatus(false, 0);
         m_path.Reset();
         m_moveStartPos = m_pos;
         m_moveEndPos = m_pos;
@@ -5444,6 +5507,7 @@ void CGameActor::SetState(int state) {
 
 void CGameActor::DestroySkillRechargeGage()
 {
+    CancelCastingEffects();
     if (m_skillRechargeGage) {
         g_windowMgr.DeleteWindow(m_skillRechargeGage);
         m_skillRechargeGage = nullptr;
@@ -5452,7 +5516,7 @@ void CGameActor::DestroySkillRechargeGage()
     m_skillRechargeEndTick = 0;
 }
 
-void CGameActor::ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY, int clientHeight)
+void CGameActor::ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY)
 {
     if (!m_skillRechargeGage || m_skillRechargeEndTick == 0 || m_skillRechargeStartTick == 0) {
         return;
@@ -5465,10 +5529,8 @@ void CGameActor::ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTo
     }
 
     if (now <= m_skillRechargeEndTick) {
-        const float scale = (m_lastPixelRatio > 0.0f) ? m_lastPixelRatio : 1.0f;
-        const int yOff = static_cast<int>((81.0f * static_cast<float>(clientHeight) / 480.0f) * scale);
-        const int barX = screenCenterX - 30;
-        const int barY = screenTopY - yOff;
+        const int barX = screenCenterX - m_skillRechargeGage->m_w / 2;
+        const int barY = screenTopY - m_skillRechargeGage->m_h - kCastingBarActorGapPx;
         m_skillRechargeGage->Move(barX, barY);
         int elapsed = static_cast<int>(now - m_skillRechargeStartTick);
         if (elapsed < 0) {

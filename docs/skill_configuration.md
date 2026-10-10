@@ -234,12 +234,53 @@ in the running server database, so its entry explicitly has no effects or audio.
 Two Hand Quicken (`817`) is a separate active skill. The shared effect `130`
 definition preserves the earlier Quicken correction for all weapon types.
 
-Each skill can define `source`, `target`, and `ground` arrays. Their entries carry
-an `effect_id` and full GRF resource paths: `str` begins with
+Each skill can define `casting`, `source`, `target`, and `ground` arrays. Their
+entries carry an `effect_id` and full GRF resource paths: `str` begins with
 `data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav`
 means silence. A `variants` array pairs visual and audio paths so both use the
 same random variant. `offset_y` sets the vertical attachment offset, and `loop`
 controls repetition; STR playback uses the animation's authored FPS.
+
+`casting` attaches all its effects to the caster when a cast with a positive
+duration starts. STR clips automatically loop for that duration. The group stops
+on successful use, cancellation, expiry, death, or actor removal; it does not
+launch for instant skills. Inline definitions and shared effect references use
+the same format as the other arrays:
+
+```lua
+casting = {
+    { effect_id = 50017 }, -- A shared definition from the effects table.
+    {
+        effect_id = 50019,
+        str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
+        bottom_effect = true,
+        bottom_offset_px = 25,
+    },
+},
+```
+
+A nonempty `casting` array replaces `begin_effect_id`; existing skills using
+only `begin_effect_id` keep their single casting effect. `server_notified` and
+the per-attachment flags apply to completion effects, while `casting` is always
+driven locally by the cast-start notification. Passive skills cannot have
+casting effects. Configure `source`, `target`, and `ground` for successful use.
+
+Directional effects use `renderer = "directional_str"`, an optional `wav`, and a
+`directions` array of one to eight clips. Each clip defines a `str` path and
+`origin_x`, `origin_y`, `end_x`, and `end_y` in authored screen pixels relative to
+the STR's `(320, 320)` anchor. Clips must share the same authored FPS and frame
+count. The renderer chooses the clip closest to the projected caster-to-target
+direction, maps its origin to the caster and its end to the target, and preserves
+the authored width. Camera turns change the direction clip while preserving the
+animation phase and sound. Standard effect flags, including `offset_y`, `loop`,
+`bottom_effect`, `delay_ms`, and `once_per_hit`, still apply.
+
+Dragon Breath (`5004`, `SK_CM_DRAGONBREATH`) uses the four installed
+`new_dragonbreath_water_*_clock.str` clips for blue fire from caster to target,
+with `data\wav\dragon_breath.wav`. Its source effect `1310` is server-notified:
+the following skill damage packet supplies the existing effect's target instead
+of playing a second copy. Playback waits up to 250 ms for that target; standalone
+effect notifications fall back to the caster's facing after that wait.
 
 Set `once_per_hit = true` on an effect definition to play it once for each hit
 reported by a skill damage packet. Omitted or false plays it once for the skill
@@ -247,8 +288,20 @@ notification. This works for inline and shared `effects` definitions in `source`
 `target`, and `ground` arrays, including variants and procedural renderers. Each
 playback is a separate effect instance, with its own animation and optional WAV;
 variants are selected independently for each hit. Playbacks are staggered by the
-existing skill-hit interval of `160` ms. `loop` still controls the lifetime of
-each instance rather than the number of hits.
+existing skill-hit interval of `160` ms plus any configured `delay_ms`. `loop`
+still controls the lifetime of each instance rather than the number of hits.
+
+Set `delay_ms` on the same effect definition to delay its visual and optional WAV.
+It accepts a nonnegative whole number of milliseconds and defaults to `0`. It
+works for inline and shared definitions, all attachments and renderers, and
+effects started directly by server notifications. With `once_per_hit = true`,
+the configured delay applies before each playback and accumulates across hits:
+`delay_ms = 250` starts the first three playbacks at `250`, `660`, and `1070` ms;
+`delay_ms = 750` starts them at `750`, `1660`, and `2570` ms. The first playback
+waits `delay_ms`; subsequent playbacks are `160 + delay_ms` apart. With no delay
+or `delay_ms = 0`, the original `160` ms spacing is preserved. For server-notified
+effects, the first playback's delay starts when its effect notification arrives;
+later playbacks are scheduled from the damage notification.
 
 For `server_notified` attachments, the server's effect notification supplies the
 first playback; the damage packet schedules only hits two onward. Unmarked
@@ -258,14 +311,15 @@ count, including successful no-damage and ground notifications, use one hit and
 add no per-hit replays for server-notified effects. A zero hit count also uses one
 hit.
 
-For example, Hundred Spear's hit effect can repeat while its other components
-remain single-playback effects:
+For example, Hundred Spear's hit effect can repeat with a 250 ms delay while
+components without `once_per_hit` remain single-playback effects:
 
 ```lua
 {
     effect_id = 2037,
     str = [[data\texture\effect\servant_demolition\servant_demolition_hit\servant_demolition_hit.str]],
     once_per_hit = true,
+    delay_ms = 250,
     bottom_effect = true,
     bottom_offset_px = 25,
 },
@@ -358,6 +412,14 @@ notifications. Magnum Break therefore has a server-notified skill entry and no
 duplicate Lua sound entry. The `[GameMode] sound notify` log records the WAV,
 actor resolution, and playback result.
 
+Ignition Break (`943`, `SK_CM_IGNITIONBREAK`) also uses attack motion `2`.
+Servers using the older successful-use path send a self-targeted skill damage
+packet with the animation-only marker `-30000`, including when no enemies are
+hit. The client plays the configured caster motion for this marker and skips
+hit reactions, impact effects, damage numbers, and damage-triggered audio.
+Real damage packets for nearby enemies retain their normal presentation. This
+marker is handled for all skills in both actor and position damage packets.
+
 `server_notified = true` means that effect-notification packets already trigger
 the configured effects. Skill-use packets suppress the first playback, and only
 schedule additional hits for effects marked `once_per_hit = true`. Direct server
@@ -370,6 +432,17 @@ separate namespaces: skill `398` uses caster effect `399`, without affecting
 skill `399` (Arcane Strike). `passive = true` requires empty effect
 arrays. `begin_effect_id` defaults to `-1` (no cast-start effect), and
 `motion_type` defaults to `7` (the generic skill action).
+
+Swords to Plowshares (`71`, `SK_CR_SWORDSTOPLOWSHARES`) uses the installed
+Increasing Activity cast clip (`50017`, with `cd_reparatio1.wav`) and Competentia
+ground glow (`50019`) through its `casting` array. Both attach to the caster and
+stop when casting ends. Successful use plays the Increasing Activity target clip
+(`50018`, with `cd_reparatio2.wav`) on the recipient. These internal effect IDs
+leave the standard effect catalog unchanged. The server sends the skill-use
+notification and a separate Heal notification for the recovered amount, rather than special-effect
+notifications, so this entry leaves `server_notified` false. Failed or cancelled
+casts do not emit its target effects. The accompanying Heal notification retains
+its existing recovery number and Heal presentation.
 
 The loader searches beside `open-midgard.ini` (including its data-directory
 override), then the current working directory, then the source checkout for
@@ -468,6 +541,28 @@ the cross texture's transparent background and the configured fades; using the
 `ONE` / `ONE` emissive pass instead produces a solid yellow sphere. Its geometry,
 scale, tint, and timing are an approximation of the capture and still need
 comparison in a running client.
+
+Parry (`356`, `SK_CM_PARRY`) sends a successful no-damage skill notification on
+activation and on each blocked attack, without a separate effect notification.
+Its locally played target effect (`2042`) uses the same guard sphere, texture,
+sound, and timing as Counterstrike, with `color = 0xFFFFFF` for a white barrier.
+The target attachment also allows blocks during another cast to show the effect.
+Only activation plays the character's skill animation: a per-actor cast
+acknowledgement identifies the next Parry response as a manual cast. Automatic
+blocks play the barrier while preserving the current character action and cast
+effects. The acknowledgement expires after the cast time plus two seconds and
+is cleared on use, failure, cancellation, or another cast.
+
+Millenium Shields (`STATUS_MILLENIUMSHIELDS`, wire status `723` / `EFST_KINGS_GRACE`)
+keeps one `holy_shield\holy_shield\holy_shield.str` loop attached to the affected
+actor while active. The visual is configured in `effects[50016]` with `loop = true`.
+Both `0196` and `043f` status packets drive it; timed statuses expire locally,
+while legacy and infinite timers wait for removal. Refreshes preserve the loop's
+animation phase. Removal, death, or actor deletion cancels it immediately;
+disabling effects hides it, and re-enabling effects restores an active loop.
+Statuses received before local actor creation or across map changes are restored
+from the active status icons. The installed STR contains 80 frames at 60 FPS;
+all 35 texture references are present. No sound is configured.
 
 Bleeding (`STATUS_BLEEDING`) sends effect `548` (`EF_RED_HIT`) to the affected
 actor every 500 ms in this server's status timer. It is a brief red sprite flash;
@@ -642,14 +737,16 @@ in a running updated client. Compare these cases against the official client:
 | Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear flies toward the target and fades; one `ef_fireball.wav` at the damage position |
 | Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
-| Hundred Spear (2312), one hit and multiple hits | Effect `2037` plays once per reported hit at 160 ms intervals, counting the server's first playback; effects `2035`, `2036`, and `2038` play once |
+| Hundred Spear (2312), one hit and multiple hits | Effects marked `once_per_hit` play once per reported hit, counting the server's first playback; with `delay_ms = 750`, the first waits 750 ms and repeats are 910 ms apart; unmarked components play once |
 | Mixed per-hit and single-playback effects, with server notification enabled/disabled | Only `once_per_hit = true` effects repeat; locally played effects include hit one, server-notified effects add only hits two onward, and each repeated WAV starts with its visual |
+| Effect with `delay_ms = 250`, single playback and per-hit replay, with server notification enabled/disabled | Visual and WAV start 250 ms later; per-hit playbacks start at 250, 660, and 1070 ms, and omitting the delay or setting it to zero preserves the original timing |
 | White damage numbers, with varied camera angles and attacker positions | Numbers start `RightDisplacement` pixels right of the actor, rise at most `MaxTravelHeight` pixels, and travel an additional `MaxTravelWidth` pixels right; zero values disable the corresponding motion, and spacing is tracked separately for each target |
 | Yellow totals, with varied delays and heights | Totals fade in after the configured delay, start `StartingHeightDisplacement` pixels above the target, and rise an additional `MaxTravelHeight` pixels while fading out; zero delay starts with the last hit, and zero travel holds the starting height |
 | Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |
 | Fury (876) | Brief red sprite glow and white/red rising rays; duplicate `626` notifications do not intensify the glow; one server-requested Fury WAV |
 | Frenzy (359), activation, movement/attacks, refresh, and removal | Red glow and halo persist while status `107` is active, including after brief hit/buff flashes; toggle-off, expiry, and death end the glow; remote actors have their own glow and no local status icon |
 | Blood Sport (2001), activation, movement/attacks, refresh, expiry, and effects visibility | Red mist starts with status `103` and follows the actor for its full duration; five-second `871` packets do not stack or restart it; removal and death end it, and re-enabling effects restores an active aura |
+| Millenium Shields (5013), activation, movement/attacks, refresh, removal, and effects visibility | One Holy Shield STR repeats while status `723` is active; refreshes preserve its phase, removal/death/deletion cancel it, and re-enabling effects restores an active loop |
 | Rend (953), automatic hits while Release the Beast is active | Attack motion without an overhead Rend shout, one target effect each for `2031` and `2032`, and no Tornado Kick presentation or old Cart Cannon effects |
 | Vigor (2016) | Buff and status icon apply with normal skill motion/name; no green glow, cone, or casting WAV; Acid Terror still shows its green glow |
 | Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |

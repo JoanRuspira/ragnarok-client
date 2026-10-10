@@ -42,18 +42,19 @@ void UIRechargeGage::OnDraw()
     }
 
     RECT outer{ m_x, m_y, m_x + m_w, m_y + m_h };
-    uitheme::FillRoundedRect(hdc, outer, RGB(m_edgeR, m_edgeG, m_edgeB));
+    uitheme::FillRoundedRect(hdc, outer, RGB(0, 0, 0), 0);
 
-    RECT inner{ m_x + 1, m_y + 1, m_x + m_w - 1, m_y + m_h - 1 };
-    uitheme::FillRoundedRect(hdc, inner, RGB(m_backR, m_backG, m_backB));
+    constexpr int border = uitheme::kActorVitalsBorderThickness;
+    RECT inner{ m_x + border, m_y + border, m_x + m_w - border, m_y + m_h - border };
+    uitheme::FillRoundedRect(hdc, inner, RGB(255, 255, 255), 0);
 
     const int total = (std::max)(1, m_totalAmount);
-    const double pct = 100.0 * static_cast<double>(m_amount) / static_cast<double>(total);
-    if (pct > 0.0) {
-        const int fillW = static_cast<int>(static_cast<double>(m_w) * pct * 0.01 - 2.0);
+    const int amount = (std::max)(0, (std::min)(m_amount, total));
+    if (amount > 0) {
+        const int fillW = static_cast<int>(static_cast<double>(inner.right - inner.left) * amount / total);
         if (fillW > 0) {
-            RECT fill{ m_x + 1, m_y + 1, m_x + 1 + fillW, m_y + m_h - 1 };
-            uitheme::FillRoundedRect(hdc, fill, RGB(m_r, m_g, m_b));
+            RECT fill{ inner.left, inner.top, inner.left + fillW, inner.bottom };
+            uitheme::FillRoundedRect(hdc, fill, uitheme::kCastBar, 0);
         }
     }
 

@@ -3,10 +3,13 @@
 -- source/target/ground select the attachment. server_notified means the server
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
+-- casting effects attach to the caster for the cast's duration and stop together.
+-- A nonempty casting array replaces the legacy begin_effect_id.
 -- Effect entries support bottom_effect = true to draw behind actors, with
 -- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
 -- For server-notified effects, the server supplies the first playback.
+-- delay_ms = 0 (default) delays the visual and its WAV; per-hit delays accumulate.
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -25,6 +28,28 @@ return {
         [3] = {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
+        },
+        [71] = { -- SK_CR_SWORDSTOPLOWSHARES
+            name = "Swords to Plowshares",
+            motion_type = 1,
+            casting = {
+                { effect_id = 2045 },
+                {
+                    effect_id = 2047,
+                    str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+            -- The server sends successful skill use, followed by Heal for the amount.
+            -- It does not send separate effect notifications for this skill.
+            target = {
+                {
+                    effect_id = 2046,
+                    str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
+                    wav = [[data\wav\effect\cd_reparatio2.wav]],
+                },
+            },
         },
         [398] = {
             name = "Traumatic Strike", 
@@ -327,6 +352,36 @@ return {
             server_notified = true,
             source = { { effect_id = 1032 }, {effect_id = 2016, str = [[data\texture\effect\attack_stance\attack_stance\attack_stance.str]]} }, -- The server sends EF_MAXPAIN once on the caster.
         },
+        [356] = { -- SK_CM_PARRY
+            name = "Parry",
+            server_notified = false, -- Activation and blocks send skill-use packets, without effect packets.
+            target = { -- Target attachment also plays when a block occurs during another cast.
+                {
+                    effect_id = 2042,
+                    renderer = "guard_sphere",
+                    texture = [[data\texture\effect\guardK2.tga]],
+                    wav = [[data\wav\effect\kyrie_guard.wav]],
+                    offset_y = -7,
+                    radius = 7,
+                    height = 16,
+                    color = 0xFFFFFF,
+                    alpha = 0.8,
+                    duration_ms = 700,
+                    fade_in_ms = 100,
+                    fade_out_ms = 200,
+                },
+                {
+                    effect_id = 2043,
+                    str = [[data\texture\effect\guardianshield\guardianshield_sub\guardianshield_sub.str]],
+                },
+                {
+                    effect_id = 2044,
+                    str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                }
+            },
+        },
         [359] = { -- SK_CM_FRENZY; 2015 belongs to Stone Skin.
             name = "Frenzy",
             motion_type = 2,
@@ -335,6 +390,7 @@ return {
                 {
                     effect_id = 2025,
                     str = [[data\texture\effect\4ig_explosionblaster\explosionblaster\explosionblaster.str]],
+                    wav = [[data\wav\effect\assasin_poisonreact.wav]],
                 },
                 {
                     effect_id = 2026,
@@ -386,6 +442,7 @@ return {
                 {
                     effect_id = 2033,
                     str = [[data\texture\effect\new_chargingpierce\new_chargingpierce_cast\new_chargingpierce_cast.str]],
+                    wav = [[data\wav\effect\ag_storm_cannon.wav]],
                 },
                 {
                     effect_id = 2034,
@@ -395,28 +452,66 @@ return {
                 },
             },
         },
+        [5004] = { -- SK_CM_DRAGONBREATH
+            name = "Dragon Breath",
+            motion_type = 1,
+            server_notified = true, -- The server sends effect 1310 once on the caster.
+            source = {
+                {
+                    effect_id = 1310,
+                    renderer = "directional_str",
+                    offset_y = -10,
+                    -- Endpoints are authored screen pixels relative to the STR's (320, 320) anchor.
+                    directions = {
+                        {
+                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_01_clock\new_dragonbreath_water_01_clock.str]],
+                            origin_x = 102, origin_y = -88,
+                            end_x = 225, end_y = -195,
+                        },
+                        {
+                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_05_clock\new_dragonbreath_water_05_clock.str]],
+                            origin_x = 98, origin_y = 14,
+                            end_x = 230, end_y = 170,
+                        },
+                        {
+                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_07_clock\new_dragonbreath_water_07_clock.str]],
+                            origin_x = -98, origin_y = 14,
+                            end_x = -230, end_y = 170,
+                        },
+                        {
+                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_11_clock\new_dragonbreath_water_11_clock.str]],
+                            origin_x = -102, origin_y = -88,
+                            end_x = -225, end_y = -195,
+                        },
+                    },
+                    wav = [[data\wav\dragon_breath.wav]],
+                },
+            },
+        },
         [2312] = {
             name = "A Hundred Spears",
             motion_type = 2,
             server_notified = true,
             target = {
-                {
-                    effect_id = 2035,
-                    str = [[data\texture\effect\servant_phantom\data\texture\effect\servant_phantom\servant_phantom_shot\servant_phantom_shot.str]],
-                    once_per_hit = true
-                },
+                -- {
+                --     effect_id = 2035,
+                --     str = [[data\texture\effect\servant_phantom\data\texture\effect\servant_phantom\servant_phantom_shot\servant_phantom_shot.str]],
+                --     once_per_hit = true,
+                --     delay_ms = 100,
+                -- },
                 {
                     effect_id = 2036,
                     str = [[data\texture\effect\servant_demolition\servant_demolition_leftdown\servant_demolition_leftdown.str]],
-                    once_per_hit = true
+                    once_per_hit = true,
+                    delay_ms = 100,
                 },
-                
                 {
                     effect_id = 2037,
                     str = [[data\texture\effect\servant_demolition\servant_demolition_hit\servant_demolition_hit.str]],
                     once_per_hit = true,
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                    delay_ms = 100,
                 },
                 {
                     effect_id = 2038,
@@ -426,10 +521,44 @@ return {
                 },
             },
         },
+        [943] = {
+            name = "Ignition Break",
+            motion_type = 2,
+            server_notified = true,
+            target = {
+                {
+                    effect_id = 2039,
+                    str = [[data\texture\effect\research_report\researchreport_cast\researchreport_cast.str]],
+                },
+                {
+                    effect_id = 2040,
+                    str = [[data\texture\effect\research_report\researchreport_cast_bottom\researchreport_cast_bottom.str]],
+                    
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+                {
+                    effect_id = 2041,
+                    str = [[data\texture\effect\petitio\petitio_bottom\petitio_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
     },
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [2045] = { -- Swords to Plowshares: referenced by its casting array.
+            str = [[data\texture\effect\increasing_activity\increasing_activity_cast\increasing_activity_cast.str]],
+            wav = [[data\wav\effect\cd_reparatio1.wav]],
+            -- SetCastDurationMs keeps this alive until completion or cancellation.
+        },
+        [50016] = { -- STATUS_MILLENIUMSHIELDS: the actor's status controls this loop.
+            str = [[data\texture\effect\holy_shield\holy_shield\holy_shield.str]],
+            wav = [[data\wav\effect\ab_offertorium.wav]],
+            loop = true,
+        },
         [1032] = { -- EF_MAXPAIN: brief orange guard barrier; there is no authored STR.
             renderer = "guard_sphere",
             texture = [[data\texture\effect\guardK2.tga]],

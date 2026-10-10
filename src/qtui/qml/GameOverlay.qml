@@ -2035,31 +2035,33 @@ Item {
         }
     }
 
-    UiRectangle {
+    Rectangle {
+        // Actor bars use screen pixels, independently of the scaled HUD.
+        parent: root
+        readonly property int barBorderWidth: root.uiTheme.actorVitalsBorderThickness
         x: uiState.rechargeGaugeX
         y: uiState.rechargeGaugeY
         width: uiState.rechargeGaugeWidth
         height: uiState.rechargeGaugeHeight
-        color: "#523f2d"
-        border.width: 1
-        border.color: "#523f2d"
-        visible: uiState.rechargeGaugeVisible
+        color: "#000000"
+        visible: uiState.rechargeGaugeVisible && uiLayer.visible
 
-        UiRectangle {
-            x: 1
-            y: 1
-            width: parent.width - 2
-            height: parent.height - 2
-            color: "#f4efe4"
+        Rectangle {
+            x: parent.barBorderWidth
+            y: parent.barBorderWidth
+            width: parent.width - parent.barBorderWidth * 2
+            height: parent.height - parent.barBorderWidth * 2
+            color: "#ffffff"
         }
 
-        UiRectangle {
-            x: 1
-            y: 1
-            width: Math.max(0, (parent.width - 2) * ((uiState.rechargeGaugeTotal || 0) > 0
-                ? (uiState.rechargeGaugeAmount || 0) / uiState.rechargeGaugeTotal : 0))
-            height: parent.height - 2
-            color: "#307830"
+        Rectangle {
+            x: parent.barBorderWidth
+            y: parent.barBorderWidth
+            width: Math.floor((parent.width - parent.barBorderWidth * 2)
+                * root.clampValue((uiState.rechargeGaugeTotal || 0) > 0
+                    ? (uiState.rechargeGaugeAmount || 0) / uiState.rechargeGaugeTotal : 0, 0, 1))
+            height: parent.height - parent.barBorderWidth * 2
+            color: root.uiTheme.castBar
         }
     }
 

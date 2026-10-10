@@ -27,6 +27,8 @@ constexpr int kTotalDamageNumberKind = 22;
 constexpr int kStatusTypeFrenzy = 107;
 // STATUS_BLOODSPORT uses EFST_AURABLADE on the wire.
 constexpr int kStatusTypeBloodsport = 103;
+// STATUS_MILLENIUMSHIELDS uses EFST_KINGS_GRACE on the wire.
+constexpr int kStatusTypeMilleniumShields = 723;
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -212,6 +214,8 @@ public:
     virtual ~CAbleToMakeEffect();
 
     CRagEffect* LaunchEffect(int effectId, vector3d deltaPos = vector3d{ 0.0f, 0.0f, 0.0f }, float fRot = 0.0f);
+    CRagEffect* LaunchCastingEffect(int effectId, int castTimeMs);
+    void CancelCastingEffects();
     void DetachEffects();
     void RemoveEffectById(int effectId);
 
@@ -219,6 +223,7 @@ public:
     int m_Sk_Level;
     int m_isLoop;
     std::list<CRagEffect*> m_effectList;
+    std::list<CRagEffect*> m_castingEffects;
     CRagEffect* m_beginSpellEffect;
     CRagEffect* m_magicTargetEffect;
 };
@@ -293,12 +298,16 @@ public:
     int m_lastPresentedSkillId = 0;
     u16 m_castingSkillId = 0;
     u32 m_vigorEffectSuppressUntilTick = 0;
+    u32 m_parryCastAckUntilTick = 0;
     bool m_frenzyStatusActive = false;
     u32 m_frenzyStatusStartTick = 0;
     u32 m_frenzyStatusDurationMs = 0;
     bool m_bloodsportStatusActive = false;
     u32 m_bloodsportStatusStartTick = 0;
     u32 m_bloodsportStatusDurationMs = 0;
+    bool m_milleniumShieldsStatusActive = false;
+    u32 m_milleniumShieldsStatusStartTick = 0;
+    u32 m_milleniumShieldsStatusDurationMs = 0;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -320,12 +329,14 @@ public:
     bool IsFrenzyStatusActive(u32 now) const;
     void SetBloodsportStatus(bool active, u32 remainingMs);
     bool IsBloodsportStatusActive(u32 now) const;
+    void SetMilleniumShieldsStatus(bool active, u32 remainingMs);
+    bool IsMilleniumShieldsStatusActive(u32 now) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
     // Returns the display delay after applying per-actor white-number spacing.
     u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);
     void DeleteMatchingEffect(CMsgEffect* effect);
     void DeleteTotalNumber(int kind, const CMsgEffect* keepEffect = nullptr);
-    void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY, int clientHeight);
+    void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY);
     void DestroySkillRechargeGage();
 };
 

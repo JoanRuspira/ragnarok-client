@@ -5959,7 +5959,7 @@ void CWorld::ProcessActorSkillRechargeGages(const matrix& viewMatrix, float came
         }
 
         if (actor->m_skillRechargeGage) {
-            actor->ProcessSkillRechargeGageOverlay(centerX, topY, clientHeight);
+            actor->ProcessSkillRechargeGageOverlay(centerX, topY);
         }
 
         if (CPc* pcActor = dynamic_cast<CPc*>(actor)) {

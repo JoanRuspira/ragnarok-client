@@ -26,6 +26,11 @@ inline constexpr COLORREF kControlHover = RGB(65, 75, 88);
 inline constexpr COLORREF kAccentHover = RGB(245, 214, 108);
 inline constexpr COLORREF kHpBar = RGB(48, 192, 48);
 inline constexpr COLORREF kSpBar = RGB(48, 96, 220);
+inline constexpr COLORREF kCastBar = RGB(252, 186, 3);
+// Inner dimensions shared by the actor health and casting bars, in screen pixels.
+inline constexpr int kActorVitalsBarWidth = 56;
+inline constexpr int kActorVitalsBarHeight = 4;
+inline constexpr int kActorVitalsBorderThickness = 1;
 inline constexpr int kPanelAlpha = 230;
 
 } // namespace uitheme

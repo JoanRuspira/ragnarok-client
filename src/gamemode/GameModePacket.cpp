@@ -830,8 +830,10 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
     actor->m_isMotionFreezed = 0;
     actor->m_freezeEndTick = 0;
     actor->m_attackMotion = -1.0f;
-    if (actor->m_stateId == kGameActorAttackStateId) {
-        actor->m_stateId = 0;
+    if (actor->m_stateId == kGameActorAttackStateId
+        || actor->m_stateId == kGameActorCastingStateId
+        || actor->m_stateId == kGameActorCastingLoopStateId) {
+        actor->SetState(0);
     }
     actor->SendMsg(actor, 84, 0, 0, 0);
     actor->SendMsg(actor, 87, 0, 0, 0);
@@ -4720,6 +4722,7 @@ float TileToWorldCoordZ(const CWorld* world, int tileY)
 struct UseSkillPacketInfo {
     int beginEffectId = 16;
     int motionType = 7;
+    bool useConfiguredMotion = false;
     int targetEffectId = -1;
     std::vector<int> impactEffectIds;
     std::vector<int> sourceEffectIds;
@@ -4732,7 +4735,8 @@ UseSkillPacketInfo ResolveUseSkillPacketInfo(u16 skillId)
     UseSkillPacketInfo info;
     if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
         info.beginEffectId = presentation->beginEffectId;
-        info.motionType = presentation->motionType;
+        info.useConfiguredMotion = presentation->skillMotionType >= 0;
+        info.motionType = info.useConfiguredMotion ? presentation->skillMotionType : presentation->motionType;
         info.launchUseSkill = !presentation->passive && !presentation->sourceServerNotified;
         if (info.launchUseSkill) {
             info.sourceEffectIds = presentation->sourceEffects;
@@ -4929,28 +4933,32 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     }
     actor->SendMsg(actor, 83, 0, 0, 0);
     const int durationMs = attackMotionMs > 0 ? attackMotionMs : kDefaultSkillMotionTime;
-    actor->SetModifyFactorOfmotionSpeed(durationMs);
-    int motionType = skillId != 0 ? packetInfo.motionType : kGameActorAttackStateId;
-    switch (motionType) {
-    case 0:
-    case kGameActorAttackStateId:
-    case 9:
-    case kGameActorSkillStateId:
-    case kGameActorDanceStateId:
-    case kGameActorSingStateId:
-        break;
-    default:
-        motionType = kGameActorSkillStateId;
-        break;
+    if (packetInfo.useConfiguredMotion) {
+        actor->PlaySkillMotion(packetInfo.motionType, durationMs, false);
+    } else {
+        actor->SetModifyFactorOfmotionSpeed(durationMs);
+        int motionType = skillId != 0 ? packetInfo.motionType : kGameActorAttackStateId;
+        switch (motionType) {
+        case 0:
+        case kGameActorAttackStateId:
+        case 9:
+        case kGameActorSkillStateId:
+        case kGameActorDanceStateId:
+        case kGameActorSingStateId:
+            break;
+        default:
+            motionType = kGameActorSkillStateId;
+            break;
+        }
+        actor->SetState(motionType);
+        if ((motionType == kGameActorSkillStateId || motionType == kGameActorDanceStateId
+                || motionType == kGameActorSingStateId) && actor->m_actRes) {
+            const int frames = (std::max)(1, actor->m_actRes->GetMotionCount(actor->m_curAction));
+            actor->m_motionSpeed = (std::max)(1.0f / kActDelayUnitMs,
+                static_cast<float>(durationMs) / (kActDelayUnitMs * frames));
+        }
+        actor->ProcessMotion();
     }
-    actor->SetState(motionType);
-    if ((motionType == kGameActorSkillStateId || motionType == kGameActorDanceStateId
-            || motionType == kGameActorSingStateId) && actor->m_actRes) {
-        const int frames = (std::max)(1, actor->m_actRes->GetMotionCount(actor->m_curAction));
-        actor->m_motionSpeed = (std::max)(1.0f / kActDelayUnitMs,
-            static_cast<float>(durationMs) / (kActDelayUnitMs * frames));
-    }
-    actor->ProcessMotion();
     InvalidateActorBillboard(actor);
 
     CGameActor* effectActor = packetInfo.useTargetSlot && targetActor ? targetActor : actor;
@@ -5413,7 +5421,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         motion = kGameActorCastingStateId;
     }
 
-    const bool frozenCast = (skillId == 57 || skillId == 62);
+    const bool useConfiguredCastMotion = presentation && presentation->castMotionType >= 0;
+    const bool frozenCast = !useConfiguredCastMotion && (skillId == 57 || skillId == 62);
 
     sourceActor->m_isSitting = 0;
     StopActorMovementForAction(sourceActor);
@@ -5427,7 +5436,10 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         sourceActor->m_freezeEndTick = timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs));
     } else {
         ClearAttachedSkillEffects(sourceActor);
-        if (motion == kGameActorAttackStateId && castTimeMs > 0) {
+        if (useConfiguredCastMotion) {
+            sourceActor->PlaySkillMotion(presentation->castMotionType, castTimeMs, true);
+            sourceActor->m_targetGid = dstGid;
+        } else if (motion == kGameActorAttackStateId && castTimeMs > 0) {
             StartSkillSourceAnimation(sourceActor, &targetPos, castTimeMs);
         } else {
             sourceActor->m_targetGid = dstGid;

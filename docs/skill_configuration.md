@@ -433,16 +433,64 @@ skill `399` (Arcane Strike). `passive = true` requires empty effect
 arrays. `begin_effect_id` defaults to `-1` (no cast-start effect), and
 `motion_type` defaults to `7` (the generic skill action).
 
+Set `cast_motion_type` for the caster animation when a positive-duration cast
+starts, and `skill_motion_type` for the caster animation when successful use is
+reported. The fields are independent: omitting either (or setting it to `-1`)
+preserves that stage's existing `motion_type` behavior. Explicit stage settings
+bypass the legacy cast-pose substitutions and skill-motion fallback.
+
+```lua
+[71] = { -- SK_CR_SWORDSTOPLOWSHARES
+    name = "Swords to Plowshares",
+    cast_motion_type = 1,
+    skill_motion_type = 1,
+    -- casting / source / target / ground effects go here.
+},
+```
+
+Both fields accept these motion IDs:
+
+| ID | Animation |
+| --- | --- |
+| `0` | Idle (no skill animation) |
+| `1` | Skill invocation: hold the initial skill pose at either stage |
+| `2` | Primary attack (uses the equipped weapon) |
+| `5` | Pick up |
+| `7` | Generic skill |
+| `8` | Casting |
+| `9` | Secondary attack |
+| `16` | Dance (currently uses the generic skill animation) |
+| `17` | Sing (currently uses the generic skill animation) |
+
+Motion `1` holds the first frame of the player's job-specific skill action (ACT
+band `96`). This is the hand-raising invocation pose for the male Paladin and
+Lord Knight. It holds until casting ends, then successful use restarts and holds
+the pose for the skill's motion duration (450 ms for a non-damaging use packet).
+This avoids later attack-like frames in some jobs' skill actions. Use motion `7`
+to play the full action. Copy the two motion fields in the example to any other
+skill entry to get the same behavior; no skill-specific C++ handling is needed.
+Legacy `motion_type` behavior is unchanged. The player action layout follows the
+[roBrowser player action mapping](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/Renderer/Entity/EntityAction.js).
+
+Unsupported IDs reject the presentation file with a log message. Other cast
+animations play across the cast duration and hold their final frame until use,
+cancellation, or expiry. Successful-use motions return to idle after their pose
+duration or animation ends; attacks retain the existing weapon and attack timing.
+Instant skills skip `cast_motion_type` and play only `skill_motion_type`.
+These settings control the caster; effect
+attachments remain configured by the four effect arrays.
+
 Swords to Plowshares (`71`, `SK_CR_SWORDSTOPLOWSHARES`) uses the installed
-Increasing Activity cast clip (`50017`, with `cd_reparatio1.wav`) and Competentia
-ground glow (`50019`) through its `casting` array. Both attach to the caster and
+Increasing Activity cast clip (`2045`, with `cd_reparatio1.wav`) and Competentia
+ground glow (`2047`) through its `casting` array. Both attach to the caster and
 stop when casting ends. Successful use plays the Increasing Activity target clip
-(`50018`, with `cd_reparatio2.wav`) on the recipient. These internal effect IDs
+(`2046`, with `cd_reparatio2.wav`) on the recipient. These internal effect IDs
 leave the standard effect catalog unchanged. The server sends the skill-use
 notification and a separate Heal notification for the recovered amount, rather than special-effect
 notifications, so this entry leaves `server_notified` false. Failed or cancelled
 casts do not emit its target effects. The accompanying Heal notification retains
-its existing recovery number and Heal presentation.
+its existing recovery number and Heal presentation. Its source ID is zero, so
+it does not restart the caster's motion or replace the invocation pose.
 
 The loader searches beside `open-midgard.ini` (including its data-directory
 override), then the current working directory, then the source checkout for

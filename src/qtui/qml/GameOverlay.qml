@@ -2051,7 +2051,7 @@ Item {
             y: parent.barBorderWidth
             width: parent.width - parent.barBorderWidth * 2
             height: parent.height - parent.barBorderWidth * 2
-            color: "#ffffff"
+            color: "#000000"
         }
 
         Rectangle {

@@ -5,6 +5,9 @@
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
 -- casting effects attach to the caster for the cast's duration and stop together.
 -- A nonempty casting array replaces the legacy begin_effect_id.
+-- cast_motion_type and skill_motion_type independently select each stage's motion.
+-- Omit either to preserve that stage's legacy motion_type behavior.
+-- Motion 1 holds the job's skill invocation pose at either stage; 7 plays the full action.
 -- Effect entries support bottom_effect = true to draw behind actors, with
 -- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
@@ -29,9 +32,14 @@ return {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
+        [72] = { 
+            name = "Binding Oath",
+            skill_motion_type = 1,
+        },
         [71] = { -- SK_CR_SWORDSTOPLOWSHARES
             name = "Swords to Plowshares",
-            motion_type = 1,
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             casting = {
                 { effect_id = 2045 },
                 {
@@ -46,6 +54,29 @@ return {
             target = {
                 {
                     effect_id = 2046,
+                    str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
+                    wav = [[data\wav\effect\cd_reparatio2.wav]],
+                },
+            },
+        },
+        [35] = { -- 
+            name = "Divine Light",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2048 },
+                {
+                    effect_id = 2049,
+                    str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+            -- The server sends successful skill use, followed by Heal for the amount.
+            -- It does not send separate effect notifications for this skill.
+            target = {
+                {
+                    effect_id = 2050,
                     str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
                     wav = [[data\wav\effect\cd_reparatio2.wav]],
                 },
@@ -549,10 +580,21 @@ return {
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [312] = { -- EF_HEAL: shared by every skill that selects this Heal effect.
+            str = [[data\texture\effect\argutustelum\argutustelum_cast\argutustelum_cast.str]],
+        },
+        [313] = { -- EF_HEAL2: shared by every skill that selects this Heal effect.
+            str = [[data\texture\effect\argutustelum\argutustelum_cast\argutustelum_cast.str]],
+        },
         [2045] = { -- Swords to Plowshares: referenced by its casting array.
             str = [[data\texture\effect\increasing_activity\increasing_activity_cast\increasing_activity_cast.str]],
             wav = [[data\wav\effect\cd_reparatio1.wav]],
             -- SetCastDurationMs keeps this alive until completion or cancellation.
+        },
+        [2048] = { 
+            str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],
+            wav = [[data\wav\effect\cd_reparatio1.wav]],
+        
         },
         [50016] = { -- STATUS_MILLENIUMSHIELDS: the actor's status controls this loop.
             str = [[data\texture\effect\holy_shield\holy_shield\holy_shield.str]],

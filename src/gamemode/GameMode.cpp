@@ -1981,8 +1981,8 @@ bool QueuePlayerVitalsOverlayQuad(CGameMode& mode)
         innerLeft + kPlayerVitalsBarWidth,
         hpRect.bottom + kPlayerVitalsBorderThickness + kPlayerVitalsBarHeight,
     };
-    FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, hpRect, RGB(255, 255, 255));
-    FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, spRect, RGB(255, 255, 255));
+    FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, hpRect, RGB(0, 0, 0));
+    FillSolidRectArgb(s_vitalsComposePixels.data(), width, height, spRect, RGB(0, 0, 0));
 
     if (maxHp > 0) {
         const int hp = (std::max)(0, (std::min)(static_cast<int>(player->m_Hp), maxHp));
@@ -4020,8 +4020,8 @@ void DrawPlayerVitalsOverlay(CGameMode& mode, HDC hdc)
         hpRect.bottom + kPlayerVitalsBorderThickness + kPlayerVitalsBarHeight,
     };
 
-    FillSolidRect(hdc, hpRect, RGB(255, 255, 255));
-    FillSolidRect(hdc, spRect, RGB(255, 255, 255));
+    FillSolidRect(hdc, hpRect, RGB(0, 0, 0));
+    FillSolidRect(hdc, spRect, RGB(0, 0, 0));
 
     if (maxHp > 0) {
         const int hp = (std::max)(0, (std::min)(static_cast<int>(player->m_Hp), maxHp));

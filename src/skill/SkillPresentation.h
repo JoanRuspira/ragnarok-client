@@ -91,6 +91,10 @@ struct SkillPresentation {
     bool groundServerNotified = false;
     int beginEffectId = -1;
     int motionType = 7;
+    // Explicit stage motions bypass legacy motion substitutions. -1 uses motionType.
+    // Motion 1 holds the skill invocation pose at either stage.
+    int castMotionType = -1;
+    int skillMotionType = -1;
     std::vector<int> castingEffects;
     std::vector<int> sourceEffects;
     std::vector<int> targetEffects;

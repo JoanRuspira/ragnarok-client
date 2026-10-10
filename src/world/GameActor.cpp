@@ -5090,7 +5090,8 @@ u8 CGameActor::ProcessState() {
         m_isCounter = 0;
         m_isMotionFreezed = 0;
         ProcessMotion();
-        if (m_isMotionFinished) {
+        if (m_isMotionFinished && (m_skillMotionPoseDurationMs == 0
+                || timeGetTime() - m_stateStartTick >= static_cast<u32>(m_skillMotionPoseDurationMs))) {
             SetState(0);
         }
         break;
@@ -5105,12 +5106,15 @@ u8 CGameActor::ProcessState() {
                 if (CGameActor* target = ResolveActorByGidForCastRetarget(m_targetGid)) {
                     const float dx = target->m_pos.x - m_pos.x;
                     const float dz = target->m_pos.z - m_pos.z;
-                    m_roty = std::atan2(dx, -dz) * (180.0f / 3.14159265f);
-                    if (m_roty >= 360.0f) {
-                        m_roty -= 360.0f;
-                    }
-                    if (m_roty < 0.0f) {
-                        m_roty += 360.0f;
+                    // Self-targeted casts have no facing direction to resolve.
+                    if (dx != 0.0f || dz != 0.0f) {
+                        m_roty = std::atan2(dx, -dz) * (180.0f / 3.14159265f);
+                        if (m_roty >= 360.0f) {
+                            m_roty -= 360.0f;
+                        }
+                        if (m_roty < 0.0f) {
+                            m_roty += 360.0f;
+                        }
                     }
                 }
             }
@@ -5457,6 +5461,7 @@ void CGameActor::SetState(int state) {
         return;
     }
 
+    m_skillMotionPoseDurationMs = 0;
     m_curAction = m_baseAction + Get8Dir(m_roty);
     if (state == kHitReactionStateId) {
         const int frames = m_actRes ? (std::max)(1, m_actRes->GetMotionCount(m_curAction)) : 1;
@@ -5502,6 +5507,74 @@ void CGameActor::SetState(int state) {
             dynamic_cast<CPc*>(this) ? dynamic_cast<CPc*>(this)->m_weapon : -1,
             dynamic_cast<CPc*>(this) ? dynamic_cast<CPc*>(this)->m_shield : -1,
             m_isPc);
+    }
+}
+
+void CGameActor::PlaySkillMotion(int motionType, int durationMs, bool casting)
+{
+    if (m_stateId == kDeathStateId || m_isTrickDead) {
+        return;
+    }
+    if (motionType == 0 && !casting) {
+        SetState(0);
+        return;
+    }
+
+    SetModifyFactorOfmotionSpeed(durationMs);
+    // Presentation motion 1 is skill invocation, not actor state 1 (walking).
+    // Use the same job-specific skill action as legacy successful skill use.
+    const int motionState = motionType == 1 ? kGameActorSkillStateId : motionType;
+    SetState(motionState);
+    if (motionType == 0) {
+        SetAction(0, 4, 1);
+    }
+
+    // The cast's lifetime is independent of its visual. Successful use, cancel,
+    // and expiry use the existing casting cleanup.
+    if (casting) {
+        m_stateId = kGameActorCastingStateId;
+    } else if (motionState == kGameActorCastingStateId) {
+        m_stateId = kGameActorSkillStateId;
+    }
+    m_isMoving = 0;
+    m_path.Reset();
+    m_isCounter = 0;
+    // Some jobs' later skill frames are attack poses. Motion 1 holds invocation
+    // at both stages; motion 7 remains available for the full skill animation.
+    m_isMotionFinished = motionType == 1;
+    if (!casting && motionType == 1) {
+        m_skillMotionPoseDurationMs = (std::max)(1, durationMs);
+    }
+    m_isMotionFreezed = 0;
+    m_freezeEndTick = 0;
+    m_motionType = 1;
+    m_curAction = m_baseAction + Get8Dir(m_roty);
+    if (motionType == 0 && m_isPc) {
+        // Player idle frames are head poses, not an animation to play through.
+        m_isMotionFinished = 1;
+        const CPc* pcActor = dynamic_cast<const CPc*>(this);
+        m_curMotion = pcActor ? pcActor->m_headDir : 0;
+    }
+
+    const bool attackMotion = m_stateId == kAttackStateId || m_stateId == kSecondAttackStateId;
+    if (!attackMotion) {
+        m_attackMotion = -1.0f;
+    }
+    if (casting || !attackMotion) {
+        CActRes* actRes = ResolveRuntimeActorActRes(this);
+        if (m_isPc) {
+            if (CActRes* bodyActRes = ResolvePcTransientActRes(*this, m_curAction)) {
+                actRes = bodyActRes;
+            }
+        }
+        const int action = actRes ? ResolveAvailableActionIndex(actRes, m_curAction) : m_curAction;
+        const int frames = actRes ? (std::max)(1, actRes->GetMotionCount(action)) : 1;
+        m_motionSpeed = (std::max)(kMinimumMotionDelay,
+            static_cast<float>((std::max)(1, durationMs)) / (kActDelayUnitMs * frames));
+    }
+    ProcessMotion();
+    if (CPc* pcActor = dynamic_cast<CPc*>(this)) {
+        pcActor->InvalidateBillboard();
     }
 }
 

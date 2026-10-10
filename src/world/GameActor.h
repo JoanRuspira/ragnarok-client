@@ -269,6 +269,7 @@ public:
     UIMerchantShopTitle* m_merchantShopTitle;
     UIRechargeGage* m_skillRechargeGage = nullptr;
     u32 m_freezeEndTick, m_petEmotionStartTick, m_skillRechargeEndTick = 0, m_skillRechargeStartTick = 0;
+    int m_skillMotionPoseDurationMs = 0; // Successful-use invocation pose, timed from m_stateStartTick.
     int m_chatWidth, m_chatHeight, m_nameWidth, m_xSize, m_ySize, m_headType;
     std::list<WBA> m_willBeAttackList, m_willBeAttackedList;
     int m_willBeDead, m_is99;
@@ -316,6 +317,7 @@ public:
     virtual void SendMsg(CGameObject* src, int msg, msgparam_t par1, msgparam_t par2, msgparam_t par3) override;
     virtual int  Get8Dir(float rot) override;
     virtual void SetState(int state);
+    void PlaySkillMotion(int motionType, int durationMs, bool casting);
     virtual void ProcessWillBeAttacked();
     virtual void SetModifyFactorOfmotionSpeed(int attackMT);
     virtual int GetAttackMotion();

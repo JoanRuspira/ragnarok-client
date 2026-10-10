@@ -46,7 +46,7 @@ void UIRechargeGage::OnDraw()
 
     constexpr int border = uitheme::kActorVitalsBorderThickness;
     RECT inner{ m_x + border, m_y + border, m_x + m_w - border, m_y + m_h - border };
-    uitheme::FillRoundedRect(hdc, inner, RGB(255, 255, 255), 0);
+    uitheme::FillRoundedRect(hdc, inner, RGB(0, 0, 0), 0);
 
     const int total = (std::max)(1, m_totalAmount);
     const int amount = (std::max)(0, (std::min)(m_amount, total));

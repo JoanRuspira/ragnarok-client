@@ -65,6 +65,27 @@ bool ReadBoolean(lua_State* state, int table, const char* key, bool& value, std:
     return valid;
 }
 
+bool ReadSkillMotionType(lua_State* state, int table, const char* key, int& value, std::string& error)
+{
+    if (!ReadInteger(state, table, key, value, error)) return false;
+    switch (value) {
+    case -1: // Use the legacy motion_type behavior.
+    case 0:  // Idle.
+    case 1:  // Skill invocation; holds the initial pose at either stage.
+    case 2:  // Attack.
+    case 5:  // Pick up.
+    case 7:  // Skill.
+    case 8:  // Cast.
+    case 9:  // Second attack.
+    case 16: // Dance.
+    case 17: // Sing.
+        return true;
+    default:
+        error = std::string("unsupported motion type in field '") + key + "'";
+        return false;
+    }
+}
+
 bool ReadIdKey(lua_State* state, int& id, std::string& error, int minimum = 1)
 {
     if (lua_type(state, -2) == LUA_TNUMBER) {
@@ -463,6 +484,8 @@ struct PresentationCatalog {
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
+                || !ReadSkillMotionType(state, entry, "cast_motion_type", skill.castMotionType, error)
+                || !ReadSkillMotionType(state, entry, "skill_motion_type", skill.skillMotionType, error)
                 || !ReadSkillEffects(state, entry, "casting", skill.castingEffects, error)
                 || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)

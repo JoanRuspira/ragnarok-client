@@ -47,6 +47,7 @@ enum EFFECTPRIMID {
     PP_WATERFALL,
     PP_CLOUD,
     PP_GROUNDTEXTURE,
+    PP_GROUNDCROSS,
 };
 
 struct EffectBandState {
@@ -91,6 +92,7 @@ constexpr int kRagEffectCobaltTrap = 50013;
 constexpr int kRagEffectMaizeTrap = 50014;
 constexpr int kRagEffectVerdureTrap = 50015;
 constexpr int kRagEffectMilleniumShields = 50016; // Status-owned Holy Shield loop.
+constexpr int kRagEffectGospelArea = 50017; // Caster-owned visual, kept alive by Gospel units.
 
 class CRagEffect;
 
@@ -183,8 +185,12 @@ public:
     int GetEffectType() const { return m_type; }
     int GetStateCount() const { return m_stateCnt; }
     int GetDuration() const { return m_duration; }
-    void SetSkillUnitId(u32 id) { m_skillUnitId = id; }
+    void SetSkillUnitId(u32 id, u32 sourceGid = 0) { m_skillUnitId = id; m_skillUnitSourceGid = sourceGid; }
     u32 GetSkillUnitId() const { return m_skillUnitId; }
+    bool IsGospelUnitFor(u32 casterGid) const;
+    bool IsGospelAreaFor(u32 casterGid) const;
+    void TrackGospelUnit(u32 unitAid);
+    void RemoveSkillUnit(u32 unitAid);
     void SetLooping(bool looping);
     void SetCastDurationMs(int milliseconds);
     // Scheduling offset, added to this effect's configured delay_ms.
@@ -203,6 +209,9 @@ public:
 
 private:
     u32 m_skillUnitId = 0;
+    u32 m_skillUnitSourceGid = 0;
+    std::vector<u32> m_gospelUnitIds;
+    bool m_gospelNativeLayout = false;
     bool m_cancelled = false;
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;

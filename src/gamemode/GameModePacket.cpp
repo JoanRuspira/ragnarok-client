@@ -6002,12 +6002,12 @@ int ResolveSkillUnitEffectId(u16 unitId)
     }
 }
 
-void CancelSkillUnitEffect(CWorld* world, u32 unitAid)
+void CancelSkillUnitEffect(CWorld* world, u32 unitAid, CRagEffect* preservedEffect = nullptr)
 {
     if (!world || unitAid == 0) return;
     for (CGameObject* object : world->m_gameObjectList) {
         if (auto* effect = dynamic_cast<CRagEffect*>(object)) {
-            if (effect->GetSkillUnitId() == unitAid) effect->Cancel();
+            if (effect != preservedEffect) effect->RemoveSkillUnit(unitAid);
         }
     }
 }
@@ -6033,9 +6033,41 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
     const int cellY = static_cast<int>(ReadLE16(packet.data + 12));
     const u16 unitId = packet.data[14] < 126 ? static_cast<u16>(packet.data[14]) + 256 : packet.data[14];
 
-    CancelSkillUnitEffect(mode.m_world, unitAid);
     const int effectId = ResolveSkillUnitEffectId(unitId);
-    if (packet.data[15] == 0) return;
+    if (packet.data[15] == 0) {
+        CancelSkillUnitEffect(mode.m_world, unitAid);
+        return;
+    }
+    CRagEffect* gospelArea = nullptr;
+    if (unitId == 179) {
+        if (CGameActor* caster = ResolveNotifyEffectActor(mode, srcGid)) {
+            for (CRagEffect* effect : caster->m_effectList) {
+                if (effect && effect->IsGospelAreaFor(caster->m_gid)) {
+                    gospelArea = effect;
+                    break;
+                }
+            }
+            if (!gospelArea) {
+                gospelArea = caster->LaunchEffect(kRagEffectGospelArea);
+                if (gospelArea) {
+                    gospelArea->SetLooping(true);
+                    // Adopt cells received before the caster entered view so
+                    // their old individual crosses cannot overlap this aura.
+                    for (CGameObject* object : mode.m_world->m_gameObjectList) {
+                        if (auto* effect = dynamic_cast<CRagEffect*>(object);
+                            effect && effect->IsGospelUnitFor(srcGid)) {
+                            gospelArea->TrackGospelUnit(effect->GetSkillUnitId());
+                            effect->Cancel();
+                        }
+                    }
+                    DbgLog("[SkillUnit] Gospel aura caster=%u layoutSkill=%d\n", caster->m_gid,
+                        caster->m_lastPresentedSkillId == 369 ? 369 : 951);
+                }
+            }
+        }
+    }
+    // Updating a Gospel unit keeps the existing aura and its other unit IDs.
+    CancelSkillUnitEffect(mode.m_world, unitAid, gospelArea);
     if (effectId < 0) {
         if (unitId != 134) { // Server dummy units intentionally have no image.
             static std::map<u16, bool> loggedMissingUnits;
@@ -6047,10 +6079,14 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
-    if (CRagEffect* effect = SpawnWorldSkillEffect(mode, effectId, worldPos)) {
-        effect->SetSkillUnitId(unitAid);
-        effect->SetLooping(true);
+    if (gospelArea) {
+        gospelArea->TrackGospelUnit(unitAid);
+    } else {
+        const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
+        if (CRagEffect* effect = SpawnWorldSkillEffect(mode, effectId, worldPos)) {
+            effect->SetSkillUnitId(unitAid, srcGid);
+            effect->SetLooping(true);
+        }
     }
 
     DbgLog("[GameMode] skill unit opcode=0x%04X unitAid=%u src=%u unitId=%u cell=(%d,%d)\n",

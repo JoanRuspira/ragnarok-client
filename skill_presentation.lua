@@ -5,6 +5,7 @@
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
 -- casting effects attach to the caster for the cast's duration and stop together.
 -- A nonempty casting array replaces the legacy begin_effect_id.
+-- ground effects play at the notified ground cell after casting and stay there.
 -- cast_motion_type and skill_motion_type independently select each stage's motion.
 -- Omit either to preserve that stage's legacy motion_type behavior.
 -- Motion 1 holds the job's skill invocation pose at either stage; 7 plays the full action.
@@ -32,9 +33,48 @@ return {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
+        [369] = { -- SK_PA_GOSPEL
+            name = "Gospel",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            server_notified = true, -- The server supplies effects and moving ground units.
+        },
+        [951] = { -- SK_PA_GOASPEL: the custom Gospel used by the Paladin skill tree.
+            name = "Gospel",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            server_notified = true, -- The server supplies effects and moving ground units.
+        },
         [72] = { 
             name = "Binding Oath",
             skill_motion_type = 1,
+        },
+        [2321] = { -- SK_PA_GENESISRAY
+            name = "Genesis Ray",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2057 },
+                {
+                    effect_id = 2058,
+                    str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis_cast_bottom\new_rayofgenesis_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 15,
+                },
+            },
+            -- Cast completion supplies the ground cell; damage supplies each victim.
+            ground = {
+                {
+                    effect_id = 50018, -- Local ground presentation ID.
+                    str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis\new_rayofgenesis.str]],
+                },
+            },
+            target = {
+                {
+                    effect_id = 2059,
+                    str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis_hit\new_rayofgenesis_hit.str]],
+                },
+            },
         },
         [71] = { -- SK_CR_SWORDSTOPLOWSHARES
             name = "Swords to Plowshares",
@@ -65,6 +105,7 @@ return {
             skill_motion_type = 1,
             casting = {
                 { effect_id = 2048 },
+                { effect_id = 2055 },
                 {
                     effect_id = 2049,
                     str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
@@ -78,7 +119,33 @@ return {
                 {
                     effect_id = 2050,
                     str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
-                    wav = [[data\wav\effect\cd_reparatio2.wav]],
+                },
+                {
+                    effect_id = 2056,
+                    str = [[data\texture\effect\wooden_fairy\fairy_dusty\fairy_dusty.str]],
+                },
+            },
+        },
+        [2322] = { -- 
+            name = "King's Grace",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2051 },
+                {
+                    effect_id = 2052,
+                    str = [[data\texture\effect\crossrain\cross_rain_bottom\cross_rain_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+                { effect_id = 2055 },
+            },
+            -- The server sends successful skill use, followed by Heal for the amount.
+            -- It does not send separate effect notifications for this skill.
+            target = {
+                {
+                    effect_id = 2053,
+                    str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
                 },
             },
         },
@@ -212,6 +279,12 @@ return {
                     effect_id = 2009,
                     str = [[data\texture\effect\judgement_cross\judgement_cross_cast\judgement_cross_cast.str]],
                     wav = [[data\wav\effect\rush.wav]],
+                },
+                {
+                    effect_id = 2030,
+                    str = [[data\texture\effect\adv_protection\adv_protection_cast_bottom\adv_protection_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 }
             },
         },
@@ -225,7 +298,7 @@ return {
                     str = [[data\texture\effect\madness_crusher\madness_crusher\madness_crusher.str]],
                 },
                 {
-                    effect_id = 2030,
+                    effect_id = 2054,
                     str = [[data\texture\effect\madness_crusher\madness_crusher_bottom\madness_crusher_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
@@ -588,13 +661,19 @@ return {
         },
         [2045] = { -- Swords to Plowshares: referenced by its casting array.
             str = [[data\texture\effect\increasing_activity\increasing_activity_cast\increasing_activity_cast.str]],
-            wav = [[data\wav\effect\cd_reparatio1.wav]],
             -- SetCastDurationMs keeps this alive until completion or cancellation.
         },
         [2048] = { 
             str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],
-            wav = [[data\wav\effect\cd_reparatio1.wav]],
-        
+        },
+        [2051] = { 
+            str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],
+        },
+        [2055] = { 
+            str = [[data\texture\effect\crossrain\cross_rain_cast\cross_rain_cast.str]],
+        },
+        [2057] = { 
+            str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis_cast\new_rayofgenesis_cast.str]],
         },
         [50016] = { -- STATUS_MILLENIUMSHIELDS: the actor's status controls this loop.
             str = [[data\texture\effect\holy_shield\holy_shield\holy_shield.str]],

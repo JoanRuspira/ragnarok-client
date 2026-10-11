@@ -436,7 +436,8 @@ void SubmitScreenQuad(const tlvertex3d& anchor,
     unsigned int color,
     D3DBLEND destBlend,
     float alphaSortKey,
-    int renderFlags);
+    int renderFlags,
+    bool useFaceBlend = false);
 
 const std::string& ResolveDataPathByBasename(const char* basename);
 CTexture* GetSoftGlowTexture(bool cloudVariant = false);
@@ -523,7 +524,8 @@ void SubmitScreenQuad(const tlvertex3d& anchor,
     unsigned int color,
     D3DBLEND destBlend,
     float alphaSortKey,
-    int renderFlags)
+    int renderFlags,
+    bool useFaceBlend)
 {
     if (!texture || texture == &CTexMgr::s_dummy_texture) {
         return;
@@ -573,7 +575,7 @@ void SubmitScreenQuad(const tlvertex3d& anchor,
     v2.specular = 0xFF000000u;
     v3.specular = 0xFF000000u;
 
-    g_renderer.AddRP(face, renderFlags);
+    g_renderer.AddRP(face, renderFlags, useFaceBlend);
 }
 
 void SubmitBillboard(const vector3d& center,
@@ -3063,6 +3065,39 @@ void CEffectPrim::Render(matrix* viewMatrix)
     const float timeSeconds = static_cast<float>(m_stateCnt) * (kEffectTickMs / 1000.0f);
 
     switch (m_type) {
+    case PP_GROUNDCROSS: {
+        CTexture* texture = m_texture.empty() ? nullptr : m_texture[0];
+        if (!texture) break;
+
+        vector3d foot = base;
+        // The complete aura shares the caster's floor height, including cells
+        // inside walls or outside the map where terrain heights are unsuitable.
+        foot.y = (m_master->GetEffectType() == kRagEffectGospelArea
+            ? base.y : ResolveGroundHeight(foot)) - 0.05f;
+        tlvertex3d anchor{};
+        if (!ProjectPoint(foot, *viewMatrix, &anchor)) break;
+        const float pixelRatio = ResolveEffectPixelRatio(anchor);
+        if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) break;
+
+        // Keep the cross upright and rooted at its skill cell. A 32-pixel
+        // footprint fits one cell; projecting four terrain corners flattens it.
+        const float size = 32.0f * pixelRatio;
+        const float glowSize = 40.0f * pixelRatio;
+        // Sort with actor sprites at the cell's depth, preserving additive glow.
+        // The separate AlphaOP pass would put every cross over every actor.
+        const int renderFlags = ResolveEffectRenderFlags(m_renderFlag, 1);
+        // Overlay depth keeps walls and props from clipping the cross and glow.
+        // Retain the projected oow for sizing and sorting around actor sprites;
+        // the alpha pass does not write depth, so it preserves their layering.
+        anchor.z = 0.000031f;
+        SubmitScreenQuad(anchor, GetSoftGlowTexture(false), 0.0f, -size * 0.5f,
+            glowSize, glowSize,
+            PackColor(static_cast<unsigned int>(normalizedAlpha * 0.2f), m_tintColor),
+            D3DBLEND_ONE, anchor.oow, renderFlags, true);
+        SubmitScreenQuad(anchor, texture, 0.0f, -size * 0.5f, size, size,
+            color, D3DBLEND_ONE, anchor.oow, renderFlags, true);
+        break;
+    }
     case PP_GROUNDTEXTURE: {
         CTexture* texture = m_texture.empty() ? nullptr : m_texture[0];
         if (!texture) break;
@@ -4063,6 +4098,9 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
 {
     m_componentEffects.clear();
     m_skillUnitId = 0;
+    m_skillUnitSourceGid = 0;
+    m_gospelUnitIds.clear();
+    m_gospelNativeLayout = false;
     m_cancelled = false;
     m_startDelayMs = 0;
     m_castEndTick = 0;
@@ -4089,6 +4127,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     if (const CGameActor* actorMaster = dynamic_cast<const CGameActor*>(master)) {
         m_masterIsActor = true;
         m_masterActorGid = actorMaster->m_gid;
+        m_gospelNativeLayout = effectId == kRagEffectGospelArea && actorMaster->m_lastPresentedSkillId == 369;
     } else {
         m_masterIsActor = false;
         m_masterActorGid = 0;
@@ -4244,6 +4283,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
     case 239: case 240: case 241: case 242:
     case 318: case 319: case 370: case 374: case 783: case 939:
+    case kRagEffectGospelArea:
         m_handler = Handler::GroundSurface;
         m_duration = 80;
         break;
@@ -4529,6 +4569,37 @@ void CRagEffect::SetLooping(bool looping)
     }
 }
 
+bool CRagEffect::IsGospelUnitFor(u32 casterGid) const
+{
+    return m_type == 370 && !m_cancelled && m_skillUnitId != 0
+        && m_skillUnitSourceGid == casterGid;
+}
+
+bool CRagEffect::IsGospelAreaFor(u32 casterGid) const
+{
+    return m_type == kRagEffectGospelArea && !m_cancelled
+        && m_masterIsActor && m_masterActorGid == casterGid;
+}
+
+void CRagEffect::TrackGospelUnit(u32 unitAid)
+{
+    if (m_type != kRagEffectGospelArea || m_cancelled || unitAid == 0) return;
+    if (std::find(m_gospelUnitIds.begin(), m_gospelUnitIds.end(), unitAid) == m_gospelUnitIds.end()) {
+        m_gospelUnitIds.push_back(unitAid);
+    }
+}
+
+void CRagEffect::RemoveSkillUnit(u32 unitAid)
+{
+    if (unitAid == 0) return;
+    if (m_skillUnitId == unitAid) Cancel();
+    if (m_type != kRagEffectGospelArea) return;
+    const auto it = std::find(m_gospelUnitIds.begin(), m_gospelUnitIds.end(), unitAid);
+    if (it == m_gospelUnitIds.end()) return;
+    m_gospelUnitIds.erase(it);
+    if (m_gospelUnitIds.empty()) Cancel();
+}
+
 void CRagEffect::SetStartDelayMs(u32 milliseconds)
 {
     m_startDelayMs = milliseconds;
@@ -4614,6 +4685,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
+    if (m_type == kRagEffectGospelArea) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
     }
@@ -5241,20 +5313,41 @@ void CRagEffect::SpawnGroundSurface()
     case 241: texture = "effect\\magic_green.tga"; break;
     case 242: texture = "effect\\aaa copy.bmp"; break;
     case 319: texture = "effect\\alpha_down.tga"; break;
-    case 370: case 374: texture = "effect\\cross_old.bmp"; break;
+    case 370: case 374: case kRagEffectGospelArea: texture = "effect\\cross_old.bmp"; break;
     case 783: texture = "effect\\slash01.tga"; break;
     default: return;
     }
-    CTexture* image = TryResolveEffectTextureCandidates({texture});
-    if (!image) return;
-    if (CEffectPrim* prim = LaunchEffectPrim(PP_GROUNDTEXTURE, vector3d{})) {
-        prim->m_texture.push_back(image);
-        prim->m_radius = 2.5f;
-        prim->m_alpha = 210.0f;
-        prim->m_maxAlpha = prim->m_alpha;
-        prim->m_duration = m_duration;
-        prim->m_fadeOutCnt = m_loop ? 0 : m_duration - 16;
-        prim->m_renderFlag = 5u;
+    // Gospel shares the actor alpha pass, which uses texture alpha rather than
+    // draw-time colorkeying. Mask the cross's magenta background on every backend.
+    const bool gospel = m_type == 370 || m_type == kRagEffectGospelArea;
+    CTexture* image = gospel ? g_texMgr.GetMaskedTexture(texture)
+        : TryResolveEffectTextureCandidates({texture});
+    if (!image || image == &CTexMgr::s_dummy_texture) return;
+    const EFFECTPRIMID primType = gospel ? PP_GROUNDCROSS : PP_GROUNDTEXTURE;
+    auto spawnCell = [&](const vector3d& offset) {
+        if (CEffectPrim* prim = LaunchEffectPrim(primType, offset)) {
+            prim->m_texture.push_back(image);
+            prim->m_radius = 2.5f;
+            prim->m_alpha = 210.0f;
+            prim->m_maxAlpha = prim->m_alpha;
+            prim->m_duration = m_duration;
+            prim->m_fadeOutCnt = m_loop ? 0 : m_duration - 16;
+            prim->m_renderFlag = gospel ? 1u : 5u;
+        }
+    };
+    if (m_type == kRagEffectGospelArea) {
+        // Unit packets omit blocked cells and only update cells that moved.
+        // Draw the whole footprint from the caster, independent of that subset.
+        const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+        const int radius = m_gospelNativeLayout ? 3 : 2;
+        for (int y = -radius; y <= radius; ++y) {
+            const int halfWidth = m_gospelNativeLayout ? (std::abs(y) > 1 ? 1 : 3) : 2;
+            for (int x = -halfWidth; x <= halfWidth; ++x) {
+                spawnCell(vector3d{ x * cellSize, 0.0f, -y * cellSize });
+            }
+        }
+    } else {
+        spawnCell(vector3d{});
     }
 }
 
@@ -6677,6 +6770,7 @@ u8 CRagEffect::OnProcess()
     if (m_cancelled || (m_handler == Handler::None && m_componentEffects.empty() && m_primList.empty())) {
         return 0;
     }
+    if (m_type == kRagEffectGospelArea && !ResolveCurrentMaster()) return 0;
     if (m_castEndTick != 0 && static_cast<s32>(timeGetTime() - m_castEndTick) >= 0) return 0;
     if (m_startDelayMs > 0) {
         if (timeGetTime() - m_lastProcessTick < m_startDelayMs) return 1;

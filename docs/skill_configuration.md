@@ -241,6 +241,32 @@ means silence. A `variants` array pairs visual and audio paths so both use the
 same random variant. `offset_y` sets the vertical attachment offset, and `loop`
 controls repetition; STR playback uses the animation's authored FPS.
 
+`ground` plays effects at the terrain height of the cell reported by a successful
+ground-skill notification after casting, or by a position-damage notification.
+These effects stay at that world position when the caster moves. Ordinary
+actor-damage notifications play `target` effects on their victims; they do not
+repeat the ground visual. Use an unused `effect_id` for each new inline definition,
+or reference an existing definition by ID without repeating its `str` field.
+
+Genesis Ray (`2321`, `SK_PA_GENESISRAY`) uses this configuration alongside its
+existing `casting` and `target` arrays:
+
+```lua
+ground = {
+    {
+        effect_id = 50018,
+        str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis\new_rayofgenesis.str]],
+    },
+},
+```
+
+The clip plays once at the selected cell when casting completes, including casts
+with no victims. Future ground-targeted skills can use the same array format with
+their own ID and resource path. Ground effects support `wav`, `offset_y`,
+`bottom_effect`, and `delay_ms` like the other attachments. If the skill sets
+`server_notified = true` but its ground effect needs local playback, set
+`ground_server_notified = false` on that skill.
+
 `casting` attaches all its effects to the caster when a cast with a positive
 duration starts. STR clips automatically loop for that duration. The group stops
 on successful use, cancellation, expiry, death, or actor removal; it does not
@@ -801,6 +827,7 @@ in a running updated client. Compare these cases against the official client:
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
+| Genesis Ray (2321), casting at empty ground or several enemies, cancellation, and movement after casting | Casting effects stop at completion; the main STR plays once at the selected cell even with no victims, stays there when the caster moves, and does not start for cancelled casts; each damaged enemy retains its target effect |
 | Low-level hotkey for a higher learned skill | Send the level saved in the hotkey |
 | Shift while targeting; click empty space | Preserve skill selection and casting behavior |
 | Teleport / Warp Portal | Select a destination or cancel; subsequent skills still work |
@@ -808,6 +835,7 @@ in a running updated client. Compare these cases against the official client:
 | Pharmacy / forging / arrow creation | Select items and successive materials; compare cancellation |
 | Repair Weapon / Sense | Repair an offered item; display the returned monster information |
 | Sanctuary / Magnus / Epiclesis / Psychic Wave | Ground effect persists and disappears with the server unit |
+| Gospel (369 / custom 951), activation beside walls/props and map edges, walking, camera rotation/zoom, slopes, repeated activation, and expiry | Both skill IDs use motion 1 to hold the caster's invocation pose; one complete area of upright glowing crosses follows the caster at the caster's floor height, including blocked cells omitted by the server (custom 951: 5x5; native 369: 33-cell cross); crosses stay visible over walls/props and sort in front of or behind actors by depth; unit updates do not duplicate or restart the aura, and removal of its last server unit removes the entire visual |
 | Bolts / small Heal / buff while another actor casts | Show hit/heal/buff effects without disturbing that cast |
 | Demonstration / ninja effects | Sprite assets load, rotate, and remain fully visible |
 | Newer effects with multiple STR components | Show each component at the authored speed |

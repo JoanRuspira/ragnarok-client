@@ -27,6 +27,10 @@ return {
             wav = [[data\wav\effect\ef_fireball.wav]],
             trigger = "damage",
         },
+        [72] = { -- SK_CR_BINDINGOATH: sound only; no custom visual effect.
+            wav = [[data\wav\effect\cd_benedictum.wav]],
+            trigger = "no_damage",
+        },
     },
     skills = {
         [3] = {
@@ -39,13 +43,36 @@ return {
             skill_motion_type = 1,
             server_notified = true, -- The server supplies effects and moving ground units.
         },
+        [255] = { 
+            name = "Sworn Protector",
+            begin_effect_id = 2055,
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2055 },
+                {
+                    effect_id = 2060,
+                    str = [[data\texture\effect\ultimate_sacrifice\ultimatesacrifice_bottom\ultimatesacrifice_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                },
+            },
+            target = {
+                {
+                    effect_id = 2061,
+                    str = [[data\texture\effect\ultimate_sacrifice\ultimatesacrifice\ultimatesacrifice.str]],
+                    wav = [[data\wav\effect\cd_presens_acies.wav]],
+                },
+            },
+        },
         [951] = { -- SK_PA_GOASPEL: the custom Gospel used by the Paladin skill tree.
             name = "Gospel",
             cast_motion_type = 1,
             skill_motion_type = 1,
             server_notified = true, -- The server supplies effects and moving ground units.
         },
-        [72] = { 
+        [72] = { -- SK_CR_BINDINGOATH
             name = "Binding Oath",
             skill_motion_type = 1,
         },
@@ -87,6 +114,7 @@ return {
                     str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                 },
             },
             -- The server sends successful skill use, followed by Heal for the amount.
@@ -95,7 +123,7 @@ return {
                 {
                     effect_id = 2046,
                     str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
-                    wav = [[data\wav\effect\cd_reparatio2.wav]],
+                    wav = [[data\wav\effect\cd_mediale_votum.wav]],
                 },
             },
         },
@@ -111,6 +139,7 @@ return {
                     str = [[data\texture\effect\competentia\competentia_loop_bottom\competentia_loop_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                 },
             },
             -- The server sends successful skill use, followed by Heal for the amount.
@@ -123,6 +152,7 @@ return {
                 {
                     effect_id = 2056,
                     str = [[data\texture\effect\wooden_fairy\fairy_dusty\fairy_dusty.str]],
+                    wav = [[data\wav\effect\cd_competentia.wav]],
                 },
             },
         },
@@ -137,6 +167,7 @@ return {
                     str = [[data\texture\effect\crossrain\cross_rain_bottom\cross_rain_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                 },
                 { effect_id = 2055 },
             },
@@ -146,6 +177,7 @@ return {
                 {
                     effect_id = 2053,
                     str = [[data\texture\effect\increasing_activity\increasing_activity\increasing_activity.str]],
+                    wav = [[data\wav\effect\cd_dilectio_heal.wav]],
                 },
             },
         },

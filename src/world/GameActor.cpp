@@ -711,6 +711,14 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
         }
     }
 
+    // Protected allies keep their current action. Preserve the queued hit's
+    // sound, numbers, and critical visual before suppressing its motion.
+    if (std::any_of(g_world.m_gameObjectList.begin(), g_world.m_gameObjectList.end(),
+        [&actor](const CGameObject* object) {
+            const auto* effect = dynamic_cast<const CRagEffect*>(object);
+            return effect && effect->IsDevotionLinkTo(&actor);
+        })) return;
+
     actor.SetState(kHitReactionStateId);
     if (actor.m_stateId == kHitReactionStateId && hitInfo.attackedMotionTime > 0) {
         const int frames = actor.m_actRes

@@ -598,6 +598,25 @@ removed. Inspection of the installed GRFs verified all seven configured STRs,
 every referenced texture, and the four PCM WAVs. An updated client still needs an
 in-game check.
 
+Sworn Protector (`255`, `SK_CR_SWORNPROTECTOR`) plays `devotion.str` on a successfully
+protected ally. The server's `0x01CF` Devotion list separately owns up to five
+blue links with a soft halo, bright white core, and travelling cross-shaped
+glints from the caster to allies. Their width pulses every 1.8 seconds from the
+existing thickness to 50% wider, and rounded fades soften both character ends.
+Each packet replaces the complete target list: retained links preserve their
+instance, added targets get a link, and
+removed targets cancel immediately. The links follow both actors, respect the
+packet's cell range and actor visibility, and stop when either actor is removed.
+Disabling effects hides active links; re-enabling effects restores them. The
+skill entry uses motion type `1` during casting and successful use.
+Redirected damage arrives as a self-targeted normal/endure damage notification
+on a caster with an active link. It displays damage numbers while preserving
+the caster's movement, attack, or cast; it starts no attack or hit reaction.
+Protected allies also keep their current action when hit while their link is
+active. Normal and skill hits retain sounds, damage numbers, and impact visuals
+without starting the ally's damage motion, including while effects are disabled.
+Removing the link immediately restores normal hit reactions.
+
 Counterstrike (`146`, `SK_SM_AUTOBERSERK`) is an active self buff in this server,
 which sends `EF_MAXPAIN` (`1032`) on the caster. The gameplay log confirms that
 notification and the client's former "no presentation" warning. Its owned skill
@@ -828,6 +847,9 @@ in a running updated client. Compare these cases against the official client:
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
 | Genesis Ray (2321), casting at empty ground or several enemies, cancellation, and movement after casting | Casting effects stop at completion; the main STR plays once at the selected cell even with no victims, stays there when the caster moves, and does not start for cancelled casts; each damaged enemy retains its target effect |
+| Sworn Protector (255), up to five allies, recasting, replacing/removing targets, movement, hiding, actor deletion, camera zoom, and effects visibility | Motion 1 and one target STR on successful use; blue links with a white core and travelling glints follow both endpoints, pulse between the existing width and 50% wider with soft rounded ends even at short distances, repeated/reordered lists do not duplicate them, removed links disappear, and re-enabling effects restores active links |
+| Sworn Protector (255), redirected normal/skill damage while idle, walking, attacking, or casting, including effects disabled and link removal | Transferred damage shows numbers without starting attack/hit animations or interrupting the caster's action; direct enemy hits still play their normal hit reaction, and cancelled links do not suppress later damage animations |
+| Sworn Protector (255), protected ally hit by normal, critical, or multi-hit attacks and skills while idle, walking, attacking, or casting | Damage visuals and sounds still play, but the ally keeps its action without a damage animation while linked; effects disabled preserves protection, and removing/replacing the ally or deleting the caster restores normal hit reactions |
 | Low-level hotkey for a higher learned skill | Send the level saved in the hotkey |
 | Shift while targeting; click empty space | Preserve skill selection and casting behavior |
 | Teleport / Warp Portal | Select a destination or cancel; subsequent skills still work |

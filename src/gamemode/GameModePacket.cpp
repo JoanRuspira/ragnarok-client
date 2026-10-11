@@ -4440,6 +4440,20 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
         static_cast<int>(kSystemNoticeColor));
 }
 
+bool IsDevotionDamageNotify(const CGameActor* sourceActor, const CGameActor* targetActor,
+    int damage, int leftDamage, u8 actionType)
+{
+    // Sworn Protector redirects both normal attacks and skills through
+    // clif_damage(caster, caster, ...). The caster is receiving damage,
+    // rather than performing an attack or reacting to a direct hit.
+    if (!sourceActor || sourceActor != targetActor || damage <= 0 || leftDamage != 0
+        || (actionType != kNotifyActDamage && actionType != kNotifyActEndureDamage)) return false;
+    return std::any_of(sourceActor->m_effectList.begin(), sourceActor->m_effectList.end(),
+        [sourceActor](const CRagEffect* effect) {
+            return effect && effect->IsDevotionLinkFrom(sourceActor->m_gid);
+        });
+}
+
 void HandleActorActionNotify(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data) {
@@ -4529,6 +4543,15 @@ void HandleActorActionNotify(CGameMode& mode, const PacketView& packet)
             srcGid,
             static_cast<unsigned int>(actionType),
             actionType == 2 ? 1 : 0);
+        return;
+    }
+
+    if (IsDevotionDamageNotify(sourceActor, targetActor, damage, leftDamage, actionType)) {
+        // Keep the current movement, attack, or cast intact. Damage numbers
+        // are independent of the attack and hit-reaction animation queues.
+        EmitCombatNumber(sourceActor, targetActor, damage, actionType);
+        DbgLog("[GameMode] devotion redirected damage opcode=0x%04X caster=%u dmg=%d type=%u\n",
+            packet.packetId, sourceActor->m_gid, damage, static_cast<unsigned int>(actionType));
         return;
     }
 
@@ -6015,6 +6038,47 @@ void CancelSkillUnitEffect(CWorld* world, u32 unitAid, CRagEffect* preservedEffe
 void HandleSkillUnitDisappear(CGameMode& mode, const PacketView& packet)
 {
     if (packet.data && packet.packetLength >= 6) CancelSkillUnitEffect(mode.m_world, ReadLE32(packet.data + 2));
+}
+
+void HandleDevotionList(CGameMode& mode, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 28 || !mode.m_world) return;
+    const u32 sourceGid = ReadLE32(packet.data + 2);
+    if (sourceGid == 0) return;
+    CGameActor* caster = ResolveCombatActor(mode, sourceGid, true);
+    if (!caster) return;
+    std::array<u32, 5> targets{};
+    for (size_t i = 0; i < targets.size(); ++i) targets[i] = ReadLE32(packet.data + 6 + i * 4);
+    const u16 maxDistance = ReadLE16(packet.data + 26);
+    // Each packet is a complete replacement list, including empty slots.
+    for (CRagEffect* effect : caster->m_effectList) {
+        if (!effect || effect->GetEffectType() != kRagEffectDevotionLink) continue;
+        const bool retained = std::any_of(targets.begin(), targets.end(), [&](u32 target) {
+            return target != 0 && effect->IsDevotionLinkFor(caster->m_gid, target);
+        });
+        if (!retained) effect->Cancel();
+    }
+    for (u32 targetGid : targets) {
+        if (targetGid == 0 || targetGid == sourceGid) continue;
+        CRagEffect* link = nullptr;
+        for (CRagEffect* effect : caster->m_effectList) {
+            if (effect && effect->IsDevotionLinkFor(caster->m_gid, targetGid)) {
+                link = effect;
+                break;
+            }
+        }
+        if (!link) {
+            // Retain authoritative links while /effect is off; rendering checks
+            // visibility, so switching effects back on restores active links.
+            link = new CRagEffect();
+            link->Init(caster, kRagEffectDevotionLink, vector3d{});
+            mode.m_world->m_gameObjectList.push_back(link);
+            caster->m_effectList.push_back(link);
+        }
+        link->SetDevotionTarget(targetGid, maxDistance);
+    }
+    DbgLog("[SkillPresentation] devotion list caster=%u range=%u targets=%u,%u,%u,%u,%u\n",
+        sourceGid, maxDistance, targets[0], targets[1], targets[2], targets[3], targets[4]);
 }
 
 void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
@@ -9344,7 +9408,7 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x01B9, HandleSkillCastCancel);
     router.Register(0x0192, HandleIgnorePacket);
     RegisterHandlerIfValid(router, receiveProfile.skillUnitSetExtended, HandleSkillUnitSet);
-    router.Register(0x01CF, HandleIgnorePacket);
+    router.Register(0x01CF, HandleDevotionList);
     router.Register(0x01D0, HandleIgnorePacket);
         router.Register(0x0199, HandleIgnorePacket); // map property state; keep framing aligned until consumed
     router.Register(0x01D6, HandleIgnorePacket); // map type / mapflags hint; framing only for now

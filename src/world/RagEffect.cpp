@@ -4112,6 +4112,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_directionalPresentation = nullptr;
     m_directionalVariant = 0;
     m_presentationTexture = nullptr;
+    m_devotionTargetGid = 0;
+    m_devotionMaxDistance = 0;
     m_sonicWaveTrailTexture = nullptr;
     m_sonicWaveStartPos = vector3d{};
     m_sonicWaveEndPos = vector3d{};
@@ -4224,6 +4226,10 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
 
     switch (effectId) {
+    case kRagEffectDevotionLink:
+        m_handler = Handler::DevotionLink;
+        SetLooping(true);
+        break;
     case kRagEffectBloodsportMist: // EF_CIRCLEPOWER5: red mist, without a STR or sound.
         m_handler = Handler::BloodsportMist;
         m_presentationTexture = ResolveEffectTextureCandidates({ "data\\texture\\effect\\freeze_a.bmp" }, true);
@@ -4600,6 +4606,42 @@ void CRagEffect::RemoveSkillUnit(u32 unitAid)
     if (m_gospelUnitIds.empty()) Cancel();
 }
 
+bool CRagEffect::IsDevotionLinkFrom(u32 casterGid) const
+{
+    return m_type == kRagEffectDevotionLink && !m_cancelled
+        && m_masterIsActor && m_masterActorGid == casterGid && m_devotionTargetGid != 0;
+}
+
+bool CRagEffect::IsDevotionLinkFor(u32 casterGid, u32 targetGid) const
+{
+    return IsDevotionLinkFrom(casterGid) && m_devotionTargetGid == targetGid;
+}
+
+bool CRagEffect::IsDevotionLinkTo(const CGameActor* target) const
+{
+    return target && IsDevotionLinkFrom(m_masterActorGid) && ResolveDevotionTarget() == target;
+}
+
+void CRagEffect::SetDevotionTarget(u32 targetGid, u16 maxDistance)
+{
+    m_devotionTargetGid = targetGid;
+    m_devotionMaxDistance = maxDistance;
+}
+
+const CGameActor* CRagEffect::ResolveDevotionTarget() const
+{
+    if (m_devotionTargetGid == 0) return nullptr;
+    if (g_world.m_player && (g_world.m_player->m_gid == m_devotionTargetGid
+        || g_session.m_aid == m_devotionTargetGid || g_session.m_gid == m_devotionTargetGid)) {
+        return g_world.m_player;
+    }
+    if (const CGameMode* mode = g_modeMgr.GetCurrentGameMode()) {
+        const auto it = mode->m_runtimeActors.find(m_devotionTargetGid);
+        if (it != mode->m_runtimeActors.end()) return it->second;
+    }
+    return nullptr;
+}
+
 void CRagEffect::SetStartDelayMs(u32 milliseconds)
 {
     m_startDelayMs = milliseconds;
@@ -4685,7 +4727,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
-    if (m_type == kRagEffectGospelArea) Cancel();
+    if (m_type == kRagEffectGospelArea || m_type == kRagEffectDevotionLink) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
     }
@@ -4735,6 +4777,9 @@ void CRagEffect::OnActorDeleted(const CGameActor* actor)
     if (!actor) {
         return;
     }
+
+    if (m_type == kRagEffectDevotionLink
+        && (actor->m_gid == m_devotionTargetGid || actor == ResolveDevotionTarget())) Cancel();
 
     if (m_masterIsActor && actor->m_gid == m_masterActorGid) {
         DetachFromMaster(const_cast<CGameActor*>(actor));
@@ -6771,6 +6816,7 @@ u8 CRagEffect::OnProcess()
         return 0;
     }
     if (m_type == kRagEffectGospelArea && !ResolveCurrentMaster()) return 0;
+    if (m_handler == Handler::DevotionLink) return ResolveCurrentMaster() ? 1 : 0;
     if (m_castEndTick != 0 && static_cast<s32>(timeGetTime() - m_castEndTick) >= 0) return 0;
     if (m_startDelayMs > 0) {
         if (timeGetTime() - m_lastProcessTick < m_startDelayMs) return 1;
@@ -7169,6 +7215,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         return;
     case 109:
         if (m_handler == Handler::BodyBurst
+            || m_handler == Handler::DevotionLink
             || m_handler == Handler::SonicWave
             || m_handler == Handler::SpriteFlash
             || m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
@@ -7536,6 +7583,110 @@ void CRagEffect::RenderDirectionalStr(matrix* viewMatrix)
     }
 }
 
+void CRagEffect::RenderDevotionLink(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn) return;
+    const auto* caster = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+    const CGameActor* target = ResolveDevotionTarget();
+    if (!caster || !target || !caster->m_isVisible || !target->m_isVisible
+        || !caster->m_isVisibleBody || !target->m_isVisibleBody) return;
+    const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+    // The server supplies a cell range, measured on the square movement grid.
+    const float distance = (std::max)(std::fabs(caster->m_pos.x - target->m_pos.x),
+        std::fabs(caster->m_pos.z - target->m_pos.z));
+    if (m_devotionMaxDistance != 0 && distance > (m_devotionMaxDistance + 0.5f) * cellSize) return;
+    vector3d start = caster->m_pos;
+    vector3d end = target->m_pos;
+    start.y -= 5.0f;
+    end.y -= 5.0f;
+    tlvertex3d a{}, b{};
+    if (!ProjectPoint(start, viewMatrix, &a) || !ProjectPoint(end, viewMatrix, &b)) return;
+    const float dx = b.x - a.x;
+    const float dy = b.y - a.y;
+    const float length = std::sqrt(dx * dx + dy * dy);
+    if (length < 1.0f) return;
+    const float pixelRatio = (ResolveEffectPixelRatio(a) + ResolveEffectPixelRatio(b)) * 0.5f;
+    const float baseHalfWidth = 3.0f * (std::max)(2.0f, pixelRatio * 4.0f);
+    const float nx = -dy / length;
+    const float ny = dx / length;
+    const u32 now = timeGetTime();
+    const float visibility = static_cast<float>(
+        (std::min)(caster->GetHideFadeAlpha(now), target->GetHideFadeAlpha(now))) / 255.0f;
+    if (visibility <= 0.0f) return;
+    const float pulsePhase = static_cast<float>(now % 1800u) / 1800.0f * kPi * 2.0f;
+    const float widthPulse = 0.5f - 0.5f * std::cos(pulsePhase);
+    // The existing thickness is the minimum; all three bands breathe together.
+    const float halfWidth = baseHalfWidth * (1.0f + 0.5f * widthPulse);
+    const float pulse = 0.94f + 0.06f * std::sin(pulsePhase);
+    CTexture* texture = GetSoftDiscTexture();
+    if (!texture || texture == &CTexMgr::s_dummy_texture) return;
+    // Use the disc's two halves for rounded fades at the characters, and its
+    // central row for the continuous middle. Short links become one soft oval.
+    const float capFraction = (std::min)(0.5f, halfWidth * 2.4f / length);
+    const float positions[4] = { 0.0f, capFraction, 1.0f - capFraction, 1.0f };
+    const float textureRows[4] = { 0.0f, 0.5f, 0.5f, 1.0f };
+    const auto drawBand = [&](float width, COLORREF tint, float intensity) {
+        const unsigned int color = PackColor(
+            static_cast<unsigned int>(visibility * pulse * intensity * 255.0f), tint);
+        for (int segment = 0; segment < 3; ++segment) {
+            if (positions[segment + 1] <= positions[segment]) continue;
+            RPFace* face = g_renderer.BorrowNullRP();
+            if (!face) return;
+            face->primType = D3DPT_TRIANGLESTRIP;
+            face->verts = face->m_verts;
+            face->numVerts = 4;
+            face->indices = nullptr;
+            face->numIndices = 0;
+            face->tex = texture;
+            face->mtPreset = 0;
+            face->cullMode = D3DCULL_NONE;
+            face->srcAlphaMode = D3DBLEND_SRCALPHA;
+            face->destAlphaMode = D3DBLEND_ONE;
+            face->alphaSortKey = (a.oow + b.oow) * 0.5f;
+            for (int i = 0; i < 4; ++i) {
+                const int endpoint = segment + (i < 2 ? 0 : 1);
+                const float along = positions[endpoint];
+                const float side = (i & 1) ? width : -width;
+                tlvertex3d& vertex = face->m_verts[i];
+                vertex = a;
+                vertex.x += dx * along + nx * side;
+                vertex.y += dy * along + ny * side;
+                vertex.z = (std::max)(0.0f, a.z + (b.z - a.z) * along - kEffectSpriteDepthBias);
+                vertex.oow = a.oow + (b.oow - a.oow) * along;
+                vertex.color = color;
+                vertex.tu = (i & 1) ? 1.0f : 0.0f;
+                vertex.tv = textureRows[endpoint];
+            }
+            g_renderer.AddRP(face, 1, true);
+        }
+    };
+    // Blue halo, luminous blue band, and a narrow white core share actor depth.
+    drawBand(halfWidth * 2.4f, RGB(64, 128, 255), 0.6f);
+    drawBand(halfWidth, RGB(112, 196, 255), 0.9f);
+    drawBand(halfWidth * 0.45f, RGB(224, 246, 255), 1.0f);
+
+    if (length < 16.0f) return;
+    const float timePhase = static_cast<float>(now % 2400u) / 2400.0f;
+    const vector3d delta = AddVec3(end, ScaleVec3(start, -1.0f));
+    for (int i = 0; i < 3; ++i) {
+        const float phase = WrapUnit(timePhase + static_cast<float>(i) / 3.0f
+            + static_cast<float>(m_devotionTargetGid % 17u) / 17.0f);
+        const float shimmer = std::sin(phase * kPi);
+        tlvertex3d glint{};
+        if (!ProjectPoint(AddVec3(start, ScaleVec3(delta, phase)), viewMatrix, &glint)) continue;
+        glint.z = (std::max)(0.0f, glint.z - kEffectSpriteDepthBias);
+        const float size = (std::min)(length * 0.2f,
+            (std::max)(5.0f, ResolveEffectPixelRatio(glint) * 16.0f));
+        const unsigned int color = PackColor(
+            static_cast<unsigned int>(visibility * shimmer * shimmer * 230.0f), RGB(224, 246, 255));
+        // Cross-shaped travelling highlights suggest a soft holy shimmer.
+        SubmitScreenQuad(glint, texture, 0.0f, 0.0f, size, size * 0.18f,
+            color, D3DBLEND_ONE, glint.oow, 1, true);
+        SubmitScreenQuad(glint, texture, 0.0f, 0.0f, size * 0.18f, size,
+            color, D3DBLEND_ONE, glint.oow, 1, true);
+    }
+}
+
 void CRagEffect::Render(matrix* viewMatrix)
 {
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
@@ -7556,6 +7707,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
+    if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
     if (m_handler == Handler::BloodsportMist) RenderBloodsportMist(*viewMatrix);

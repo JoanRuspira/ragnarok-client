@@ -93,6 +93,7 @@ constexpr int kRagEffectMaizeTrap = 50014;
 constexpr int kRagEffectVerdureTrap = 50015;
 constexpr int kRagEffectMilleniumShields = 50016; // Status-owned Holy Shield loop.
 constexpr int kRagEffectGospelArea = 50017; // Caster-owned visual, kept alive by Gospel units.
+constexpr int kRagEffectDevotionLink = 50019; // Links from the server's ZC_DEVOTIONLIST.
 
 class CRagEffect;
 
@@ -191,6 +192,10 @@ public:
     bool IsGospelAreaFor(u32 casterGid) const;
     void TrackGospelUnit(u32 unitAid);
     void RemoveSkillUnit(u32 unitAid);
+    bool IsDevotionLinkFrom(u32 casterGid) const;
+    bool IsDevotionLinkFor(u32 casterGid, u32 targetGid) const;
+    bool IsDevotionLinkTo(const CGameActor* target) const;
+    void SetDevotionTarget(u32 targetGid, u16 maxDistance);
     void SetLooping(bool looping);
     void SetCastDurationMs(int milliseconds);
     // Scheduling offset, added to this effect's configured delay_ms.
@@ -223,6 +228,8 @@ private:
     const SkillEffectPresentation* m_directionalPresentation = nullptr;
     int m_directionalVariant = 0;
     CTexture* m_presentationTexture = nullptr;
+    u32 m_devotionTargetGid = 0;
+    u16 m_devotionMaxDistance = 0;
     CTexture* m_sonicWaveTrailTexture = nullptr;
     vector3d m_sonicWaveStartPos{};
     vector3d m_sonicWaveEndPos{};
@@ -254,6 +261,7 @@ private:
         BloodsportMist,
         JumpKick,
         GroundSurface,
+        DevotionLink,
         Sprite,
         Entry2,
         JobLevelUp50,
@@ -314,6 +322,8 @@ private:
     void RenderDanceRays(const matrix& viewMatrix);
     void RenderBloodsportMist(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
+    void RenderDevotionLink(const matrix& viewMatrix);
+    const CGameActor* ResolveDevotionTarget() const;
     CRenderObject* ResolveCurrentMaster() const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;
 

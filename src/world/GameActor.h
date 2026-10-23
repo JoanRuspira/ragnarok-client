@@ -92,6 +92,7 @@ struct WBA {
     float damageDestX = 0.0f;
     float damageDestZ = 0.0f;
     char waveName[128] = {};
+    bool playHitSound = true;
 };
 struct _MSG2AI { u8 gap[32]; };
 struct PROCEEDTYPE { int type; };

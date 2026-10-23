@@ -142,7 +142,9 @@ bolt-effect timing. White numbers use the `[WhiteDamageNumbers]` settings in
 `MaxTravelHeight` (`48`), `MaxTravelWidth` (`32` additional pixels right), and
 `DelayBetweenNumbersMs` (`160` ms). White numbers rise in an arc and move right
 in screen space; their delay also sets minimum spacing for repeated numbers on
-the same actor. Restart after editing the settings. Bolt effects retain their
+the same actor. Default damage-skill hit sounds use this interval too and follow
+any additional queue delay applied to white numbers. Restart after editing the
+settings. Bolt effects retain their
 160 ms timing when number spacing is changed.
 A larger yellow total appears 320 ms after the final displayed hit in the packet
 by default. Its `[YellowDamageNumbers]` settings in `open-midgard.ini` are
@@ -237,9 +239,11 @@ definition preserves the earlier Quicken correction for all weapon types.
 Each skill can define `casting`, `source`, `target`, and `ground` arrays. Their
 entries carry an `effect_id` and full GRF resource paths: `str` begins with
 `data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav`
-means silence. A `variants` array pairs visual and audio paths so both use the
-same random variant. `offset_y` sets the vertical attachment offset, and `loop`
-controls repetition; STR playback uses the animation's authored FPS.
+silences that effect. Damage skills also play per-hit audio unless disabled with
+`silence_hit_sound = false`, as described below. A `variants` array pairs visual
+and audio paths so both use the same random variant. `offset_y` sets the vertical
+attachment offset, and `loop` controls repetition; STR playback uses the
+animation's authored FPS.
 
 `ground` plays effects at the terrain height of the cell reported by a successful
 ground-skill notification after casting, or by a position-damage notification.
@@ -312,12 +316,13 @@ Set `once_per_hit = true` on an effect definition to play it once for each hit
 reported by a skill damage packet. Omitted or false plays it once for the skill
 notification. This works for inline and shared `effects` definitions in `source`,
 `target`, and `ground` arrays, including variants and procedural renderers. Each
-playback is a separate effect instance, with its own animation and optional WAV;
-variants are selected independently for each hit. Playbacks are staggered by the
+playback is a separate effect instance, with its own animation. A configured WAV
+plays only with the first instance, even for per-hit effects; variants are selected
+independently for each hit. Playbacks are staggered by the
 existing skill-hit interval of `160` ms plus any configured `delay_ms`. `loop`
 still controls the lifetime of each instance rather than the number of hits.
 
-Set `delay_ms` on the same effect definition to delay its visual and optional WAV.
+Set `delay_ms` on the same effect definition to delay its visual and first optional WAV.
 It accepts a nonnegative whole number of milliseconds and defaults to `0`. It
 works for inline and shared definitions, all attachments and renderers, and
 effects started directly by server notifications. With `once_per_hit = true`,
@@ -407,6 +412,35 @@ sounds = {
         trigger = "no_damage",
     },
 },
+```
+
+Damage skills automatically play one hit WAV per reported hit, alongside any
+completion sound configured in this file. Player casters use the same sound
+selection as normal attacks, including equipped weapons and the normal
+player-target hit sound.
+Non-player or unresolved casters use `data\wav\effect\ef_hit2.wav`. Hit sounds use
+`[WhiteDamageNumbers] DelayBetweenNumbersMs` from `open-midgard.ini` (default
+`160` ms), including when damage numbers are red or critical. White-number queue
+delays also postpone their hit sounds. Misses, recovery amounts, passive skills,
+and animation-only damage packets do not produce default hit audio. Audio remains
+independent of the effects visibility setting.
+
+A `sounds` entry or a WAV in the skill's `source`, `target`, or `ground` effects
+plays alongside the per-hit audio. This includes shared effect references,
+variants, and procedural renderers. Each configured WAV plays once per skill
+notification, even if its effect has `once_per_hit = true`; later visual copies
+are silent.
+Server-notified effects supply the first WAV themselves. Casting WAVs are a
+separate stage and do not suppress completion hit sounds.
+
+Set `silence_hit_sound = false` on the skill's entry in the `skills` table to
+disable only its per-hit WAVs. Omit this field or set it to `true` to keep them
+enabled. The flag must be a boolean and does not change configured completion
+or casting WAVs. For example, add this field alongside a skill's existing
+name and effect arrays:
+
+```lua
+silence_hit_sound = false, -- Disable per-hit audio; keep configured WAVs.
 ```
 
 `wav` must be a full GRF path. `trigger` selects `"no_damage"` (the default,
@@ -831,8 +865,11 @@ in a running updated client. Compare these cases against the official client:
 | Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
 | Hundred Spear (2312), one hit and multiple hits | Effects marked `once_per_hit` play once per reported hit, counting the server's first playback; with `delay_ms = 750`, the first waits 750 ms and repeats are 910 ms apart; unmarked components play once |
-| Mixed per-hit and single-playback effects, with server notification enabled/disabled | Only `once_per_hit = true` effects repeat; locally played effects include hit one, server-notified effects add only hits two onward, and each repeated WAV starts with its visual |
-| Effect with `delay_ms = 250`, single playback and per-hit replay, with server notification enabled/disabled | Visual and WAV start 250 ms later; per-hit playbacks start at 250, 660, and 1070 ms, and omitting the delay or setting it to zero preserves the original timing |
+| Damage skills with hit audio enabled, player and non-player casters, including Pierce | Players use normal-attack hit audio; non-players use `ef_hit2.wav`; one sound per hit uses the configured white-number spacing, including any white-number queue delay; misses, recovery, and animation-only packets remain silent |
+| Damage skills with a configured completion WAV, inline/shared/variant/procedural effects and `sounds` entries | Per-hit audio also plays; each configured WAV plays once per skill notification, including multi-hit skills and server-notified effects |
+| Skill entry with `silence_hit_sound` omitted, `true`, or `false` | Omitted and `true` enable per-hit audio; `false` disables only per-hit audio and keeps configured WAVs |
+| Mixed per-hit and single-playback effects, with server notification enabled/disabled | Only `once_per_hit = true` visuals repeat; locally played effects include hit one, server-notified effects add only hits two onward, and only the first playback emits its configured WAV |
+| Effect with `delay_ms = 250`, single playback and per-hit replay, with server notification enabled/disabled | Visual and first WAV start 250 ms later; per-hit visuals start at 250, 660, and 1070 ms with later copies silent, and omitting the delay or setting it to zero preserves the original visual timing |
 | White damage numbers, with varied camera angles and attacker positions | Numbers start `RightDisplacement` pixels right of the actor, rise at most `MaxTravelHeight` pixels, and travel an additional `MaxTravelWidth` pixels right; zero values disable the corresponding motion, and spacing is tracked separately for each target |
 | Yellow totals, with varied delays and heights | Totals fade in after the configured delay, start `StartingHeightDisplacement` pixels above the target, and rise an additional `MaxTravelHeight` pixels while fading out; zero delay starts with the last hit, and zero travel holds the starting height |
 | Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |

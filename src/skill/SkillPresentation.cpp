@@ -481,6 +481,7 @@ struct PresentationCatalog {
             if (!ReadIdKey(state, id, error) || id > 65535 || !lua_istable(state, entry)
                 || !ReadString(state, entry, "name", skill.name, true, error)
                 || !ReadBoolean(state, entry, "passive", skill.passive, error)
+                || !ReadBoolean(state, entry, "silence_hit_sound", skill.hitSoundEnabled, error)
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)

@@ -4651,6 +4651,12 @@ void CRagEffect::SetStartDelayMs(u32 milliseconds)
     for (const auto& component : m_componentEffects) component->SetStartDelayMs(m_startDelayMs);
 }
 
+void CRagEffect::SuppressPresentationSound()
+{
+    m_pendingPresentationSound.clear();
+    for (const auto& component : m_componentEffects) component->SuppressPresentationSound();
+}
+
 void CRagEffect::SetCastDurationMs(int milliseconds)
 {
     m_castEndTick = timeGetTime() + static_cast<u32>((std::max)(1, milliseconds)) + 160;

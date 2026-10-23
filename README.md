@@ -231,7 +231,7 @@ DelayBetweenNumbersMs=160
 | `RightDisplacement` | Initial offset of the number's center to the right of the damaged actor, in screen pixels. |
 | `MaxTravelHeight` | Maximum rise above the starting position, in screen pixels. |
 | `MaxTravelWidth` | Additional travel to the right from the starting position, in screen pixels. |
-| `DelayBetweenNumbersMs` | Interval between multi-hit skill numbers and minimum spacing between white numbers on the same actor, in milliseconds. |
+| `DelayBetweenNumbersMs` | Interval between multi-hit skill numbers and default skill hit sounds, and minimum spacing between white numbers on the same actor, in milliseconds. |
 
 White numbers follow an arc upward and back toward their starting height while
 moving right, independently of camera rotation and attacker direction. Distances

@@ -689,10 +689,12 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
         return;
     }
 
-    if (hitInfo.waveName[0] != '\0') {
-        TryPlayQueuedWaveAtActor(actor, hitInfo.waveName);
-    } else if (const char* genericWave = g_session.GetWeaponHitWaveName(-1)) {
-        TryPlayQueuedWaveAtActor(actor, genericWave);
+    if (hitInfo.playHitSound) {
+        if (hitInfo.waveName[0] != '\0') {
+            TryPlayQueuedWaveAtActor(actor, hitInfo.waveName);
+        } else if (const char* genericWave = g_session.GetWeaponHitWaveName(-1)) {
+            TryPlayQueuedWaveAtActor(actor, genericWave);
+        }
     }
 
     if (actor.m_stateId == kDeathStateId) {

@@ -1,5 +1,12 @@
 -- Open Midgard's source of truth for the skills migrated here.
--- Paths are full GRF keys. Omit wav for silence; variants pair each STR with its WAV.
+-- Paths are full GRF keys; variants pair each STR with its WAV.
+-- Damage skills use normal player attack hit audio,
+-- or data\wav\effect\ef_hit2.wav for non-player casters, once per hit.
+-- Hit audio follows WhiteDamageNumbers.DelayBetweenNumbersMs in open-midgard.ini.
+-- Completion WAVs play alongside hit audio, once even for per-hit visuals.
+-- In a skills entry, silence_hit_sound = false disables only its per-hit audio.
+-- Omit silence_hit_sound or set it to true to keep hit audio enabled.
+-- Casting WAVs belong to the casting stage; omitting an effect WAV silences that effect.
 -- source/target/ground select the attachment. server_notified means the server
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
@@ -13,7 +20,7 @@
 -- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
 -- For server-notified effects, the server supplies the first playback.
--- delay_ms = 0 (default) delays the visual and its WAV; per-hit delays accumulate.
+-- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -30,6 +37,10 @@ return {
         [72] = { -- SK_CR_BINDINGOATH: sound only; no custom visual effect.
             wav = [[data\wav\effect\cd_benedictum.wav]],
             trigger = "no_damage",
+        },
+        [253] = { -- SK_CR_HOLYCROSS
+            wav = [[data\wav\cru_holy cross.wav]],
+            trigger = "damage",
         },
     },
     skills = {
@@ -189,7 +200,6 @@ return {
                 {
                     effect_id = 2003,
                     str = [[data\texture\effect\new_overbrand\new_overbrand_hit\new_overbrand_hit.str]],
-                    wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
                     effect_id = 2004,
@@ -212,7 +222,6 @@ return {
                 {
                     effect_id = 2000,
                     str = [[data\texture\effect\wooden_warrior\throwrock\throwrock_hit\throwrock_hit.str]],
-                    wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
                     effect_id = 2001,
@@ -242,7 +251,6 @@ return {
                 { 
                     effect_id = 2005, 
                     str = [[data\texture\effect\servant_phantom\servant_phantom_down\servant_phantom_down.str]],
-                    wav = [[data\wav\_hit_sword.wav]] 
                 },
                 { 
                     effect_id = 2006, 
@@ -276,7 +284,6 @@ return {
                 {
                     effect_id = 1537,
                     str = [[data\texture\effect\new_comet\new_comet_sub_explosion\new_comet_sub_explosion.str]],
-                    wav = [[data\wav\_hit_sword.wav]],
                 },
                 {
                     effect_id = 1538,

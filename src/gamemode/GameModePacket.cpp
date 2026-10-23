@@ -55,6 +55,7 @@
 #include <memory>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 class CConnection {
@@ -3921,11 +3922,14 @@ void PopulateCombatHitWaveName(CGameActor* sourceActor, CGameActor* targetActor,
     }
 }
 
-void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const std::vector<int>& hitDamages, u8 actionType)
+std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
+    const std::vector<int>& hitDamages, u8 actionType)
 {
+    std::vector<u32> hitDelays;
     if (!targetActor || actionType == kNotifyActLuckyDodge) {
-        return;
+        return hitDelays;
     }
+    hitDelays.reserve(hitDamages.size());
     s64 totalDamage = 0;
     u32 lastHitDelayMs = 0;
     for (size_t hitIndex = 0; hitIndex < hitDamages.size(); ++hitIndex) {
@@ -3937,6 +3941,7 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const s
             : kSkillHitNumberIntervalMs;
         const u32 displayDelayMs = EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
             static_cast<u32>(hitIndex) * intervalMs);
+        hitDelays.push_back(displayDelayMs);
         lastHitDelayMs = (std::max)(lastHitDelayMs, displayDelayMs);
         if (hitDamage > 0) {
             totalDamage += hitDamage;
@@ -3949,6 +3954,7 @@ void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, const s
         targetActor->QueueDamageNumber(sourceActor, totalValue, 0xFFFFFF00u,
             kTotalDamageNumberKind, totalDelayMs);
     }
+    return hitDelays;
 }
 
 u16 ResolveDisplayedSkillHitCount(u16 skillId, u16 level, u16 div)
@@ -3967,12 +3973,13 @@ u16 ResolveDisplayedSkillHitCount(u16 skillId, u16 level, u16 div)
     }
 }
 
-void EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor, int damage, u8 actionType, u16 hitCountRaw)
+std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
+    int damage, u8 actionType, u16 hitCountRaw)
 {
     std::vector<int> hitDamages;
     hitDamages.reserve((std::max)(1, static_cast<int>(hitCountRaw)));
     AppendCombatDamageHits(hitDamages, damage, hitCountRaw);
-    EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType);
+    return EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType);
 }
 
 template <typename LaunchEffect>
@@ -3993,6 +4000,8 @@ void EmitSkillPresentationEffects(const std::vector<int>& effectIds, bool server
                 const u32 hitOffsetMs = static_cast<u32>((std::min)(static_cast<u64>(hitIndex) * hitIntervalMs,
                     static_cast<u64>((std::numeric_limits<u32>::max)() - configuredDelayMs)));
                 effect->SetStartDelayMs(hitOffsetMs);
+                // A configured WAV plays once, even when its visual repeats.
+                if (hitIndex > 0) effect->SuppressPresentationSound();
             }
         }
     }
@@ -4091,9 +4100,8 @@ void QueueCombatHitReaction(CGameActor* sourceActor, CGameActor* targetActor, in
     hitInfo.damage = damage;
     hitInfo.damageDestX = targetActor->m_pos.x;
     hitInfo.damageDestZ = targetActor->m_pos.z;
-    if (actionType != kNotifyActLuckyDodge) {
-        PopulateCombatHitWaveName(sourceActor, targetActor, hitInfo.waveName, sizeof(hitInfo.waveName));
-    }
+    // Skill audio is scheduled separately at the damage-number cadence.
+    hitInfo.playHitSound = false;
 
     targetActor->QueueWillBeAttacked(hitInfo);
 }
@@ -5232,6 +5240,80 @@ static bool PlayConfiguredSkillSound(u16 skillId, SkillSoundPresentation::Trigge
     return true;
 }
 
+// Keep hit audio independent of repeated visuals and the effects visibility setting.
+class CSkillHitSounds : public CGameObject {
+public:
+    CSkillHitSounds(CGameActor* target, const vector3d& position, std::string wavPath,
+        std::vector<u32> hitDelays)
+        : m_target(target), m_position(position), m_wavPath(std::move(wavPath)),
+          m_hitDelays(std::move(hitDelays)), m_startTick(timeGetTime()) {}
+
+    u8 OnProcess() override
+    {
+        if (m_target) m_position = m_target->m_pos;
+        const u32 elapsedMs = timeGetTime() - m_startTick;
+        while (m_nextHit < m_hitDelays.size() && elapsedMs >= m_hitDelays[m_nextHit]) {
+            TryPlayEffectWaveAtPosition(m_position, m_wavPath);
+            ++m_nextHit;
+        }
+        return m_nextHit < m_hitDelays.size() ? 1 : 0;
+    }
+
+    void OnActorDeleted(const CGameActor* actor) override
+    {
+        if (actor == m_target) {
+            m_position = actor->m_pos;
+            m_target = nullptr;
+        }
+    }
+
+private:
+    CGameActor* m_target;
+    vector3d m_position;
+    std::string m_wavPath;
+    std::vector<u32> m_hitDelays;
+    u32 m_startTick;
+    size_t m_nextHit = 0;
+};
+
+static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sourceActor,
+    CGameActor* targetActor, const vector3d& position, int damage, u8 actionType,
+    std::vector<u32> hitDelays, bool positionDamage = false)
+{
+    if (!PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, position)
+        && positionDamage) {
+        PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Ground, position);
+    }
+    if (!mode.m_world || damage <= 0 || actionType == kNotifyActLuckyDodge
+        || hitDelays.empty()) return;
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    if (presentation && (presentation->passive || !presentation->hitSoundEnabled)) return;
+
+    std::string wavPath = "data\\wav\\effect\\ef_hit2.wav";
+    if (sourceActor && sourceActor->m_isPc != 0) {
+        char waveName[128] = {};
+        PopulateCombatHitWaveName(sourceActor, targetActor, waveName, sizeof(waveName));
+        if (waveName[0] != '\0') wavPath = waveName;
+    }
+
+    const u32 intervalMs = GetWhiteDamageNumberSettings().delayBetweenNumbersMs;
+    const bool whiteNumbers = targetActor && IsWhiteDamageNumber(ResolveCombatNumberKind(damage, actionType),
+        ResolveCombatNumberColor(sourceActor, *targetActor, damage, actionType));
+    u32 previousDelayMs = 0;
+    for (size_t hitIndex = 0; hitIndex < hitDelays.size(); ++hitIndex) {
+        u32 delayMs = static_cast<u32>(hitIndex) * intervalMs;
+        if (whiteNumbers) {
+            // QueueDamageNumber may postpone white numbers behind earlier hits on this target.
+            delayMs = (std::max)(delayMs, hitDelays[hitIndex]);
+            if (hitIndex > 0) delayMs = (std::max)(delayMs, previousDelayMs + intervalMs);
+        }
+        hitDelays[hitIndex] = delayMs;
+        previousDelayMs = delayMs;
+    }
+    mode.m_world->m_gameObjectList.push_back(new CSkillHitSounds(positionDamage ? nullptr : targetActor,
+        position, std::move(wavPath), std::move(hitDelays)));
+}
+
 // EzStr world effects do not emit audio from keyframes; timed casts no longer attach begin-spell STR (which
 // often carried cast SFX). Play impact SFX when server-driven packets spawn the ground/cell effect.
 static void PlayGroundSkillImpactSound(u16 skillId, const vector3d& worldPos)
@@ -5572,9 +5654,9 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
             targetActor->LaunchEffect(healEffectId, vector3d{}, 0.0f);
         }
     }
-    EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
-
-    PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, targetActor->m_pos);
+    std::vector<u32> hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
+    PlaySkillDamageSounds(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
+        damage, actionType, std::move(hitDelays));
 
     DbgLog("[GameMode] skill damage opcode=0x%04X src=%u dst=%u skill=%u level=%u damage=%d div=%u type=%u\n",
         packet.packetId,
@@ -5642,16 +5724,18 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
             cellY);
         return;
     }
+    std::vector<u32> hitDelays;
     if (targetActor) {
         QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
         EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
-        EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
+        hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
+    } else {
+        hitDelays.resize(displayHitCount);
     }
 
     EmitGroundSkillEffects(mode, skillId, level, impactPos, displayHitCount);
-    if (!PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Damage, impactPos)) {
-        PlayGroundSkillImpactSound(skillId, impactPos);
-    }
+    PlaySkillDamageSounds(mode, skillId, sourceActor, targetActor, impactPos,
+        damage, actionType, std::move(hitDelays), true);
     DbgLog("[GameMode] skill damage pos src=%u dst=%u skill=%u level=%u damage=%d div=%u cell=(%d,%d)\n",
         srcGid,
         dstGid,

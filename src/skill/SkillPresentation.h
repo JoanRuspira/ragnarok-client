@@ -86,6 +86,8 @@ struct SkillEffectPresentation {
 struct SkillPresentation {
     std::string name;
     bool passive = false;
+    // silence_hit_sound = false disables hit audio; omitted or true enables it.
+    bool hitSoundEnabled = true;
     bool sourceServerNotified = false;
     bool targetServerNotified = false;
     bool groundServerNotified = false;

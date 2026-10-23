@@ -200,6 +200,7 @@ public:
     void SetCastDurationMs(int milliseconds);
     // Scheduling offset, added to this effect's configured delay_ms.
     void SetStartDelayMs(u32 milliseconds);
+    void SuppressPresentationSound();
     void Cancel();
     void RefreshBloodsportMist();
 

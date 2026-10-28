@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cctype>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -1845,13 +1846,16 @@ public:
         u32 targetGid,
         WorldProjectileVisual visual,
         float travelFrames,
-        float delayFrames)
+        float delayFrames,
+        u32 sourceGid)
         : m_startPos(ResolveAnchorPosition(startPos))
         , m_currentPos(ResolveAnchorPosition(startPos))
         , m_lastPos(ResolveAnchorPosition(startPos))
         , m_snapshotTargetPos(ResolveAnchorPosition(targetPos))
         , m_targetPos(ResolveAnchorPosition(targetPos))
+        , m_returnTargetPos(ResolveAnchorPosition(startPos))
         , m_targetGid(targetGid)
+        , m_sourceGid(sourceGid)
         , m_visual(visual)
         , m_travelFrames((std::max)(1.0f, travelFrames))
         , m_delayFrames((std::max)(0.0f, delayFrames))
@@ -1869,7 +1873,7 @@ public:
 
         if (!m_initializedTravel) {
             vector3d resolvedTarget{};
-            if (ResolveLiveTargetPosition(&resolvedTarget)) {
+            if (ResolveLiveActorPosition(m_targetGid, &resolvedTarget)) {
                 m_targetPos = resolvedTarget;
             }
             m_currentPos = m_startPos;
@@ -1878,6 +1882,17 @@ public:
         }
 
         const float travelElapsed = elapsedFrames - m_delayFrames;
+        if (m_visual == WorldProjectileVisual::Shield) {
+            m_travelProgress = (std::min)(2.0f, (std::max)(0.0f, travelElapsed / m_travelFrames));
+            m_lastPos = m_currentPos;
+            if (m_travelProgress >= 1.0f) {
+                if (m_sourceGid != 0 && !ResolveLiveActorPosition(m_sourceGid, &m_returnTargetPos)) return 0;
+                m_currentPos = LerpVec3(m_targetPos, m_returnTargetPos, m_travelProgress - 1.0f);
+            } else {
+                m_currentPos = LerpVec3(m_startPos, m_targetPos, m_travelProgress);
+            }
+            return m_travelProgress < 2.0f ? 1 : 0;
+        }
         const float progress = (std::min)(1.0f, (std::max)(0.0f, travelElapsed / m_travelFrames));
         m_travelProgress = progress;
         m_lastPos = m_currentPos;
@@ -1890,6 +1905,7 @@ public:
         if (!viewMatrix || !m_initializedTravel) {
             return;
         }
+        if (m_visual == WorldProjectileVisual::Shield && !g_session.m_isEffectOn) return;
 
         CTexture* texture = m_visual == WorldProjectileVisual::Spear ? nullptr : ResolveTexture();
         if (m_visual != WorldProjectileVisual::Spear && !texture) {
@@ -1951,6 +1967,29 @@ public:
             return;
         }
 
+        if (m_visual == WorldProjectileVisual::Shield) {
+            const float pixelRatio = anchor.oow * g_renderer.m_hpc / 7.0f;
+            if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) return;
+            const float alpha = (std::min)(1.0f, m_travelProgress * 5.0f)
+                * (std::min)(1.0f, (2.0f - m_travelProgress) * 5.0f);
+            // Keep the original throw direction as the spin's reference so the
+            // shield does not flip 180 degrees when its travel direction reverses.
+            tlvertex3d throwStart{}, throwEnd{};
+            float heading = 0.0f;
+            if (ProjectPoint(g_renderer, *viewMatrix, m_startPos, &throwStart)
+                && ProjectPoint(g_renderer, *viewMatrix, m_targetPos, &throwEnd)) {
+                heading = std::atan2(throwEnd.y - throwStart.y, throwEnd.x - throwStart.x);
+            }
+            const float angle = heading + m_travelProgress * 2.0f * 3.14159265f;
+            const float size = 64.0f * pixelRatio;
+            tlvertex3d shieldAnchor = anchor;
+            shieldAnchor.z = (std::max)(0.0f, shieldAnchor.z - 0.0002f);
+            SubmitScreenSpaceRotatedQuad(shieldAnchor, texture, std::cos(angle), std::sin(angle),
+                size, size, (static_cast<unsigned int>(alpha * 255.0f) << 24) | 0x00FFFFFFu,
+                D3DBLEND_INVSRCALPHA, anchor.oow, 1);
+            return;
+        }
+
         const float screenSpeed = std::sqrt((std::max)(0.0f, dirX * dirX + dirY * dirY));
         const float baseLength = m_visual == WorldProjectileVisual::Arrow ? 24.0f : 18.0f;
         const float baseWidth = m_visual == WorldProjectileVisual::Arrow ? 7.0f : 13.0f;
@@ -2008,7 +2047,8 @@ public:
         }
 
         const vector3d start = m_initializedTravel ? m_currentPos : m_startPos;
-        const vector3d end = m_initializedTravel ? m_targetPos : m_snapshotTargetPos;
+        const vector3d end = m_visual == WorldProjectileVisual::Shield && m_travelProgress >= 1.0f
+            ? m_returnTargetPos : (m_initializedTravel ? m_targetPos : m_snapshotTargetPos);
         *outCenter = vector3d{
             (start.x + end.x) * 0.5f,
             (start.y + end.y) * 0.5f,
@@ -2037,19 +2077,19 @@ private:
         return dx * dx + dz * dz;
     }
 
-    bool ResolveLiveTargetPosition(vector3d* outTargetPos) const
+    bool ResolveLiveActorPosition(u32 actorGid, vector3d* outTargetPos) const
     {
-        if (!outTargetPos || m_targetGid == 0) {
+        if (!outTargetPos || actorGid == 0) {
             return false;
         }
 
-        if (g_world.m_player && g_world.m_player->m_gid == m_targetGid) {
+        if (g_world.m_player && g_world.m_player->m_gid == actorGid) {
             *outTargetPos = ResolveAnchorPosition(g_world.m_player->m_pos);
             return true;
         }
 
         for (CGameActor* actor : g_world.m_actorList) {
-            if (actor && actor->m_gid == m_targetGid) {
+            if (actor && actor->m_gid == actorGid) {
                 *outTargetPos = ResolveAnchorPosition(actor->m_pos);
                 return true;
             }
@@ -2060,6 +2100,10 @@ private:
 
     CTexture* ResolveTexture() const
     {
+        if (m_visual == WorldProjectileVisual::Shield) {
+            CTexture* texture = g_texMgr.GetMaskedTexture("data\\texture\\effect\\shield_boomerang.bmp");
+            return texture == &CTexMgr::s_dummy_texture ? nullptr : texture;
+        }
         return m_visual == WorldProjectileVisual::Arrow
             ? GetArrowProjectileTexture()
             : GetStoneProjectileTexture();
@@ -2070,7 +2114,9 @@ private:
     vector3d m_lastPos{};
     vector3d m_snapshotTargetPos{};
     vector3d m_targetPos{};
+    vector3d m_returnTargetPos{};
     u32 m_targetGid = 0;
+    u32 m_sourceGid = 0;
     WorldProjectileVisual m_visual = WorldProjectileVisual::Arrow;
     float m_travelFrames = 8.0f;
     float m_delayFrames = 0.0f;
@@ -2080,6 +2126,474 @@ private:
     bool m_loggedFirstRender = false;
     bool m_loggedTextureFailure = false;
     bool m_loggedProjectionFailure = false;
+};
+
+// Shield Chain has its own flight state; Shield Boomerang's round trip stays independent.
+class CShieldChainEffect : public CGameObject {
+public:
+    CShieldChainEffect(const vector3d& sourcePos, const vector3d& targetPos,
+        u32 sourceGid, u32 targetGid, bool awaitingFirstHit)
+        : m_sourceGid(sourceGid)
+        , m_firstTargetGid(targetGid)
+        , m_throwStart(AnchorPosition(sourcePos))
+        , m_throwTarget(AnchorPosition(targetPos))
+        , m_currentPos(m_throwStart)
+        , m_legStart(m_throwStart)
+        , m_legTarget(m_throwTarget)
+        , m_startTick(timeGetTime())
+        , m_lastHitTick(m_startTick)
+        , m_awaitingFirstHit(awaitingFirstHit)
+    {
+    }
+
+    bool IsFromCaster(u32 sourceGid) const { return m_sourceGid == sourceGid; }
+    void Cancel() { m_cancelled = true; }
+
+    bool QueueBounce(const vector3d& targetPos, u32 targetGid)
+    {
+        const u32 now = timeGetTime();
+        if (m_cancelled || m_returning || now - m_lastHitTick > kEndDelayMs) {
+            return false;
+        }
+        m_lastHitTick = now;
+        // Skill 860 already launched the first leg. Its first 946 damage packet
+        // confirms that target rather than adding another trip to the same actor.
+        const bool firstTarget = targetGid != 0 && targetGid == m_firstTargetGid;
+        if (!m_awaitingFirstHit || !firstTarget) {
+            m_bounces.push_back({AnchorPosition(targetPos), targetGid, now - m_startTick});
+        }
+        m_awaitingFirstHit = false;
+        return true;
+    }
+
+    u8 OnProcess() override
+    {
+        vector3d sourcePos{};
+        if (m_cancelled || !ResolveActorPosition(m_sourceGid, &sourcePos)) {
+            return 0;
+        }
+
+        const u32 now = timeGetTime();
+        m_elapsedMs = now - m_startTick;
+        if (!m_initialized) {
+            ResolveActorPosition(m_firstTargetGid, &m_legTarget);
+            m_throwTarget = m_legTarget;
+            m_initialized = true;
+        }
+
+        for (;;) {
+            const float progress = (std::min)(1.0f,
+                static_cast<float>(m_elapsedMs - m_legStartMs) / m_legDurationMs);
+            m_currentPos = LerpVec3(m_legStart, m_returning ? sourcePos : m_legTarget, progress);
+            m_alpha = (std::min)(1.0f, static_cast<float>(m_elapsedMs) / (kThrowDurationMs * 0.2f));
+            if (m_returning) {
+                m_alpha *= (std::min)(1.0f, (1.0f - progress) * 5.0f);
+            }
+            if (progress < 1.0f) {
+                return 1;
+            }
+            if (m_returning) {
+                return 0;
+            }
+
+            const u32 legEndMs = m_legStartMs + m_legDurationMs;
+            if (!m_bounces.empty()) {
+                const Bounce bounce = m_bounces.front();
+                m_bounces.pop_front();
+                m_legStart = m_legTarget;
+                m_legTarget = bounce.targetPos;
+                ResolveActorPosition(bounce.targetGid, &m_legTarget);
+                m_legStartMs = (std::max)(legEndMs, bounce.notifiedMs);
+                m_legDurationMs = kBounceDurationMs;
+                continue;
+            }
+
+            // The server sends each bounce 200 ms apart, with no end packet.
+            // A short quiet period identifies the last hit without cutting off
+            // queued legs when several notifications arrive in one frame.
+            if (now - m_lastHitTick < kEndDelayMs) {
+                return 1;
+            }
+            m_returning = true;
+            m_legStart = m_legTarget;
+            m_legStartMs = (std::max)(legEndMs, m_lastHitTick - m_startTick + kEndDelayMs);
+            m_legDurationMs = kThrowDurationMs;
+        }
+    }
+
+    void Render(matrix* viewMatrix) override
+    {
+        if (!viewMatrix || !m_initialized || m_cancelled || !g_session.m_isEffectOn) {
+            return;
+        }
+        CTexture* texture = g_texMgr.GetMaskedTexture("data\\texture\\effect\\shield_boomerang.bmp");
+        if (!texture || texture == &CTexMgr::s_dummy_texture) {
+            return;
+        }
+        tlvertex3d anchor{};
+        if (!ProjectPoint(g_renderer, *viewMatrix, m_currentPos, &anchor)) {
+            return;
+        }
+        const float pixelRatio = anchor.oow * g_renderer.m_hpc / 7.0f;
+        if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) {
+            return;
+        }
+        tlvertex3d throwStart{}, throwEnd{};
+        float heading = 0.0f;
+        if (ProjectPoint(g_renderer, *viewMatrix, m_throwStart, &throwStart)
+            && ProjectPoint(g_renderer, *viewMatrix, m_throwTarget, &throwEnd)) {
+            heading = std::atan2(throwEnd.y - throwStart.y, throwEnd.x - throwStart.x);
+        }
+        // Time and the original throw direction keep rotation continuous at bounces.
+        const float angle = heading + static_cast<float>(m_elapsedMs) / kThrowDurationMs * 2.0f * 3.14159265f;
+        const float size = 64.0f * pixelRatio;
+        anchor.z = (std::max)(0.0f, anchor.z - 0.0002f);
+        SubmitScreenSpaceRotatedQuad(anchor, texture, std::cos(angle), std::sin(angle),
+            size, size, (static_cast<unsigned int>(m_alpha * 255.0f) << 24) | 0x00FFFFFFu,
+            D3DBLEND_INVSRCALPHA, anchor.oow, 1);
+    }
+
+    void OnActorDeleted(const CGameActor* actor) override
+    {
+        if (actor && actor->m_gid == m_sourceGid) {
+            Cancel();
+        }
+    }
+
+    bool ResolveCullSphere(vector3d* outCenter, float* outRadius) const
+    {
+        if (!outCenter || !outRadius) {
+            return false;
+        }
+        *outCenter = m_currentPos;
+        *outRadius = 32.0f;
+        return true;
+    }
+
+private:
+    static constexpr u32 kThrowDurationMs = 280;
+    static constexpr u32 kBounceDurationMs = 200;
+    static constexpr u32 kEndDelayMs = 300;
+
+    struct Bounce {
+        vector3d targetPos;
+        u32 targetGid;
+        u32 notifiedMs;
+    };
+
+    static vector3d AnchorPosition(const vector3d& pos)
+    {
+        return vector3d{pos.x, pos.y - 10.0f, pos.z};
+    }
+
+    static bool ResolveActorPosition(u32 gid, vector3d* outPos)
+    {
+        if (gid == 0) {
+            return false;
+        }
+        if (g_world.m_player && g_world.m_player->m_gid == gid) {
+            *outPos = AnchorPosition(g_world.m_player->m_pos);
+            return true;
+        }
+        for (const CGameActor* actor : g_world.m_actorList) {
+            if (actor && actor->m_gid == gid) {
+                *outPos = AnchorPosition(actor->m_pos);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    u32 m_sourceGid;
+    u32 m_firstTargetGid;
+    vector3d m_throwStart;
+    vector3d m_throwTarget;
+    vector3d m_currentPos;
+    vector3d m_legStart;
+    vector3d m_legTarget;
+    std::deque<Bounce> m_bounces;
+    u32 m_startTick;
+    u32 m_lastHitTick;
+    u32 m_elapsedMs = 0;
+    u32 m_legStartMs = 0;
+    u32 m_legDurationMs = kThrowDurationMs;
+    float m_alpha = 0.0f;
+    bool m_awaitingFirstHit;
+    bool m_initialized = false;
+    bool m_returning = false;
+    bool m_cancelled = false;
+};
+
+class CShieldSlamEffect : public CGameObject {
+public:
+    CShieldSlamEffect(CGameActor* targetActor, const vector3d& targetPos, u32 impactDelayMs)
+        : m_targetActor(targetActor)
+        , m_targetPos(targetPos)
+        , m_currentPos(targetPos)
+        , m_startTick(timeGetTime())
+        , m_delayMs(impactDelayMs > kFallDurationMs ? impactDelayMs - kFallDurationMs : 0)
+    {
+    }
+
+    u8 OnProcess() override
+    {
+        if (m_targetActor) {
+            m_targetPos = m_targetActor->m_pos;
+        }
+        const u32 elapsedMs = timeGetTime() - m_startTick;
+        if (elapsedMs < m_delayMs) {
+            return 1;
+        }
+        m_elapsedMs = elapsedMs - m_delayMs;
+        if (m_elapsedMs >= kFallDurationMs + kFadeDurationMs) {
+            return 0;
+        }
+        m_started = true;
+        const float progress = (std::min)(1.0f, static_cast<float>(m_elapsedMs) / kFallDurationMs);
+        m_currentPos = m_targetPos;
+        m_currentPos.y -= 10.0f + kDropHeight * (1.0f - progress * progress);
+        m_alpha = (std::min)(1.0f, static_cast<float>(m_elapsedMs) / 40.0f);
+        if (m_elapsedMs > kFallDurationMs) {
+            m_alpha *= 1.0f - static_cast<float>(m_elapsedMs - kFallDurationMs) / kFadeDurationMs;
+        }
+        return 1;
+    }
+
+    void Render(matrix* viewMatrix) override
+    {
+        if (!viewMatrix || !m_started || !g_session.m_isEffectOn) {
+            return;
+        }
+        CTexture* texture = g_texMgr.GetMaskedTexture("data\\texture\\effect\\shield_boomerang.bmp");
+        if (!texture || texture == &CTexMgr::s_dummy_texture) {
+            return;
+        }
+        tlvertex3d anchor{};
+        if (!ProjectPoint(g_renderer, *viewMatrix, m_currentPos, &anchor)) {
+            return;
+        }
+        const float pixelRatio = anchor.oow * g_renderer.m_hpc / 7.0f;
+        if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) {
+            return;
+        }
+        const float angle = static_cast<float>(m_elapsedMs) / kSpinPeriodMs * 2.0f * 3.14159265f;
+        const float size = 96.0f * pixelRatio;
+        anchor.z = (std::max)(0.0f, anchor.z - 0.0002f);
+        SubmitScreenSpaceRotatedQuad(anchor, texture, std::cos(angle), std::sin(angle),
+            size, size, (static_cast<unsigned int>(m_alpha * 255.0f) << 24) | 0x00FFFFFFu,
+            D3DBLEND_INVSRCALPHA, anchor.oow, 1);
+    }
+
+    void OnActorDeleted(const CGameActor* actor) override
+    {
+        if (actor && actor == m_targetActor) {
+            m_targetPos = actor->m_pos;
+            m_targetActor = nullptr;
+        }
+    }
+
+    bool ResolveCullSphere(vector3d* outCenter, float* outRadius) const
+    {
+        if (!outCenter || !outRadius) {
+            return false;
+        }
+        *outCenter = m_currentPos;
+        *outRadius = 32.0f;
+        return true;
+    }
+
+private:
+    static constexpr u32 kFallDurationMs = 560;
+    static constexpr u32 kSpinPeriodMs = 280;
+    static constexpr u32 kFadeDurationMs = 100;
+    static constexpr float kDropHeight = 48.0f;
+
+    CGameActor* m_targetActor;
+    vector3d m_targetPos;
+    vector3d m_currentPos;
+    u32 m_startTick;
+    u32 m_delayMs;
+    u32 m_elapsedMs = 0;
+    float m_alpha = 0.0f;
+    bool m_started = false;
+};
+
+class CRapidSmitingShieldEffect : public CGameObject {
+public:
+    static constexpr u32 kAppearDurationMs = 60;
+    static constexpr u32 kTraverseDurationMs = 440;
+    static constexpr u32 kImpactTimeMs = kAppearDurationMs + kTraverseDurationMs / 2;
+
+    CRapidSmitingShieldEffect(CGameActor* targetActor, const vector3d& targetPos,
+        u32 startTick, u32 delayMs, int hitIndex, int hitCount)
+        : m_targetActor(targetActor)
+        , m_targetPos(AnchorPosition(targetPos))
+        , m_startTick(startTick)
+        , m_delayMs(delayMs)
+        , m_hitIndex(hitIndex)
+        , m_hitCount(hitCount)
+    {
+    }
+
+    u8 OnProcess() override
+    {
+        if (!m_impacted && m_targetActor) {
+            m_targetPos = AnchorPosition(m_targetActor->m_pos);
+        }
+        const u32 elapsedMs = timeGetTime() - m_startTick;
+        if (elapsedMs < m_delayMs) {
+            return 1;
+        }
+        m_started = true;
+        m_elapsedMs = elapsedMs - m_delayMs;
+        if (m_elapsedMs >= kAppearDurationMs + kTraverseDurationMs) {
+            return 0;
+        }
+        m_impacted = m_elapsedMs >= kImpactTimeMs;
+        return 1;
+    }
+
+    void Render(matrix* viewMatrix) override
+    {
+        if (!viewMatrix || !m_started || !g_session.m_isEffectOn) {
+            return;
+        }
+        CTexture* shield = g_texMgr.GetMaskedTexture("data\\texture\\effect\\shield_boomerang.bmp");
+        if (!shield || shield == &CTexMgr::s_dummy_texture) {
+            return;
+        }
+        const u32 tint = (m_hitIndex & 1) ? 0x00FFD68Au : 0x008ACFFFu;
+        // Every shield shares the same clock, passes through the target at the
+        // midpoint, and keeps moving out the opposite side with its afterimages.
+        for (int trail = 3; trail > 0; --trail) {
+            const u32 lagMs = static_cast<u32>(trail) * 22u;
+            if (m_elapsedMs <= lagMs) {
+                continue;
+            }
+            const u32 trailMs = m_elapsedMs - lagMs;
+            DrawShield(*viewMatrix, shield, trailMs, 72.0f * (1.0f - trail * 0.08f),
+                ShieldAlpha(trailMs) * 0.32f / trail, tint, D3DBLEND_ONE);
+        }
+        if (m_impacted && m_hitIndex == 0 && m_elapsedMs < kImpactTimeMs + kImpactDurationMs) {
+            const float progress = static_cast<float>(m_elapsedMs - kImpactTimeMs) / kImpactDurationMs;
+            RenderImpact(*viewMatrix, progress, 0x00FFD68Au);
+        }
+        DrawShield(*viewMatrix, shield, m_elapsedMs, 72.0f,
+            ShieldAlpha(m_elapsedMs), 0x00FFFFFFu, D3DBLEND_INVSRCALPHA);
+    }
+
+    void OnActorDeleted(const CGameActor* actor) override
+    {
+        if (!actor) {
+            return;
+        }
+        if (actor == m_targetActor) {
+            if (!m_impacted) m_targetPos = AnchorPosition(actor->m_pos);
+            m_targetActor = nullptr;
+        }
+    }
+
+    bool ResolveCullSphere(vector3d* outCenter, float* outRadius) const
+    {
+        if (!outCenter || !outRadius) {
+            return false;
+        }
+        *outCenter = m_targetPos;
+        *outRadius = 64.0f;
+        return true;
+    }
+
+private:
+    static constexpr u32 kImpactDurationMs = 160;
+    static constexpr float kPi = 3.14159265f;
+
+    static vector3d AnchorPosition(const vector3d& pos)
+    {
+        return vector3d{pos.x, pos.y - 10.0f, pos.z};
+    }
+
+    static float ShieldAlpha(u32 elapsedMs)
+    {
+        const float fadeIn = (std::min)(1.0f, static_cast<float>(elapsedMs) / kAppearDurationMs);
+        const float remainingMs = static_cast<float>(kAppearDurationMs + kTraverseDurationMs) - elapsedMs;
+        return fadeIn * (std::max)(0.0f, (std::min)(1.0f, remainingMs / 80.0f));
+    }
+
+    static u32 Color(float alpha, u32 tint)
+    {
+        const float clamped = (std::max)(0.0f, (std::min)(1.0f, alpha));
+        return (static_cast<u32>(clamped * 255.0f) << 24) | tint;
+    }
+
+    void DrawShield(const matrix& viewMatrix, CTexture* texture, u32 elapsedMs,
+        float size, float alpha, u32 tint, D3DBLEND blend) const
+    {
+        tlvertex3d anchor{};
+        if (!ProjectPoint(g_renderer, viewMatrix, m_targetPos, &anchor)) {
+            return;
+        }
+        const float ratio = anchor.oow * g_renderer.m_hpc / 7.0f;
+        if (!std::isfinite(ratio) || ratio <= 0.0f) {
+            return;
+        }
+        const float progress = (std::max)(0.0f, (std::min)(1.0f,
+            (static_cast<float>(elapsedMs) - kAppearDurationMs) / kTraverseDurationMs));
+        const float direction = m_hitIndex * 2.0f * kPi / m_hitCount - kPi * 0.5f;
+        const float distance = 160.0f * (1.0f - 2.0f * progress) * ratio;
+        // Use the camera-facing plane so all approach directions remain visible
+        // and cross the actor's center at any camera rotation or zoom.
+        anchor.x += std::cos(direction) * distance;
+        anchor.y += std::sin(direction) * distance;
+        const float angle = static_cast<float>(elapsedMs) / 160.0f * 2.0f * kPi + m_hitIndex * 0.8f;
+        anchor.z = (std::max)(0.0f, anchor.z - 0.0002f);
+        SubmitScreenSpaceRotatedQuad(anchor, texture, std::cos(angle), std::sin(angle),
+            size * ratio, size * ratio, Color(alpha, tint), blend, anchor.oow, 1);
+    }
+
+    void RenderImpact(const matrix& viewMatrix, float progress, u32 tint) const
+    {
+        tlvertex3d anchor{};
+        if (!ProjectPoint(g_renderer, viewMatrix, m_targetPos, &anchor)) {
+            return;
+        }
+        const float ratio = anchor.oow * g_renderer.m_hpc / 7.0f;
+        if (!std::isfinite(ratio) || ratio <= 0.0f) {
+            return;
+        }
+        anchor.z = (std::max)(0.0f, anchor.z - 0.0003f);
+        const float strength = 1.0f + (std::min)(9, m_hitCount) * 0.06f;
+        const float fade = (1.0f - progress) * (1.0f - progress);
+        const float ringSize = (32.0f + progress * 120.0f) * ratio * strength;
+        SubmitScreenSpaceRotatedQuad(anchor, GetPortalRingTexture(), 1.0f, 0.0f,
+            ringSize, ringSize, Color(fade * 0.85f, tint), D3DBLEND_ONE, anchor.oow, 1);
+        CTexture* glow = GetPortalParticleTexture(false);
+        const float flashSize = (64.0f + progress * 40.0f) * ratio * strength;
+        SubmitScreenSpaceRotatedQuad(anchor, glow, 1.0f, 0.0f,
+            flashSize, flashSize, Color(fade * 0.8f, 0x00FFF4DAu), D3DBLEND_ONE, anchor.oow, 1);
+        const int sparks = m_hitCount >= 5 ? 8 : 6;
+        for (int spark = 0; spark < sparks; ++spark) {
+            const float angle = spark * 2.0f * kPi / sparks + m_hitIndex * 0.6f;
+            const float dirX = std::cos(angle);
+            const float dirY = std::sin(angle);
+            tlvertex3d sparkAnchor = anchor;
+            const float radius = (12.0f + progress * 52.0f) * ratio * strength;
+            sparkAnchor.x += dirX * radius;
+            sparkAnchor.y += dirY * radius;
+            SubmitScreenSpaceRotatedQuad(sparkAnchor, glow, dirX, dirY,
+                (30.0f - progress * 18.0f) * ratio * strength, 4.0f * ratio,
+                Color(fade * 0.9f, tint), D3DBLEND_ONE, anchor.oow, 1);
+        }
+    }
+
+    CGameActor* m_targetActor;
+    vector3d m_targetPos;
+    u32 m_startTick;
+    u32 m_delayMs;
+    int m_hitIndex;
+    int m_hitCount;
+    u32 m_elapsedMs = 0;
+    bool m_started = false;
+    bool m_impacted = false;
 };
 
 class CLevelUpEffect : public CGameObject {
@@ -2570,6 +3084,18 @@ bool ResolveGameObjectCullSphere(const CGameObject& object, vector3d* outCenter,
 
     if (const CWorldProjectile* projectile = dynamic_cast<const CWorldProjectile*>(&object)) {
         return projectile->ResolveCullSphere(outCenter, outRadius);
+    }
+
+    if (const CShieldChainEffect* chain = dynamic_cast<const CShieldChainEffect*>(&object)) {
+        return chain->ResolveCullSphere(outCenter, outRadius);
+    }
+
+    if (const CShieldSlamEffect* slam = dynamic_cast<const CShieldSlamEffect*>(&object)) {
+        return slam->ResolveCullSphere(outCenter, outRadius);
+    }
+
+    if (const CRapidSmitingShieldEffect* smiting = dynamic_cast<const CRapidSmitingShieldEffect*>(&object)) {
+        return smiting->ResolveCullSphere(outCenter, outRadius);
     }
 
     return false;
@@ -6545,7 +7071,8 @@ void CWorld::SpawnProjectileEffect(const vector3d& startPos,
     u32 targetGid,
     WorldProjectileVisual visual,
     float travelFrames,
-    float delayFrames)
+    float delayFrames,
+    u32 sourceGid)
 {
     DbgLog("[Projectile] spawn visual=%d start=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f) targetGid=%u travel=%.2f delay=%.2f\n",
         static_cast<int>(visual),
@@ -6563,7 +7090,46 @@ void CWorld::SpawnProjectileEffect(const vector3d& startPos,
         targetGid,
         visual,
         travelFrames,
-        delayFrames));
+        delayFrames,
+        sourceGid));
+}
+
+void CWorld::SpawnShieldChainEffect(const vector3d& sourcePos, const vector3d& targetPos,
+    u32 sourceGid, u32 targetGid, bool beginChain)
+{
+    if (sourceGid == 0) {
+        return;
+    }
+    for (CGameObject* object : m_gameObjectList) {
+        CShieldChainEffect* chain = dynamic_cast<CShieldChainEffect*>(object);
+        if (!chain || !chain->IsFromCaster(sourceGid)) {
+            continue;
+        }
+        if (!beginChain && chain->QueueBounce(targetPos, targetGid)) {
+            return;
+        }
+        chain->Cancel();
+    }
+    m_gameObjectList.push_back(new CShieldChainEffect(sourcePos, targetPos,
+        sourceGid, targetGid, beginChain));
+}
+
+void CWorld::SpawnShieldSlamEffect(CGameActor* targetActor, const vector3d& targetPos, u32 impactDelayMs)
+{
+    m_gameObjectList.push_back(new CShieldSlamEffect(targetActor, targetPos, impactDelayMs));
+}
+
+void CWorld::SpawnRapidSmitingEffects(CGameActor* targetActor,
+    const vector3d& targetPos, u16 hitCount, u32 impactDelayMs)
+{
+    const int count = (std::max)(1, (std::min)(32, static_cast<int>(hitCount)));
+    const u32 delayMs = impactDelayMs > CRapidSmitingShieldEffect::kImpactTimeMs
+        ? impactDelayMs - CRapidSmitingShieldEffect::kImpactTimeMs : 0;
+    const u32 startTick = timeGetTime();
+    for (int hit = 0; hit < count; ++hit) {
+        m_gameObjectList.push_back(new CRapidSmitingShieldEffect(targetActor,
+            targetPos, startTick, delayMs, hit, count));
+    }
 }
 
 void CWorld::RenderBackgroundObjects(const matrix& viewMatrix) const

@@ -42,6 +42,10 @@ return {
             wav = [[data\wav\cru_holy cross.wav]],
             trigger = "damage",
         },
+        [251] = { -- SK_CR_SHIELDBOOMERANG
+            wav = [[data\wav\effect\cru_shield boomerang.wav]],
+            trigger = "damage",
+        },
     },
     skills = {
         [3] = {
@@ -53,6 +57,71 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 1,
             server_notified = true, -- The server supplies effects and moving ground units.
+        },
+        [251] = { -- SK_CR_SHIELDBOOMERANG
+            name = "Shield Boomerang",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            motion_type = 1,
+            -- The world projectile renderer supplies the spinning shield.
+            target = {
+                {
+                    effect_id = 2075,
+                    str = [[data\texture\effect\absolute_zephyr\absolute_zephyr_hit\absolute_zephyr_hit.str]],
+                },
+            },
+            source = {
+                {
+                    effect_id = 2076,
+                    str = [[data\texture\effect\new_banishingpoint\new_banishingpoint_target_bottom\new_banishingpoint_target_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [860] = { -- SK_PA_SHIELDCHAIN
+            name = "Shield Chain",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            -- The chain renderer follows the server's SK_PA_SHIELDCHAIN_ATK hits.
+            source = {
+                { effect_id = 2076 }, -- absolute_zephyr_bottom.str; bottom effect, offset 25 px.
+            },
+        },
+        [946] = { -- SK_PA_SHIELDCHAIN_ATK
+            name = "Shield Chain",
+            -- Follow-up damage advances the shield without replaying the caster.
+            target = {
+                { effect_id = 2075 }, -- absolute_zephyr_hit.str on every damaged target.
+            },
+        },
+        [947] = { -- SK_PA_SHIELDSLAM
+            name = "Shield Slam",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            -- The world renderer drops a spinning shield onto the target.
+            target = {
+                {
+                    effect_id = 2078,
+                    str = [[data\texture\effect\new_axe_stomp\new_axe_stomp_bottom\new_axe_stomp_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [480] = { -- SK_PA_RAPIDSMITING
+            name = "Rapid Smiting",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            target = {
+                {
+                    effect_id = 2079,
+                    str = [[data\texture\effect\new_axetornado\new_axetornado_bottom\new_axetornado_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+            -- Shields appear around the target and sweep through them simultaneously.
         },
         [255] = { 
             name = "Sworn Protector",
@@ -181,7 +250,7 @@ return {
             -- Cast completion supplies the ground cell; damage supplies each victim.
             ground = {
                 {
-                    effect_id = 50018, -- Local ground presentation ID.
+                    effect_id = 2080,
                     str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis\new_rayofgenesis.str]],
                     wav = [[data\wav\effect\lg_hesperuslit.wav]],
                 },
@@ -347,12 +416,19 @@ return {
         [59] = {
             name = "Spear Cannon", -- SK_KN_SPEARCANNON / Spear Boomerang
             motion_type = 1,
+            target = {
+                {
+                    effect_id = 2077,
+                    str = [[data\texture\effect\new_hit\new_criticalattack\new_criticalattack.str]],
+                },
+            },
             source = {
                 {
                     effect_id = 151,
-                    str = [[data\texture\effect\spearboomerang.str]],
+                    str = [[data\texture\effect\new_soulexpansion\new_soulexpansion_cast_bottom\new_soulexpansion_cast_bottom.str]],
                     wav = [[data\wav\effect\knight_spear_boomerang.wav]],
-                    offset_y = -10,
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
                 },
             },
         },

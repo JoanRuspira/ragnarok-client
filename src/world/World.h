@@ -25,6 +25,7 @@ enum class WorldProjectileVisual {
     Arrow,
     Stone,
     Spear,
+    Shield,
 };
 
 struct CLMInfo {
@@ -341,7 +342,13 @@ public:
         u32 targetGid,
         WorldProjectileVisual visual,
         float travelFrames,
-        float delayFrames = 0.0f);
+        float delayFrames = 0.0f,
+        u32 sourceGid = 0);
+    void SpawnShieldChainEffect(const vector3d& sourcePos, const vector3d& targetPos,
+        u32 sourceGid, u32 targetGid, bool beginChain);
+    void SpawnShieldSlamEffect(CGameActor* targetActor, const vector3d& targetPos, u32 impactDelayMs);
+    void SpawnRapidSmitingEffects(CGameActor* targetActor,
+        const vector3d& targetPos, u16 hitCount, u32 impactDelayMs);
     bool HasWarpAtAttrCell(int attrX, int attrY) const;
     void RenderBackgroundObjects(const matrix& viewMatrix) const;
 };

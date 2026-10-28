@@ -2871,7 +2871,7 @@ bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float dir
         return false;
     }
 
-    const float pixelRatio = ResolveEffectPixelRatio(anchor);
+    const float pixelRatio = ResolveEffectPixelRatio(anchor) * 1.5f;
     if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) {
         return false;
     }

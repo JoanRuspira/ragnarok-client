@@ -495,6 +495,10 @@ constexpr u32 kNotifyEffectJobLevelUpSuperNovice = 8;
 constexpr u32 kNotifyEffectBaseLevelUpTaekwon = 9;
 constexpr u16 kSkillIdHeal = 28;
 constexpr u16 kSkillIdGrimtooth = 137;
+constexpr u16 kSkillIdShieldChain = 860;
+constexpr u16 kSkillIdShieldChainAttack = 946;
+constexpr u16 kSkillIdShieldSlam = 947;
+constexpr u16 kSkillIdRapidSmiting = 480;
 constexpr u16 kSkillIdAutoGuard = 249;
 constexpr u16 kSkillIdParry = 356;
 constexpr int kSkillAnimationOnlyDamage = -30000;
@@ -5032,14 +5036,29 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
         }
     }
 
+    if (packetInfo.launchUseSkill && skillId == kSkillIdShieldChain && targetPos) {
+        g_world.SpawnShieldChainEffect(actor->m_pos, *targetPos,
+            actor->m_gid, targetActor ? targetActor->m_gid : 0, true);
+    }
+
+    if (packetInfo.launchUseSkill && skillId == kSkillIdShieldSlam && targetPos) {
+        g_world.SpawnShieldSlamEffect(targetActor, *targetPos, ResolveAttackImpactDelayMs(*actor));
+    }
+
+    if (packetInfo.launchUseSkill && skillId == kSkillIdRapidSmiting && targetPos) {
+        g_world.SpawnRapidSmitingEffects(targetActor, *targetPos, hitCount,
+            ResolveAttackImpactDelayMs(*actor));
+    }
+
     if (packetInfo.launchUseSkill) {
-        if (skillId == 59 && targetPos && (!targetActor || targetActor != actor)) { // SK_KN_SPEARCANNON
-            constexpr float travelFrames = 140.0f / 24.0f;
+        if ((skillId == 59 || skillId == 251) && targetPos && (!targetActor || targetActor != actor)) {
+            // Delay release to align the projectile's flight with the action's impact.
+            const float travelFrames = (skillId == 251 ? 280.0f : 180.0f) / 24.0f;
             const float impactFrames = static_cast<float>(ResolveAttackImpactDelayMs(*actor)) / 24.0f;
             g_world.SpawnProjectileEffect(actor->m_pos, *targetPos,
                 targetActor ? targetActor->m_gid : 0,
-                WorldProjectileVisual::Spear, travelFrames,
-                (std::max)(0.0f, impactFrames - travelFrames));
+                skillId == 251 ? WorldProjectileVisual::Shield : WorldProjectileVisual::Spear, travelFrames,
+                (std::max)(0.0f, impactFrames - travelFrames), actor->m_gid);
         } else if (skillId == 2413) {
             actor->LaunchEffect(kRagEffectMetallicSound, vector3d{}, 0.0f);
         } else if (skillId == 17 && targetActor && targetActor != actor) { // MG_FIREBALL
@@ -5626,9 +5645,16 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    ClearAttachedSkillEffects(sourceActor,
-        skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
-    if (skillId == kSkillIdGrimtooth) {
+    if (skillId != kSkillIdShieldChainAttack) {
+        ClearAttachedSkillEffects(sourceActor,
+            skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
+    }
+    if (skillId == kSkillIdShieldChainAttack) {
+        if (sourceActor && mode.m_world && damage != kSkillAnimationOnlyDamage) {
+            mode.m_world->SpawnShieldChainEffect(sourceActor->m_pos, targetActor->m_pos,
+                sourceActor->m_gid, targetActor->m_gid, false);
+        }
+    } else if (skillId == kSkillIdGrimtooth) {
         DbgLog("[Projectile] grimtooth damage packet opcode=0x%04X src=%u dst=%u level=%u div=%u damage=%d type=%u\n",
             packet.packetId,
             srcGid,
@@ -5704,9 +5730,16 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
     const vector3d impactPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
     if (sourceActor) {
-        ClearAttachedSkillEffects(sourceActor,
-            skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
-        if (skillId == kSkillIdGrimtooth) {
+        if (skillId != kSkillIdShieldChainAttack) {
+            ClearAttachedSkillEffects(sourceActor,
+                skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
+        }
+        if (skillId == kSkillIdShieldChainAttack) {
+            if (mode.m_world && damage != kSkillAnimationOnlyDamage) {
+                mode.m_world->SpawnShieldChainEffect(sourceActor->m_pos, impactPos,
+                    sourceActor->m_gid, targetActor ? targetActor->m_gid : dstGid, false);
+            }
+        } else if (skillId == kSkillIdGrimtooth) {
             DbgLog("[Projectile] grimtooth pos packet src=%u dst=%u level=%u div=%u damage=%d cell=(%d,%d)\n",
                 srcGid,
                 dstGid,

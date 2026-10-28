@@ -823,14 +823,60 @@ plays caster effect `151` (`spearboomerang.str`) with
 `knight_spear_boomerang.wav`; the server does not notify these effects separately.
 The world projectile renderer uses the installed `data\sprite\이펙트\창.spr` /
 `.act` pair, sharing the effect frame cache. It rotates the spear toward the
-projected target, scales it with camera depth, fades it over a 140 ms flight,
+projected target, scales it to 150% sprite size with camera depth, fades it over a 180 ms flight,
 and resolves the target's current position when the spear is released. Flight
 starts late enough to end at the attack's impact time when that time exceeds
-140 ms. The existing skill-presentation guard prevents duplicate launches.
+180 ms. The existing skill-presentation guard prevents duplicate launches.
 The separate `sounds[59]` entry plays `ef_fireball.wav` at the damage position;
 the reference hit effect `80` is audio only, with no separate STR. These asset
 assignments follow the [Spear Boomerang skill reference](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Skills/SkillEffect.js)
 and [effect reference](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/EffectTable.js).
+
+Shield Chain (`860`, `SK_PA_SHIELDCHAIN`) starts one spinning shield on successful
+use. Its separate chain renderer uses the same masked shield texture and size as
+Shield Boomerang, whose implementation is unchanged. The server reports the
+first hit as `946` (`SK_PA_SHIELDCHAIN_ATK`) after 150 ms, followed by bounces at
+200 ms intervals. The first damage packet confirms the initial destination;
+later packets queue target-to-target legs without replaying the caster's motion
+or skill-name shout. The first leg takes 280 ms, later legs take 200 ms, and after
+300 ms without another hit the shield finishes its queued legs and returns to
+the caster's current position over 280 ms. Rotation stays continuous and only
+release/catch fade. Each caster has an independent chain; recasting replaces that
+caster's previous chain. Missing targets retain their notified positions, caster
+removal cancels the chain, and the visual respects the effect visibility setting.
+The existing server notifications retain ownership of `shieldchain.wav`.
+Successful use also plays `absolute_zephyr\absolute_zephyr_bottom\absolute_zephyr_bottom.str`
+on the caster as a bottom effect with a 25-pixel offset. Each `946` damage
+notification plays `absolute_zephyr\absolute_zephyr_hit\absolute_zephyr_hit.str`
+on its target. These reuse the registered effect definitions `2076` and `2075`.
+
+Shield Slam (`947`, `SK_PA_SHIELDSLAM`) uses the same masked
+`data\texture\effect\shield_boomerang.bmp` asset at 150% size (96 pixels).
+Its separate renderer drops the rotating shield from 48 world units above the
+target over 560 ms, accelerating into impact and fading out over another 100 ms.
+Rotation keeps its 280 ms period, completing two turns during the fall.
+Release is delayed when the caster's attack impact time exceeds 560 ms so the
+shield lands at that impact time. The shield follows a moving target, retains
+the last target position after removal, scales with camera depth, and respects
+the effect visibility setting. Actor and position damage notifications use the
+same presentation guard to avoid duplicate launches. Shield Chain and Shield
+Boomerang retain their existing behavior.
+
+Rapid Smiting (`480`, `SK_PA_RAPIDSMITING`) creates shields around the target using
+`data\texture\effect\shield_boomerang.bmp`. The damage notification supplies the
+shield count (five on the current server, capped at 32 for rendering). All shields
+appear together over 60 ms on a camera-facing circle, then simultaneously sweep
+across the target over 440 ms, traveling 160 pixels on either side of the target
+before camera scaling. The 72-pixel shields
+spin every 160 ms and leave three cyan/gold afterimages. All paths cross the
+target's center at the same moment, accompanied by one combined gold ring, flash,
+and radial sparks. They track the target until impact, then finish around that
+impact position, retaining it if the actor is removed. A shared start time and
+delay keep every shield synchronized, aligning the crossing with the caster's
+attack timing when it exceeds the 280 ms appearance/approach time. Actor and
+position notifications share the existing presentation guard. The effect
+respects visibility, camera depth, and culling around the target. Other shield
+skills retain their existing presentations.
 
 This repair does **not** establish complete parity with the official client.
 The customized database contains 455 skills. A static scan found 325 distinct
@@ -861,7 +907,11 @@ in a running updated client. Compare these cases against the official client:
 | Traumatic Strike (398) | One caster body flash/halo, delayed radial burst, and Head Crush WAV; server-driven `cwound.str` on the target |
 | Bleeding from Traumatic Strike (398) / Spear Stab (58) | Each server effect `548` notification briefly flashes the affected target red; normal sprite color returns between the 500 ms ticks and after bleeding ends |
 | Spear Quicken (816) | One head-attached `twohand.str` effect and one `knight_twohandquicken.wav` sound per successful cast |
-| Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear flies toward the target and fades; one `ef_fireball.wav` at the damage position |
+| Spear Cannon (59), direct use or follow-up attack | One caster burst and spear WAV; a correctly oriented spear at 150% sprite size flies toward the target over 180 ms and fades; one `ef_fireball.wav` at the damage position |
+| Shield Boomerang (251), near/far targets, moving targets/caster, camera rotation/zoom, repeated casts, caster removal, and effects visibility | One spinning shield uses its full 64-pixel size, reaches the target in 280 ms, and returns to the caster's current position over another 280 ms; rotation continues at the same rate through impact, with fading only at release and catch; removing the caster cancels the return; the magenta background stays transparent; one Shield Boomerang WAV plays with the damage presentation |
+| Shield Chain (860/946), one/multiple targets, moving/deleted targets, moving/removed caster, simultaneous casters, recasting, delayed packets, and effects visibility | One continuously spinning shield flies caster to first target, then target to target in notification order, and returns to the caster after the final bounce; the first damage packet does not duplicate the first leg, follow-up hits do not replay the caster, and Shield Boomerang is unchanged |
+| Shield Slam (947), moving/removed targets, repeated casts, camera rotation/zoom, and effects visibility | One 150%-size spinning shield falls over 560 ms, accelerates into the target, and briefly fades; rotation keeps its existing speed, longer attack motions delay release to align impact, and Shield Chain and Shield Boomerang are unchanged |
+| Rapid Smiting (480), varied hit counts, moving/removed targets, camera rotation/zoom, and effects visibility | Shields appear together around the target, simultaneously pass through their center, and exit on opposite sides with spinning cyan/gold afterimages and one combined impact burst; the count follows the packet and other shield skills are unchanged |
 | Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
 | Hundred Spear (2312), one hit and multiple hits | Effects marked `once_per_hit` play once per reported hit, counting the server's first playback; with `delay_ms = 750`, the first waits 750 ms and repeats are 910 ms apart; unmarked components play once |

@@ -3072,7 +3072,7 @@ void CEffectPrim::Render(matrix* viewMatrix)
         vector3d foot = base;
         // The complete aura shares the caster's floor height, including cells
         // inside walls or outside the map where terrain heights are unsuitable.
-        foot.y = (m_master->GetEffectType() == kRagEffectGospelArea
+        foot.y = (m_master->IsSkillUnitArea()
             ? base.y : ResolveGroundHeight(foot)) - 0.05f;
         tlvertex3d anchor{};
         if (!ProjectPoint(foot, *viewMatrix, &anchor)) break;
@@ -4099,7 +4099,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_componentEffects.clear();
     m_skillUnitId = 0;
     m_skillUnitSourceGid = 0;
-    m_gospelUnitIds.clear();
+    m_areaSkillUnitIds.clear();
     m_gospelNativeLayout = false;
     m_cancelled = false;
     m_startDelayMs = 0;
@@ -4124,6 +4124,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_bloodsportMistLastNotifyTick = 0;
     m_burstAngles.clear();
     m_castConeTextures.fill(nullptr);
+    m_stealthFogTextures.fill(nullptr);
     m_master = master;
     m_ownsMaster = false;
     if (const CGameActor* actorMaster = dynamic_cast<const CGameActor*>(master)) {
@@ -4285,6 +4286,17 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_handler = Handler::Sprite;
         m_effectName = stems[effectId - kRagEffectTrap];
         m_tickCarryMs = kActDelayUnitMs;
+        break;
+    }
+    case kRagEffectStealthField: {
+        m_handler = Handler::StealthFieldFog;
+        m_duration = 80;
+        static const char* textures[] = {
+            "effect\\fog1.tga", "effect\\fog2.tga", "effect\\fog3.tga",
+        };
+        for (size_t index = 0; index < m_stealthFogTextures.size(); ++index) {
+            m_stealthFogTextures[index] = ResolveEffectTextureCandidates({ textures[index] }, true);
+        }
         break;
     }
     case 239: case 240: case 241: case 242:
@@ -4575,23 +4587,27 @@ void CRagEffect::SetLooping(bool looping)
     }
 }
 
-bool CRagEffect::IsGospelUnitFor(u32 casterGid) const
+bool CRagEffect::IsSkillUnitFor(u32 casterGid, int effectId) const
 {
-    return m_type == 370 && !m_cancelled && m_skillUnitId != 0
+    return m_type == effectId && !m_cancelled && m_skillUnitId != 0
         && m_skillUnitSourceGid == casterGid;
 }
 
-bool CRagEffect::IsGospelAreaFor(u32 casterGid) const
+bool CRagEffect::IsSkillUnitArea() const
 {
-    return m_type == kRagEffectGospelArea && !m_cancelled
-        && m_masterIsActor && m_masterActorGid == casterGid;
+    return m_masterIsActor && (m_type == kRagEffectGospelArea || m_type == kRagEffectStealthField);
 }
 
-void CRagEffect::TrackGospelUnit(u32 unitAid)
+bool CRagEffect::IsSkillUnitAreaFor(u32 casterGid, int effectId) const
 {
-    if (m_type != kRagEffectGospelArea || m_cancelled || unitAid == 0) return;
-    if (std::find(m_gospelUnitIds.begin(), m_gospelUnitIds.end(), unitAid) == m_gospelUnitIds.end()) {
-        m_gospelUnitIds.push_back(unitAid);
+    return IsSkillUnitArea() && m_type == effectId && !m_cancelled && m_masterActorGid == casterGid;
+}
+
+void CRagEffect::TrackAreaSkillUnit(u32 unitAid)
+{
+    if (!IsSkillUnitArea() || m_cancelled || unitAid == 0) return;
+    if (std::find(m_areaSkillUnitIds.begin(), m_areaSkillUnitIds.end(), unitAid) == m_areaSkillUnitIds.end()) {
+        m_areaSkillUnitIds.push_back(unitAid);
     }
 }
 
@@ -4599,11 +4615,11 @@ void CRagEffect::RemoveSkillUnit(u32 unitAid)
 {
     if (unitAid == 0) return;
     if (m_skillUnitId == unitAid) Cancel();
-    if (m_type != kRagEffectGospelArea) return;
-    const auto it = std::find(m_gospelUnitIds.begin(), m_gospelUnitIds.end(), unitAid);
-    if (it == m_gospelUnitIds.end()) return;
-    m_gospelUnitIds.erase(it);
-    if (m_gospelUnitIds.empty()) Cancel();
+    if (!IsSkillUnitArea()) return;
+    const auto it = std::find(m_areaSkillUnitIds.begin(), m_areaSkillUnitIds.end(), unitAid);
+    if (it == m_areaSkillUnitIds.end()) return;
+    m_areaSkillUnitIds.erase(it);
+    if (m_areaSkillUnitIds.empty()) Cancel();
 }
 
 bool CRagEffect::IsDevotionLinkFrom(u32 casterGid) const
@@ -4733,7 +4749,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
-    if (m_type == kRagEffectGospelArea || m_type == kRagEffectDevotionLink) Cancel();
+    if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
     }
@@ -6821,7 +6837,7 @@ u8 CRagEffect::OnProcess()
     if (m_cancelled || (m_handler == Handler::None && m_componentEffects.empty() && m_primList.empty())) {
         return 0;
     }
-    if (m_type == kRagEffectGospelArea && !ResolveCurrentMaster()) return 0;
+    if (IsSkillUnitArea() && !ResolveCurrentMaster()) return 0;
     if (m_handler == Handler::DevotionLink) return ResolveCurrentMaster() ? 1 : 0;
     if (m_castEndTick != 0 && static_cast<s32>(timeGetTime() - m_castEndTick) >= 0) return 0;
     if (m_startDelayMs > 0) {
@@ -6851,7 +6867,7 @@ u8 CRagEffect::OnProcess()
                 burst.haloAlpha, burst.haloRadius };
         }
     }
-    if (m_handler == Handler::GuardSphere && !m_presentationStarted) {
+    if ((m_handler == Handler::GuardSphere || m_handler == Handler::StealthFieldFog) && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }
@@ -6910,6 +6926,10 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (m_handler == Handler::StealthFieldFog) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return (m_loop || m_stateCnt < m_duration) ? 1 : 0;
+    }
     if (m_handler == Handler::BloodsportMist) {
         if (m_bloodsportMistStatusOwned) {
             const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
@@ -7383,6 +7403,42 @@ void CRagEffect::RenderBloodsportMist(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderStealthFieldFog(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted) return;
+    const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+    if (actor && (!actor->m_isVisible || !actor->m_isVisibleBody)) return;
+    const u32 now = timeGetTime();
+    const u32 elapsedMs = now - m_presentationStartTick;
+    const u32 durationMs = static_cast<u32>(m_duration * kEffectTickMs);
+    if (!m_loop && elapsedMs >= durationMs) return;
+    const float actorAlpha = actor ? static_cast<float>(actor->GetHideFadeAlpha(now)) / 255.0f : 1.0f;
+    const float seconds = elapsedMs * 0.001f;
+    const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+    const int side = IsSkillUnitArea() ? 5 : 1;
+    const unsigned int alpha = static_cast<unsigned int>(actorAlpha * 255.0f);
+    const vector3d base = ResolveBasePosition();
+    // Keep every affected cell covered at a steady opacity. Soft overlapping
+    // textures drift slightly while retaining the full square footprint.
+    for (int index = 0; index < side * side; ++index) {
+        CTexture* texture = m_stealthFogTextures[static_cast<size_t>(index) % m_stealthFogTextures.size()];
+        if (!texture) continue;
+        const vector3d center = {
+            base.x + (index % side - side / 2) * cellSize + std::sin(seconds * 0.25f + index) * cellSize * 0.06f,
+            base.y - cellSize * 0.65f,
+            base.z - (index / side - side / 2) * cellSize + std::cos(seconds * 0.2f + index) * cellSize * 0.06f,
+        };
+        tlvertex3d anchor{};
+        if (!ProjectPoint(center, viewMatrix, &anchor)) continue;
+        const float scale = anchor.oow * g_renderer.m_hpc;
+        if (!std::isfinite(scale) || scale <= 0.0f) continue;
+        const float width = cellSize * 2.4f * scale;
+        const float height = cellSize * 1.4f * scale;
+        SubmitScreenQuad(anchor, texture, 0.0f, 0.0f, width, height,
+            PackColor(alpha, RGB(216, 220, 224)), D3DBLEND_INVSRCALPHA, anchor.oow, 1, true);
+    }
+}
+
 void CRagEffect::RenderBodyBurst(const matrix& viewMatrix)
 {
     if (!m_presentationStarted || !m_presentationTexture) return;
@@ -7717,6 +7773,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
     if (m_handler == Handler::BloodsportMist) RenderBloodsportMist(*viewMatrix);
+    if (m_handler == Handler::StealthFieldFog) RenderStealthFieldFog(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
         RenderRecoverySparkles(*viewMatrix);
     }

@@ -495,6 +495,7 @@ constexpr u32 kNotifyEffectJobLevelUpSuperNovice = 8;
 constexpr u32 kNotifyEffectBaseLevelUpTaekwon = 9;
 constexpr u16 kSkillIdHeal = 28;
 constexpr u16 kSkillIdGrimtooth = 137;
+constexpr u16 kSkillIdAutoGuard = 249;
 constexpr u16 kSkillIdParry = 356;
 constexpr int kSkillAnimationOnlyDamage = -30000;
 constexpr u32 kEffectIdRecoveryHp = 331;
@@ -828,6 +829,7 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
     ClearAttachedSkillEffects(actor);
     actor->m_vigorEffectSuppressUntilTick = 0;
     actor->m_parryCastAckUntilTick = 0;
+    actor->m_autoGuardCastAckUntilTick = 0;
     actor->m_isMotionFreezed = 0;
     actor->m_freezeEndTick = 0;
     actor->m_attackMotion = -1.0f;
@@ -4430,6 +4432,9 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
     if (skillId == kSkillIdParry && mode.m_world && mode.m_world->m_player) {
         mode.m_world->m_player->m_parryCastAckUntilTick = 0;
     }
+    if (skillId == kSkillIdAutoGuard && mode.m_world && mode.m_world->m_player) {
+        mode.m_world->m_player->m_autoGuardCastAckUntilTick = 0;
+    }
     const u32 btype = ReadLE16(packet.data + 4);
     const u8 result = packet.data[8];
     const u8 cause = packet.data[9];
@@ -5480,9 +5485,11 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     sourceActor->m_vigorEffectSuppressUntilTick = skillId == 2016
         ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
 
-    // Parry blocks use the same successful-use packet as activation, but only
-    // a manual cast has this acknowledgement. Track it even for instant casts.
+    // Parry and Auto Guard blocks use the same successful-use packet as activation,
+    // but only a manual cast has this acknowledgement. Track even instant casts.
     sourceActor->m_parryCastAckUntilTick = skillId == kSkillIdParry
+        ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
+    sourceActor->m_autoGuardCastAckUntilTick = skillId == kSkillIdAutoGuard
         ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
 
     // Instant skills receive their action/effects from the successful-use packet.
@@ -5807,13 +5814,19 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     if (sourceActor && skillId == kSkillIdParry) {
         sourceActor->m_parryCastAckUntilTick = 0;
     }
+    const bool autoGuardTrigger = skillId == kSkillIdAutoGuard
+        && (!sourceActor || sourceActor->m_autoGuardCastAckUntilTick == 0
+            || static_cast<s32>(sourceActor->m_autoGuardCastAckUntilTick - now) <= 0);
+    if (sourceActor && skillId == kSkillIdAutoGuard) {
+        sourceActor->m_autoGuardCastAckUntilTick = 0;
+    }
     const bool receivingBuffDuringCast = sourceActor && sourceActor == targetActor
         && sourceActor->m_castingSkillId != 0 && sourceActor->m_castingSkillId != skillId
         && (static_cast<s32>(sourceActor->m_skillRechargeEndTick - now) > 0
             || (sourceActor->m_isMotionFreezed && static_cast<s32>(sourceActor->m_freezeEndTick - now) > 0));
     // Automatic blocks keep the actor's current action and attached cast effects.
     // Their target barrier is emitted independently below.
-    if (sourceActor && result != 0 && !receivingBuffDuringCast && !parryTrigger) {
+    if (sourceActor && result != 0 && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
         ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
@@ -6098,7 +6111,7 @@ int ResolveSkillUnitEffectId(u16 unitId)
     case 223: return kRagEffectPsychicWave;
     case 224: return 1080;
     case 226: return 783;
-    case 227: return 784;
+    case 227: return kRagEffectStealthField; // Hold the Line / Stealth Field
     case 230: return 912;
     case 231: return 916;
     case 241: return 918;
@@ -6186,36 +6199,38 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
         CancelSkillUnitEffect(mode.m_world, unitAid);
         return;
     }
-    CRagEffect* gospelArea = nullptr;
-    if (unitId == 179) {
+    CRagEffect* areaEffect = nullptr;
+    const int areaEffectId = unitId == 179 ? kRagEffectGospelArea
+        : unitId == 227 ? kRagEffectStealthField : -1;
+    if (areaEffectId >= 0) {
         if (CGameActor* caster = ResolveNotifyEffectActor(mode, srcGid)) {
             for (CRagEffect* effect : caster->m_effectList) {
-                if (effect && effect->IsGospelAreaFor(caster->m_gid)) {
-                    gospelArea = effect;
+                if (effect && effect->IsSkillUnitAreaFor(caster->m_gid, areaEffectId)) {
+                    areaEffect = effect;
                     break;
                 }
             }
-            if (!gospelArea) {
-                gospelArea = caster->LaunchEffect(kRagEffectGospelArea);
-                if (gospelArea) {
-                    gospelArea->SetLooping(true);
+            if (!areaEffect) {
+                areaEffect = caster->LaunchEffect(areaEffectId);
+                if (areaEffect) {
+                    areaEffect->SetLooping(true);
                     // Adopt cells received before the caster entered view so
-                    // their old individual crosses cannot overlap this aura.
+                    // their old individual visuals cannot overlap this aura.
                     for (CGameObject* object : mode.m_world->m_gameObjectList) {
                         if (auto* effect = dynamic_cast<CRagEffect*>(object);
-                            effect && effect->IsGospelUnitFor(srcGid)) {
-                            gospelArea->TrackGospelUnit(effect->GetSkillUnitId());
+                            effect && effect->IsSkillUnitFor(srcGid, effectId)) {
+                            areaEffect->TrackAreaSkillUnit(effect->GetSkillUnitId());
                             effect->Cancel();
                         }
                     }
-                    DbgLog("[SkillUnit] Gospel aura caster=%u layoutSkill=%d\n", caster->m_gid,
-                        caster->m_lastPresentedSkillId == 369 ? 369 : 951);
+                    DbgLog("[SkillUnit] caster area caster=%u effect=%d layoutSkill=%d\n", caster->m_gid,
+                        areaEffectId, unitId == 227 ? 950 : (caster->m_lastPresentedSkillId == 369 ? 369 : 951));
                 }
             }
         }
     }
-    // Updating a Gospel unit keeps the existing aura and its other unit IDs.
-    CancelSkillUnitEffect(mode.m_world, unitAid, gospelArea);
+    // Updating an area unit keeps the existing aura and its other unit IDs.
+    CancelSkillUnitEffect(mode.m_world, unitAid, areaEffect);
     if (effectId < 0) {
         if (unitId != 134) { // Server dummy units intentionally have no image.
             static std::map<u16, bool> loggedMissingUnits;
@@ -6227,8 +6242,8 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    if (gospelArea) {
-        gospelArea->TrackGospelUnit(unitAid);
+    if (areaEffect) {
+        areaEffect->TrackAreaSkillUnit(unitAid);
     } else {
         const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
         if (CRagEffect* effect = SpawnWorldSkillEffect(mode, effectId, worldPos)) {

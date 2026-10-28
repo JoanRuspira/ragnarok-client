@@ -301,6 +301,7 @@ public:
     u16 m_castingSkillId = 0;
     u32 m_vigorEffectSuppressUntilTick = 0;
     u32 m_parryCastAckUntilTick = 0;
+    u32 m_autoGuardCastAckUntilTick = 0;
     bool m_frenzyStatusActive = false;
     u32 m_frenzyStatusStartTick = 0;
     u32 m_frenzyStatusDurationMs = 0;

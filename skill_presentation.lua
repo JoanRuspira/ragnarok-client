@@ -87,6 +87,83 @@ return {
             name = "Binding Oath",
             skill_motion_type = 1,
         },
+        [948] = { -- SK_CR_TAUNT
+            name = "Taunt",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            target = {
+                {
+                    effect_id = 2071,
+                    str = [[data\texture\effect\provoke.str]], -- SK_SM_PROVOKE's visual.
+                    wav = [[data\wav\effect\swordman_provoke.wav]],
+                },
+            },
+            source = {
+                {
+                    effect_id = 2063,
+                    str = [[data\texture\effect\new_peintbomb\new_peintbomb\new_peintbomb.str]],
+                },
+                {
+                    effect_id = 2064,
+                    str = [[data\texture\effect\new_peintbomb\new_peintbomb_bottom\new_peintbomb_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [949] = { -- SK_CR_RETALIATION
+            name = "Retaliation",
+            source = {
+                {
+                    effect_id = 2073,
+                    str = [[data\texture\effect\new_peintbomb\new_peintbomb\new_peintbomb.str]],
+                },
+                {
+                    effect_id = 2074,
+                    str = [[data\texture\effect\petitio\petitio_bottom\petitio_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [861] = { -- SK_PA_FORTIFY
+            name = "Fortify",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            source = {
+                {
+                    effect_id = 2068,
+                    str = [[data\texture\effect\guardianshield\guardianshield\guardianshield.str]],
+                },
+                {
+                    effect_id = 2069,
+                    str = [[data\texture\effect\guardianshield\guardianshield_bottom\guardianshield_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [2318] = { -- SK_CR_VANGUARDFORCE
+            name = "Vanguard Force",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            source = {
+                {
+                    effect_id = 2065,
+                    str = [[data\texture\effect\strip_armor.str]],
+                },
+                {
+                    effect_id = 2066,
+                    str = [[data\texture\effect\benedictum\benedictum_cast\benedictum_cast.str]],
+                },
+                {
+                    effect_id = 2067,
+                    str = [[data\texture\effect\guard_stance\guard_stance_cast_bottom\guard_stance_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
         [2321] = { -- SK_PA_GENESISRAY
             name = "Genesis Ray",
             cast_motion_type = 1,
@@ -98,6 +175,7 @@ return {
                     str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis_cast_bottom\new_rayofgenesis_cast_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 15,
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                 },
             },
             -- Cast completion supplies the ground cell; damage supplies each victim.
@@ -105,12 +183,14 @@ return {
                 {
                     effect_id = 50018, -- Local ground presentation ID.
                     str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis\new_rayofgenesis.str]],
+                    wav = [[data\wav\effect\lg_hesperuslit.wav]],
                 },
             },
             target = {
                 {
                     effect_id = 2059,
                     str = [[data\texture\effect\new_rayofgenesis\new_rayofgenesis_hit\new_rayofgenesis_hit.str]],
+                    wav = [[data\wav\effect\lg_shieldspell.wav]],
                 },
             },
         },
@@ -495,6 +575,19 @@ return {
             server_notified = true,
             source = { { effect_id = 1032 }, {effect_id = 2016, str = [[data\texture\effect\attack_stance\attack_stance\attack_stance.str]]} }, -- The server sends EF_MAXPAIN once on the caster.
         },
+        [249] = { -- SK_CR_AUTOGUARD
+            name = "Auto Guard",
+            skill_motion_type = 1,
+            source = { -- Manual activation only; automatic blocks skip the caster presentation.
+                {
+                    effect_id = 2062,
+                    str = [[data\texture\effect\guard_stance\guard_stance\guard_stance.str]],
+                },
+            },
+            target = {
+                { effect_id = 2042 }, -- Parry's white guard barrier, including automatic blocks.
+            },
+        },
         [356] = { -- SK_CM_PARRY
             name = "Parry",
             server_notified = false, -- Activation and blocks send skill-use packets, without effect packets.
@@ -704,6 +797,12 @@ return {
         },
         [2048] = { 
             str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],
+        },
+        [2070] = { 
+            str = [[data\texture\effect\guardianshield\guardianshield_sub\guardianshield_sub.str]],
+        },
+        [2072] = { 
+            str = [[data\texture\effect\provoke.str]], 
         },
         [2051] = { 
             str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],

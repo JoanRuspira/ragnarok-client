@@ -75,6 +75,7 @@ struct EffectSegmentState {
     matrix transform{};
 };
 
+constexpr int kRagEffectStealthField = 784; // Hold the Line's server skill units.
 constexpr int kRagEffectBloodsportMist = 871; // EF_CIRCLEPOWER5
 constexpr int kRagEffectPortal = 50001;
 constexpr int kRagEffectReadyPortal = 50002;
@@ -188,9 +189,10 @@ public:
     int GetDuration() const { return m_duration; }
     void SetSkillUnitId(u32 id, u32 sourceGid = 0) { m_skillUnitId = id; m_skillUnitSourceGid = sourceGid; }
     u32 GetSkillUnitId() const { return m_skillUnitId; }
-    bool IsGospelUnitFor(u32 casterGid) const;
-    bool IsGospelAreaFor(u32 casterGid) const;
-    void TrackGospelUnit(u32 unitAid);
+    bool IsSkillUnitFor(u32 casterGid, int effectId) const;
+    bool IsSkillUnitArea() const;
+    bool IsSkillUnitAreaFor(u32 casterGid, int effectId) const;
+    void TrackAreaSkillUnit(u32 unitAid);
     void RemoveSkillUnit(u32 unitAid);
     bool IsDevotionLinkFrom(u32 casterGid) const;
     bool IsDevotionLinkFor(u32 casterGid, u32 targetGid) const;
@@ -216,7 +218,7 @@ public:
 private:
     u32 m_skillUnitId = 0;
     u32 m_skillUnitSourceGid = 0;
-    std::vector<u32> m_gospelUnitIds;
+    std::vector<u32> m_areaSkillUnitIds;
     bool m_gospelNativeLayout = false;
     bool m_cancelled = false;
     u32 m_startDelayMs = 0;
@@ -241,6 +243,7 @@ private:
     u32 m_bloodsportMistLastNotifyTick = 0;
     std::vector<float> m_burstAngles;
     std::array<CTexture*, 27> m_castConeTextures{};
+    std::array<CTexture*, 3> m_stealthFogTextures{};
     struct RecoverySparkle {
         vector3d startOffset{};
         float endHeight = 0.0f;
@@ -260,6 +263,7 @@ private:
         CastCone,
         DanceRays,
         BloodsportMist,
+        StealthFieldFog,
         JumpKick,
         GroundSurface,
         DevotionLink,
@@ -322,6 +326,7 @@ private:
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);
     void RenderBloodsportMist(const matrix& viewMatrix);
+    void RenderStealthFieldFog(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     void RenderDevotionLink(const matrix& viewMatrix);
     const CGameActor* ResolveDevotionTarget() const;

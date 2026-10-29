@@ -13,6 +13,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <string>
 
 namespace {
@@ -553,7 +554,38 @@ void CTexMgr::DestroyAllTexture() {
     m_missingTexTable.clear();
 }
 
-CTexture* LoadManagedTexture(CTexMgr& texMgr, const char* name, TextureLoadMode mode) {
+unsigned int ShiftColorHue(unsigned int color, int hueShiftDegrees)
+{
+    const int shift = (hueShiftDegrees % 360 + 360) % 360;
+    if (shift == 0) return color;
+    const float red = static_cast<float>((color >> 16) & 0xFFu);
+    const float green = static_cast<float>((color >> 8) & 0xFFu);
+    const float blue = static_cast<float>(color & 0xFFu);
+    const float maximum = (std::max)({ red, green, blue });
+    const float minimum = (std::min)({ red, green, blue });
+    const float chroma = maximum - minimum;
+    if (chroma == 0.0f) return color;
+
+    float hue;
+    if (maximum == red) hue = (green - blue) / chroma;
+    else if (maximum == green) hue = 2.0f + (blue - red) / chroma;
+    else hue = 4.0f + (red - green) / chroma;
+    hue = std::fmod(hue + static_cast<float>(shift) / 60.0f + 6.0f, 6.0f);
+    const float secondary = chroma * (1.0f - std::fabs(std::fmod(hue, 2.0f) - 1.0f));
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    if (hue < 1.0f) { r = chroma; g = secondary; }
+    else if (hue < 2.0f) { r = secondary; g = chroma; }
+    else if (hue < 3.0f) { g = chroma; b = secondary; }
+    else if (hue < 4.0f) { g = secondary; b = chroma; }
+    else if (hue < 5.0f) { r = secondary; b = chroma; }
+    else { r = chroma; b = secondary; }
+    const auto channel = [minimum](float value) {
+        return static_cast<unsigned int>((std::min)(255.0f, value + minimum + 0.5f));
+    };
+    return (color & 0xFF000000u) | (channel(r) << 16) | (channel(g) << 8) | channel(b);
+}
+
+CTexture* LoadManagedTexture(CTexMgr& texMgr, const char* name, TextureLoadMode mode, int hueShiftDegrees = 0) {
     const std::string baseName = name ? name : "";
     const char* cachePrefix = mode == TextureLoadMode::BlackKey
         ? "@bk:"
@@ -561,7 +593,13 @@ CTexture* LoadManagedTexture(CTexMgr& texMgr, const char* name, TextureLoadMode 
     const char* modeName = mode == TextureLoadMode::BlackKey
         ? "blackkey"
         : (mode == TextureLoadMode::MagentaMask ? "masked" : "colorkey");
-    const std::string cacheKey = std::string(cachePrefix) + baseName;
+    std::string cacheKey = std::string(cachePrefix) + baseName;
+    const int hue = (hueShiftDegrees % 360 + 360) % 360;
+    if (hue != 0) {
+        // Keep variant keys within m_texName even for long GRF paths. Separate
+        // entries prevent a recolored STR from changing any other asset user.
+        cacheKey = "@hue:" + std::to_string(hue) + ":" + std::to_string(std::hash<std::string>{}(cacheKey));
+    }
     auto it = texMgr.m_texTable.find(cacheKey.c_str());
     if (it != texMgr.m_texTable.end()) {
         it->second->m_timeStamp = GetTickCount();
@@ -637,6 +675,15 @@ CTexture* LoadManagedTexture(CTexMgr& texMgr, const char* name, TextureLoadMode 
         skipColorKey = true;
     }
 
+    if (hue != 0) {
+        // Apply masking first, so magenta colorkeys cannot turn into visible
+        // colors. Work on a private copy, never the shared bitmap resource.
+        const size_t count = static_cast<size_t>(bitmap->m_width) * static_cast<size_t>(bitmap->m_height);
+        if (transformedPixels.empty()) transformedPixels.assign(textureData, textureData + count);
+        for (unsigned int& pixel : transformedPixels) pixel = ShiftColorHue(pixel, hue);
+        textureData = transformedPixels.data();
+    }
+
     CTexture* tex = new CTexture();
     if (tex) {
         std::strncpy(tex->m_texName, cacheKey.c_str(), sizeof(tex->m_texName) - 1);
@@ -701,6 +748,11 @@ CTexture* CTexMgr::GetTexture(const char* name, bool b) {
 
 CTexture* CTexMgr::GetMaskedTexture(const char* name) {
     return LoadManagedTexture(*this, name, TextureLoadMode::MagentaMask);
+}
+
+CTexture* CTexMgr::GetHueShiftedTexture(const char* name, int hueShiftDegrees) {
+    // STRs use the same black-key/alpha conversion as KAC_LAYER::GetTexture.
+    return LoadManagedTexture(*this, name, TextureLoadMode::BlackKey, hueShiftDegrees);
 }
 
 CTexture* CTexMgr::CreateTexture(int w, int h, unsigned int* data, PixelFormat format, bool b) {

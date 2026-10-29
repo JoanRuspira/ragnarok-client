@@ -113,6 +113,9 @@ struct CharPrtLess {
     }
 };
 
+// Rotate RGB hue while retaining alpha, saturation, and the brightest channel.
+unsigned int ShiftColorHue(unsigned int color, int hueShiftDegrees);
+
 class CTexMgr {
 public:
     CTexMgr();
@@ -122,6 +125,7 @@ public:
     CTexture* CreateTexture(unsigned long w, unsigned long h, PixelFormat format, IDirectDrawSurface7* pSurface);
     CTexture* GetTexture(const char* name, bool b);
     CTexture* GetMaskedTexture(const char* name);
+    CTexture* GetHueShiftedTexture(const char* name, int hueShiftDegrees);
     
     void DestroyAllTexture();
     void DestroyTexture(CTexture* tex);

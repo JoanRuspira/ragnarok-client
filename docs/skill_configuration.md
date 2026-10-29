@@ -245,6 +245,18 @@ and audio paths so both use the same random variant. `offset_y` sets the vertica
 attachment offset, and `loop` controls repetition; STR playback uses the
 animation's authored FPS.
 
+STR entries also accept `hue_shift_degrees`, an integer from `0` to `360`.
+Omitting it, or using `0`/`360`, preserves the authored colors. The client shifts
+both texture RGB and animated layer RGB while preserving alpha and brightness
+range; black/magenta masking happens before recoloring. Recolored textures use
+separate managed cache entries, so shared textures and GRF assets stay unchanged.
+This field supports `str` and `directional_str` renderers. Restart the client
+after editing it, as with other presentation settings.
+
+Gloria Domini's Petitio effect (`50021`) uses `hue_shift_degrees = 180` to turn
+its yellow/gold artwork blue. Its bottom effect (`50022`) keeps its original
+colors; no other effect enables the hue shift.
+
 `ground` plays effects at the terrain height of the cell reported by a successful
 ground-skill notification after casting, or by a position-damage notification.
 These effects stay at that world position when the caster moves. Ordinary
@@ -878,6 +890,25 @@ position notifications share the existing presentation guard. The effect
 respects visibility, camera depth, and culling around the target. Other shield
 skills retain their existing presentations.
 
+Grand Cross (`254`, `SK_CR_GRANDCROSS`) keeps the same casting effects as Genesis
+Ray (`2057`/`2058`). On completion, the server sends `EF_GRANDCROSS` (`226`);
+the client draws its native ground geometry once for that notification. The
+installed GRFs have no matching STR. The renderer reuses
+`data\texture\effect\ring_blue.tga` for a nine-cell cross with smooth concave
+corners, a faint blue floor glow, a feathered rim, and tall translucent curtains
+of streaked light. The curtains have an icy blue base and fade to transparent at
+their tops. A second cross at 55% size has shorter, softer curtains inside the
+outer cross. Both rotate together through 45 degrees during the effect, using
+the same clock and transform. Twenty-four pale blue `pok1.tga` sparkles appear
+in staggered groups, rise and drift with the rotation, then twinkle and fade;
+no particles outlive the cross. The aura stays on the caster's floor plane at the
+completion position when the caster moves or disappears. It uses overlay depth
+in the bottom-effect pass: terrain cannot cut holes through the surface, and
+actors draw over it.
+It appears over 100 ms and fades out over the last 450 ms of its one-second
+lifetime, with one `data\wav\effect\cru_grand cross.wav` playback. Effects visibility
+and cancellation are respected; skill-use and damage packets do not launch copies.
+
 This repair does **not** establish complete parity with the official client.
 The customized database contains 455 skills. A static scan found 325 distinct
 explicit effect IDs in the server's skill/status source, including conditional
@@ -934,6 +965,7 @@ in a running updated client. Compare these cases against the official client:
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
 | Genesis Ray (2321), casting at empty ground or several enemies, cancellation, and movement after casting | Casting effects stop at completion; the main STR plays once at the selected cell even with no victims, stays there when the caster moves, and does not start for cancelled casts; each damaged enemy retains its target effect |
+| Grand Cross (254), empty area/enemies, movement or caster removal after completion, repeated casts, camera rotation/zoom, slopes, cancellation, and effects visibility | Genesis Ray's casting effects stop at completion; two nested crosses with curved corners and translucent light curtains rotate together through 45 degrees with sparse rising sparkles, remain whole on slopes and beneath actors at the cast position, and expire together after one second with one Grand Cross WAV; no completion cross for cancelled casts or duplicates from damage packets |
 | Sworn Protector (255), up to five allies, recasting, replacing/removing targets, movement, hiding, actor deletion, camera zoom, and effects visibility | Motion 1 and one target STR on successful use; blue links with a white core and travelling glints follow both endpoints, pulse between the existing width and 50% wider with soft rounded ends even at short distances, repeated/reordered lists do not duplicate them, removed links disappear, and re-enabling effects restores active links |
 | Sworn Protector (255), redirected normal/skill damage while idle, walking, attacking, or casting, including effects disabled and link removal | Transferred damage shows numbers without starting attack/hit animations or interrupting the caster's action; direct enemy hits still play their normal hit reaction, and cancelled links do not suppress later damage animations |
 | Sworn Protector (255), protected ally hit by normal, critical, or multi-hit attacks and skills while idle, walking, attacking, or casting | Damage visuals and sounds still play, but the ally keeps its action without a damage animation while linked; effects disabled preserves protection, and removing/replacing the ally or deleting the caster restores normal hit reactions |

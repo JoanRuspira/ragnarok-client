@@ -21,6 +21,7 @@
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
 -- For server-notified effects, the server supplies the first playback.
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
+-- STR effects can set hue_shift_degrees = 0..360; omitted or 0 keeps original colors.
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -43,6 +44,10 @@ return {
             trigger = "damage",
         },
         [251] = { -- SK_CR_SHIELDBOOMERANG
+            wav = [[data\wav\effect\cru_shield boomerang.wav]],
+            trigger = "damage",
+        },
+        [946] = { -- SK_PA_SHIELDCHAIN_ATK: each target hit in the chain.
             wav = [[data\wav\effect\cru_shield boomerang.wav]],
             trigger = "damage",
         },
@@ -104,6 +109,7 @@ return {
                 {
                     effect_id = 2078,
                     str = [[data\texture\effect\new_axe_stomp\new_axe_stomp_bottom\new_axe_stomp_bottom.str]],
+                    wav = [[data\wav\shieldchain.wav]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
                 },
@@ -117,6 +123,7 @@ return {
                 {
                     effect_id = 2079,
                     str = [[data\texture\effect\new_axetornado\new_axetornado_bottom\new_axetornado_bottom.str]],
+                    wav = [[data\wav\effect\cru_shield boomerang.wav]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
                 },
@@ -230,6 +237,45 @@ return {
                     str = [[data\texture\effect\guard_stance\guard_stance_cast_bottom\guard_stance_cast_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                },
+            },
+        },
+        [254] = { -- SK_CR_GRANDCROSS
+            name = "Grand Cross",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2057 },
+                { effect_id = 2058 },
+            },
+            source = {
+                {
+                    effect_id = 2081,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_cast\acidified_zone_water_cast.str]],
+                },
+            },
+        },
+        [367] = { -- SK_PA_GLORIADOMINI
+            name = "Gloria Domini",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                { effect_id = 2057 },
+                { effect_id = 2058 },
+            },
+            target = {
+                {
+                    effect_id = 2082,
+                    str = [[data\texture\effect\petitio\petitio\petitio.str]],
+                    wav = [[data\wav\effect\lg_shieldpress.wav]],
+                    hue_shift_degrees = 180, -- Yellow/gold to blue; 0 restores the original.
+                },
+                {
+                    effect_id = 2083,
+                    str = [[data\texture\effect\petitio\petitio_bottom\petitio_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                    hue_shift_degrees = 180, -- Yellow/gold to blue; 0 restores the original.
                 },
             },
         },
@@ -854,6 +900,7 @@ return {
                     str = [[data\texture\effect\petitio\petitio_bottom\petitio_bottom.str]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                    hue_shift_degrees = 180, -- Yellow/gold to blue; 0 restores the original.
                 },
             },
         },

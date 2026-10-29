@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include <iterator>
 #include <map>
 #include <vector>
 
@@ -36,6 +37,7 @@ constexpr float kEffectSpriteDepthBias = 0.0002f;
 constexpr u32 kRecoverySparkleDurationMs = 500;
 constexpr u32 kRecoverySparkleStaggerMs = 10;
 constexpr u32 kSpriteFlashDurationMs = 240;
+constexpr u32 kGrandCrossDurationMs = 1000;
 constexpr u32 kBloodsportMistNotifyDurationMs = 5000;
 constexpr u32 kBloodsportMistCycleMs = 2400;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
@@ -645,7 +647,8 @@ void SubmitWorldQuad(const vector3d (&quad)[4],
     const float (&uvs)[4][2],
     D3DBLEND destBlend,
     float alphaSortKey,
-    int renderFlags)
+    int renderFlags,
+    bool groundOverlay = false)
 {
     if (!texture || texture == &CTexMgr::s_dummy_texture) {
         return;
@@ -672,6 +675,9 @@ void SubmitWorldQuad(const vector3d (&quad)[4],
         if (!ProjectPoint(quad[index], viewMatrix, &face->m_verts[index])) {
             return;
         }
+        // Native ground auras share the STR overlay depth. The bottom-effect
+        // pass still places them beneath actors, without terrain slicing holes.
+        if (groundOverlay) face->m_verts[index].z = 0.000031f;
         face->m_verts[index].color = colors[index];
         face->m_verts[index].specular = 0xFF000000u;
         face->m_verts[index].tu = uvs[index][0];
@@ -3998,7 +4004,9 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     }
 
     const int aniFrame = (std::max)(0, (std::min)(layer.cTex - 1, static_cast<int>(xform.aniframe)));
-    CTexture* texture = const_cast<KAC_LAYER&>(layer).GetTexture(aniFrame);
+    CTexture* texture = m_presentationHueShiftDegrees != 0
+        ? g_texMgr.GetHueShiftedTexture(layer.m_texName[static_cast<size_t>(aniFrame)], m_presentationHueShiftDegrees)
+        : const_cast<KAC_LAYER&>(layer).GetTexture(aniFrame);
     if (!texture || texture == &CTexMgr::s_dummy_texture) {
         return;
     }
@@ -4049,10 +4057,11 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     const auto clampColor = [](float value) -> unsigned int {
         return static_cast<unsigned int>((std::max)(0.0f, (std::min)(255.0f, value)));
     };
-    const unsigned int color = (clampColor(xform.crA) << 24)
+    unsigned int color = (clampColor(xform.crA) << 24)
         | (clampColor(xform.crR) << 16)
         | (clampColor(xform.crG) << 8)
         | clampColor(xform.crB);
+    if (m_presentationHueShiftDegrees != 0) color = ShiftColorHue(color, m_presentationHueShiftDegrees);
 
     float axisX = 0.0f, axisY = 0.0f, authoredLength = 1.0f, targetLength = 1.0f;
     if (direction) {
@@ -4105,6 +4114,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_startDelayMs = 0;
     m_castEndTick = 0;
     m_presentationOffsetY = 0.0f;
+    m_presentationHueShiftDegrees = 0;
     m_presentationBottomEffect = false;
     m_presentationBottomOffsetPx = 4.0f;
     m_pendingPresentationSound.clear();
@@ -4112,6 +4122,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_directionalPresentation = nullptr;
     m_directionalVariant = 0;
     m_presentationTexture = nullptr;
+    m_grandCrossOrigin = vector3d{};
+    m_grandCrossSparkleTexture = nullptr;
     m_devotionTargetGid = 0;
     m_devotionMaxDistance = 0;
     m_sonicWaveTrailTexture = nullptr;
@@ -4151,6 +4163,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothRemaining = vector3d{};
 
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+        m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
@@ -4227,6 +4240,17 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
 
     switch (effectId) {
+    case 226: // EF_GRANDCROSS: native ground geometry; the GRF has no matching STR.
+        m_grandCrossOrigin = ResolveBasePosition();
+        m_handler = Handler::GrandCross;
+        m_duration = static_cast<int>(std::ceil(kGrandCrossDurationMs / kEffectTickMs));
+        m_presentationTexture = TryResolveEffectTextureCandidates({ "effect\\ring_blue.tga" });
+        m_grandCrossSparkleTexture = TryResolveEffectTextureCandidates({ "effect\\pok1.tga" });
+        if (!m_presentationTexture) DbgLog("[RagEffect] missing Grand Cross texture 'ring_blue.tga'\n");
+        m_presentationBottomEffect = true;
+        m_presentationBottomOffsetPx = 0.0f;
+        m_pendingPresentationSound = "data\\wav\\effect\\cru_grand cross.wav";
+        break;
     case kRagEffectDevotionLink:
         m_handler = Handler::DevotionLink;
         SetLooping(true);
@@ -4846,6 +4870,8 @@ CAbleToMakeEffect* CRagEffect::ResolveCurrentEffectOwner() const
 
 vector3d CRagEffect::ResolveBasePosition() const
 {
+    // The completed cross stays where it was cast, even after movement/removal.
+    if (m_handler == Handler::GrandCross) return m_grandCrossOrigin;
     if (CRenderObject* master = ResolveCurrentMaster()) {
         return AddVec3(master->m_pos, m_deltaPos);
     }
@@ -4870,6 +4896,12 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::GrandCross: {
+        const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+        radius = cellSize * 8.0f;
+        center.y -= cellSize * 5.5f;
+        break;
+    }
     case Handler::SonicWave: {
         const auto& wave = m_proceduralPresentation->sonicWave;
         const vector3d start = m_presentationStarted ? m_sonicWaveStartPos : base;
@@ -6867,7 +6899,8 @@ u8 CRagEffect::OnProcess()
                 burst.haloAlpha, burst.haloRadius };
         }
     }
-    if ((m_handler == Handler::GuardSphere || m_handler == Handler::StealthFieldFog) && !m_presentationStarted) {
+    if ((m_handler == Handler::GuardSphere || m_handler == Handler::StealthFieldFog
+            || m_handler == Handler::GrandCross) && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }
@@ -6926,6 +6959,10 @@ u8 CRagEffect::OnProcess()
         return recoveryElapsedMs < durationMs ? 1 : 0;
     }
     const u32 now = timeGetTime();
+    if (m_handler == Handler::GrandCross) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < kGrandCrossDurationMs ? 1 : 0;
+    }
     if (m_handler == Handler::StealthFieldFog) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return (m_loop || m_stateCnt < m_duration) ? 1 : 0;
@@ -7241,6 +7278,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
         return;
     case 109:
         if (m_handler == Handler::BodyBurst
+            || m_handler == Handler::GrandCross
             || m_handler == Handler::DevotionLink
             || m_handler == Handler::SonicWave
             || m_handler == Handler::SpriteFlash
@@ -7490,6 +7528,123 @@ void CRagEffect::RenderBodyBurst(const matrix& viewMatrix)
             }
             g_renderer.AddRP(face, 1);
         }
+    }
+}
+
+void CRagEffect::RenderGrandCross(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    if (elapsedMs >= kGrandCrossDurationMs) return;
+    const float fade = (std::min)(1.0f, (std::min)(elapsedMs / 100.0f,
+        (kGrandCrossDurationMs - elapsedMs) / 450.0f));
+    const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+    const float growth = 0.95f + 0.05f * (std::min)(1.0f, elapsedMs / 200.0f);
+    const float scale = cellSize * growth;
+    // Both crosses and their particles use one clock and one 45-degree sweep.
+    const float rotation = static_cast<float>(elapsedMs) / kGrandCrossDurationMs * kPi * 0.25f;
+    const float rotationCos = std::cos(rotation);
+    const float rotationSin = std::sin(rotation);
+    constexpr int arcSegments = 16;
+    constexpr int outlinePoints = (arcSegments + 1) * 4;
+    const auto boundary = [&](int index) {
+        const int quadrant = index / (arcSegments + 1);
+        const float angle = static_cast<float>(index % (arcSegments + 1)) / arcSegments * kPi * 0.5f;
+        // Four concave quarter circles join the narrow tips of the cross.
+        const float x = 4.5f - 4.0f * std::sin(angle);
+        const float z = 4.5f - 4.0f * std::cos(angle);
+        switch (quadrant) {
+        case 0: return vector3d{ x, 0.0f, z };
+        case 1: return vector3d{ -z, 0.0f, x };
+        case 2: return vector3d{ -x, 0.0f, -z };
+        default: return vector3d{ z, 0.0f, -x };
+        }
+    };
+    const auto point = [&](const vector3d& edge, float radius, float height) {
+        // Match the original flat aura at the caster's feet. Its overlay depth
+        // keeps the continuous surface intact on slopes and beside walls.
+        return vector3d{ m_grandCrossOrigin.x + (edge.x * rotationCos - edge.z * rotationSin) * scale * radius,
+            m_grandCrossOrigin.y - 0.1f - height,
+            m_grandCrossOrigin.z + (edge.x * rotationSin + edge.z * rotationCos) * scale * radius };
+    };
+
+    // Low-opacity blue light on the floor, with a narrow bright rim feathered
+    // to zero outside the silhouette. Adjacent strips share all their vertices.
+    constexpr float radii[] = { 0.0f, 0.75f, 0.95f, 1.0f, 1.12f };
+    constexpr float alphas[] = { 26.0f, 24.0f, 36.0f, 58.0f, 0.0f };
+    const float floorUvs[4][2] = { { 0.5f, 0.90f }, { 0.5f, 0.90f },
+        { 0.5f, 0.90f }, { 0.5f, 0.90f } };
+    const auto renderCross = [&](float crossScale, float heightScale, float opacity) {
+        for (int index = 0; index < outlinePoints; ++index) {
+            const vector3d a = boundary(index);
+            const vector3d b = boundary((index + 1) % outlinePoints);
+            for (size_t ring = 0; ring + 1 < std::size(radii); ++ring) {
+                const vector3d quad[4] = { point(a, radii[ring] * crossScale, 0.0f), point(b, radii[ring] * crossScale, 0.0f),
+                    point(a, radii[ring + 1] * crossScale, 0.0f), point(b, radii[ring + 1] * crossScale, 0.0f) };
+                const unsigned int inner = PackColor(static_cast<unsigned int>(fade * opacity * alphas[ring]), RGB(128, 190, 255));
+                const unsigned int outer = PackColor(static_cast<unsigned int>(fade * opacity * alphas[ring + 1]), RGB(128, 190, 255));
+                const unsigned int colors[4] = { inner, inner, outer, outer };
+                SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, floorUvs,
+                    D3DBLEND_ONE, 0.0f, 1 | 4, true);
+            }
+        }
+
+        // The reference has tall, translucent curtains with vertical streaks.
+        // The inner cross uses a lower, softer curtain to keep both rims clear.
+        constexpr int heightSegments = 8;
+        const float curtainHeight = cellSize * 11.0f * heightScale;
+        const auto curtainColor = [&](float height) {
+            return PackColor(static_cast<unsigned int>(fade * opacity * 125.0f * (1.0f - height)),
+                RGB(static_cast<int>(170.0f + height * 50.0f), static_cast<int>(218.0f + height * 26.0f), 255));
+        };
+        for (int index = 0; index < outlinePoints; ++index) {
+            const vector3d a = boundary(index);
+            const vector3d b = boundary((index + 1) % outlinePoints);
+            const float u0 = static_cast<float>(index % 4) / 4.0f;
+            const float u1 = static_cast<float>(index % 4 + 1) / 4.0f;
+            for (int row = 0; row < heightSegments; ++row) {
+                const float v0 = static_cast<float>(row) / heightSegments;
+                const float v1 = static_cast<float>(row + 1) / heightSegments;
+                const vector3d quad[4] = { point(a, crossScale, v0 * curtainHeight), point(b, crossScale, v0 * curtainHeight),
+                    point(a, crossScale, v1 * curtainHeight), point(b, crossScale, v1 * curtainHeight) };
+                const unsigned int lower = curtainColor(v0);
+                const unsigned int upper = curtainColor(v1);
+                const unsigned int colors[4] = { lower, lower, upper, upper };
+                const float uvs[4][2] = { { u0, 0.94f * (1.0f - v0) }, { u1, 0.94f * (1.0f - v0) },
+                    { u0, 0.94f * (1.0f - v1) }, { u1, 0.94f * (1.0f - v1) } };
+                SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, uvs,
+                    D3DBLEND_ONE, 0.0f, 1 | 4, true);
+            }
+        }
+    };
+    renderCross(1.0f, 1.0f, 1.0f);
+    renderCross(0.55f, 0.38f, 0.7f);
+
+    if (!m_grandCrossSparkleTexture) return;
+    constexpr int sparkleCount = 24;
+    constexpr u32 sparkleDurationMs = 420;
+    const float sparkleUvs[4][2] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f } };
+    for (int index = 0; index < sparkleCount; ++index) {
+        const u32 startMs = static_cast<u32>(index) * 23u;
+        if (elapsedMs < startMs || elapsedMs - startMs >= sparkleDurationMs) continue;
+        const float age = static_cast<float>(elapsedMs - startMs) / sparkleDurationMs;
+        const float envelope = std::sin(age * kPi);
+        const float twinkle = 0.75f + 0.25f * std::sin(age * 15.0f + index * 2.0f);
+        // Index-based placement stays stable between frames; the shared point
+        // transform rotates the drifting particles with both crosses.
+        const vector3d edge = boundary(index * 29 % outlinePoints);
+        const float radius = 0.45f + (index % 5) * 0.12f + age * 0.06f;
+        const vector3d center = point(edge, radius, cellSize * (0.3f + age * (2.5f + (index % 3) * 0.4f)));
+        const float size = cellSize * (0.1f + (index % 3) * 0.04f) * (0.7f + envelope * 0.3f);
+        const auto sparklePoint = [&](float x, float y) {
+            return AddVec3(center, AddVec3(ScaleVec3(g_renderer.m_eyeRight, x * size), ScaleVec3(g_renderer.m_eyeUp, y * size)));
+        };
+        const vector3d quad[4] = { sparklePoint(-1.0f, -1.0f), sparklePoint(1.0f, -1.0f),
+            sparklePoint(-1.0f, 1.0f), sparklePoint(1.0f, 1.0f) };
+        const unsigned int color = PackColor(static_cast<unsigned int>(fade * envelope * twinkle * 220.0f), RGB(192, 230, 255));
+        const unsigned int colors[4] = { color, color, color, color };
+        SubmitWorldQuad(quad, viewMatrix, m_grandCrossSparkleTexture, colors, sparkleUvs,
+            D3DBLEND_ONE, 0.0f, 1 | 4, true);
     }
 }
 
@@ -7768,6 +7923,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     }
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
+    if (m_handler == Handler::GrandCross) RenderGrandCross(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);

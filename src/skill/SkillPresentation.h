@@ -78,6 +78,7 @@ struct SkillEffectPresentation {
     bool bottomEffect = false;
     float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
+    int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
     bool loop = false;
     bool oncePerHit = false;
     int delayMs = 0;

@@ -224,6 +224,7 @@ private:
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
     float m_presentationOffsetY = 0.0f;
+    int m_presentationHueShiftDegrees = 0;
     bool m_presentationBottomEffect = false;
     float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
@@ -231,6 +232,8 @@ private:
     const SkillEffectPresentation* m_directionalPresentation = nullptr;
     int m_directionalVariant = 0;
     CTexture* m_presentationTexture = nullptr;
+    vector3d m_grandCrossOrigin{};
+    CTexture* m_grandCrossSparkleTexture = nullptr;
     u32 m_devotionTargetGid = 0;
     u16 m_devotionMaxDistance = 0;
     CTexture* m_sonicWaveTrailTexture = nullptr;
@@ -258,6 +261,7 @@ private:
         BodyBurst,
         GuardSphere,
         SonicWave,
+        GrandCross,
         SpriteFlash,
         SpriteGlow,
         CastCone,
@@ -322,6 +326,7 @@ private:
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
     void RenderSonicWave(const matrix& viewMatrix);
+    void RenderGrandCross(const matrix& viewMatrix);
     void StartBuffEffect();
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);

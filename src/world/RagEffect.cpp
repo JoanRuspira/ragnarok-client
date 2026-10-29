@@ -4116,6 +4116,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
     m_presentationBottomEffect = false;
+    m_presentationDrawOverActors = false;
     m_presentationBottomOffsetPx = 4.0f;
     m_pendingPresentationSound.clear();
     m_proceduralPresentation = nullptr;
@@ -4166,6 +4167,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
+        m_presentationDrawOverActors = presentation->drawOverActors;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
         if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
             const auto& wave = presentation->sonicWave;
@@ -7912,7 +7914,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     // Apply the layer and screen-pixel shift to every face submitted by this
     // effect, including procedural renderers and nested components.
     const CRenderer::BottomEffectScope bottomScope(g_renderer,
-        m_presentationBottomEffect, m_presentationBottomOffsetPx);
+        m_presentationBottomEffect, m_presentationBottomOffsetPx, m_presentationDrawOverActors);
     if (m_directionalPresentation) {
         RenderDirectionalStr(viewMatrix);
         return;

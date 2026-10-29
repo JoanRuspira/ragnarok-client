@@ -76,6 +76,7 @@ struct SkillEffectPresentation {
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
     bool bottomEffect = false;
+    bool drawOverActors = false;
     float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.

@@ -272,7 +272,12 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadBoolean(state, table, "once_per_hit", effect.oncePerHit, error)
         || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
-        || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)) return false;
+        || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
+        || !ReadBoolean(state, table, "draw_over_actors", effect.drawOverActors, error)) return false;
+    if (effect.drawOverActors && !effect.bottomEffect) {
+        error = "draw_over_actors requires bottom_effect = true";
+        return false;
+    }
     if (effect.delayMs < 0) {
         error = "expected a nonnegative delay_ms";
         return false;
@@ -293,6 +298,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    if (effect.drawOverActors && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
+        error = "draw_over_actors requires an STR renderer";
+        return false;
+    }
     if (effect.hueShiftDegrees != 0 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
         error = "hue_shift_degrees requires an STR renderer";
         return false;

@@ -170,10 +170,10 @@ public:
     // useFaceBlend keeps explicit blend modes in the depth-sorted alpha queue.
     void AddRP(RPFace* face, int renderFlag, bool useFaceBlend = false);
     void AddGroundShadowRP(RPFace* face);
-    // Route an effect's faces below actors, restoring the previous layer on exit.
+    // Apply a bottom effect's offset and actor layer, restoring both on exit.
     class BottomEffectScope {
     public:
-        BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx);
+        BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors = false);
         ~BottomEffectScope();
         BottomEffectScope(const BottomEffectScope&) = delete;
         BottomEffectScope& operator=(const BottomEffectScope&) = delete;
@@ -182,6 +182,7 @@ public:
         CRenderer& m_renderer;
         bool m_previousActive;
         float m_previousOffsetPx;
+        bool m_previousDrawOverActors;
     };
     void AddLmRP(RPLmFace* face, int renderFlag);
     void AddRawRP(RPRaw* face, int renderFlag);
@@ -281,6 +282,7 @@ public:
 private:
     bool m_bottomEffectActive = false;
     float m_bottomEffectOffsetPx = 0.0f;
+    bool m_bottomEffectDrawOverActors = false;
     CRainEffect m_rainEffect;
     CFireflyEffect m_fireflyEffect;
     CModernFireWater m_modernFireWater;

@@ -18,6 +18,7 @@
 -- Motion 1 holds the job's skill invocation pose at either stage; 7 plays the full action.
 -- Effect entries support bottom_effect = true to draw behind actors, with
 -- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
+-- Bottom STRs can set draw_over_actors = true to keep the offset and overlay actors.
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
 -- For server-notified effects, the server supplies the first playback.
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
@@ -149,9 +150,16 @@ return {
                 {
                     effect_id = 2061,
                     str = [[data\texture\effect\ultimate_sacrifice\ultimatesacrifice\ultimatesacrifice.str]],
-                    wav = [[data\wav\effect\cd_presens_acies.wav]],
+                    wav = [[data\wav\effect\cd_religio.wav]],
                 },
             },
+        },
+        [950] = { -- SK_PA_HOLDTHELINE
+            name = "Hold the Line",
+            motion_type = 1,
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            server_notified = true,
         },
         [951] = { -- SK_PA_GOASPEL: the custom Gospel used by the Paladin skill tree.
             name = "Gospel",
@@ -193,6 +201,7 @@ return {
                 {
                     effect_id = 2073,
                     str = [[data\texture\effect\new_peintbomb\new_peintbomb\new_peintbomb.str]],
+                    wav = [[data\wav\effect\ig_overslash.wav]],
                 },
                 {
                     effect_id = 2074,
@@ -210,6 +219,7 @@ return {
                 {
                     effect_id = 2068,
                     str = [[data\texture\effect\guardianshield\guardianshield\guardianshield.str]],
+                    wav = [[data\wav\effect\cd_presens_acies.wav]],
                 },
                 {
                     effect_id = 2069,
@@ -226,6 +236,7 @@ return {
             source = {
                 {
                     effect_id = 2065,
+                    wav = [[data\wav\effect\lg_kings_grace.wav]],
                     str = [[data\texture\effect\strip_armor.str]],
                 },
                 {
@@ -273,6 +284,7 @@ return {
                 {
                     effect_id = 2083,
                     str = [[data\texture\effect\petitio\petitio_bottom\petitio_bottom.str]],
+                    wav = [[data\wav\effect\abc_abyss_strike.wav]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
                     hue_shift_degrees = 180, -- Yellow/gold to blue; 0 restores the original.
@@ -922,7 +934,10 @@ return {
             str = [[data\texture\effect\competentia\competentia_loop\competentia_loop.str]],
         },
         [2070] = { 
-            str = [[data\texture\effect\guardianshield\guardianshield_sub\guardianshield_sub.str]],
+            str = [[data\texture\effect\mil_shield.str]],
+            bottom_effect = true,
+            bottom_offset_px = 65,
+            draw_over_actors = true,
         },
         [2072] = { 
             str = [[data\texture\effect\provoke.str]], 

@@ -226,6 +226,7 @@ private:
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
     bool m_presentationBottomEffect = false;
+    bool m_presentationDrawOverActors = false;
     float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;

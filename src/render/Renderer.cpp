@@ -1052,15 +1052,17 @@ void CRenderer::Flip(bool vertSync) {
     GetRenderDevice().Present(vertSync);
 }
 
-CRenderer::BottomEffectScope::BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx)
+CRenderer::BottomEffectScope::BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors)
     : m_renderer(renderer)
     , m_previousActive(renderer.m_bottomEffectActive)
     , m_previousOffsetPx(renderer.m_bottomEffectOffsetPx)
+    , m_previousDrawOverActors(renderer.m_bottomEffectDrawOverActors)
 {
     // Unconfigured nested components inherit the containing effect's layer.
     if (enabled) {
         renderer.m_bottomEffectActive = true;
         renderer.m_bottomEffectOffsetPx = offsetPx;
+        renderer.m_bottomEffectDrawOverActors = drawOverActors;
     }
 }
 
@@ -1068,6 +1070,7 @@ CRenderer::BottomEffectScope::~BottomEffectScope()
 {
     m_renderer.m_bottomEffectActive = m_previousActive;
     m_renderer.m_bottomEffectOffsetPx = m_previousOffsetPx;
+    m_renderer.m_bottomEffectDrawOverActors = m_previousDrawOverActors;
 }
 
 void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
@@ -1087,13 +1090,19 @@ void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
             for (int index = 0; index < face->numVerts; ++index) {
                 face->verts[index].y += m_bottomEffectOffsetPx;
             }
-            const bool faceBlend = (renderFlag & 4) || useFaceBlend;
-            const bool emissive = (renderFlag & 2) != 0;
-            m_rpBottomEffectList.push_back({ sortKey, face,
-                faceBlend ? face->srcAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA),
-                faceBlend ? face->destAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA),
-                (renderFlag & 4) != 0 });
-        } else if ((renderFlag & 8) && (renderFlag & 4)) {
+            if (!m_bottomEffectDrawOverActors) {
+                const bool faceBlend = (renderFlag & 4) || useFaceBlend;
+                const bool emissive = (renderFlag & 2) != 0;
+                m_rpBottomEffectList.push_back({ sortKey, face,
+                    faceBlend ? face->srcAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA),
+                    faceBlend ? face->destAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA),
+                    (renderFlag & 4) != 0 });
+                return;
+            }
+            // Keep the pixel offset, but let an opted-in STR use its usual
+            // AlphaOP pass after the actor sprites instead of the bottom pass.
+        }
+        if ((renderFlag & 8) && (renderFlag & 4)) {
             m_rpAlphaOPNoDepthList.push_back({sortKey, face});
         } else if (renderFlag & 4) {
             m_rpAlphaOPList.push_back(face);

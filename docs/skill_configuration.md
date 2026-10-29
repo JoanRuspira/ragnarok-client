@@ -245,6 +245,13 @@ and audio paths so both use the same random variant. `offset_y` sets the vertica
 attachment offset, and `loop` controls repetition; STR playback uses the
 animation's authored FPS.
 
+Bottom STR effects normally draw beneath actor sprites. Set
+`draw_over_actors = true` alongside `bottom_effect = true` to retain the
+`bottom_offset_px` shift while drawing over actors through the normal STR pass.
+Effect `2070` uses this exception with its 65-pixel downward offset. Other
+bottom effects retain their existing layer; omitted or false disables the
+override. The field also supports `directional_str` and requires a bottom effect.
+
 STR entries also accept `hue_shift_degrees`, an integer from `0` to `360`.
 Omitting it, or using `0`/`360`, preserves the authored colors. The client shifts
 both texture RGB and animated layer RGB while preserving alpha and brightness

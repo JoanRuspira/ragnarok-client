@@ -523,6 +523,22 @@ return {
                 }
             },
         },
+        [368] = {
+            name = "Reckoning",
+            motion_type = 2,
+            target = {
+                {
+                    effect_id = 2084,
+                    str = [[data\texture\effect\attack_stance\attack_stance_cast\attack_stance_cast.str]],
+                },
+                {
+                    effect_id = 2085,
+                    str = [[data\texture\effect\ardor\ardor_cast_bottom\ardor_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                }
+            },
+        },
         [835] = {
             name = "Adrenaline Rush",
             motion_type = 1,

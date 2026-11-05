@@ -27,6 +27,8 @@ constexpr int kTotalDamageNumberKind = 22;
 constexpr int kStatusTypeFrenzy = 107;
 // STATUS_BLOODSPORT uses EFST_AURABLADE on the wire.
 constexpr int kStatusTypeBloodsport = 103;
+// STATUS_ENERGYCOAT uses EFST_ENERGYCOAT on the wire.
+constexpr int kStatusTypeEnergyCoat = 31;
 // STATUS_MILLENIUMSHIELDS uses EFST_KINGS_GRACE on the wire.
 constexpr int kStatusTypeMilleniumShields = 723;
 
@@ -308,6 +310,9 @@ public:
     bool m_bloodsportStatusActive = false;
     u32 m_bloodsportStatusStartTick = 0;
     u32 m_bloodsportStatusDurationMs = 0;
+    bool m_energyCoatStatusActive = false;
+    u32 m_energyCoatStatusStartTick = 0;
+    u32 m_energyCoatStatusDurationMs = 0;
     bool m_milleniumShieldsStatusActive = false;
     u32 m_milleniumShieldsStatusStartTick = 0;
     u32 m_milleniumShieldsStatusDurationMs = 0;
@@ -333,6 +338,8 @@ public:
     bool IsFrenzyStatusActive(u32 now) const;
     void SetBloodsportStatus(bool active, u32 remainingMs);
     bool IsBloodsportStatusActive(u32 now) const;
+    void SetEnergyCoatStatus(bool active, u32 remainingMs);
+    bool IsEnergyCoatStatusActive(u32 now) const;
     void SetMilleniumShieldsStatus(bool active, u32 remainingMs);
     bool IsMilleniumShieldsStatusActive(u32 now) const;
     void QueueWillBeAttacked(const WBA& hitInfo);

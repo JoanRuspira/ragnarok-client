@@ -4560,8 +4560,8 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
             }
         }
     }
-    if (effectId == kRagEffectMilleniumShields) {
-        // Status refreshes and frame updates keep one continuous STR loop.
+    if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura) {
+        // Status refreshes and frame updates keep one continuous aura.
         for (CRagEffect* effect : m_effectList) {
             if (effect && effect->GetEffectType() == effectId) return effect;
         }
@@ -4919,8 +4919,38 @@ bool CGameActor::IsMilleniumShieldsStatusActive(u32 now) const
             || now - m_milleniumShieldsStatusStartTick < m_milleniumShieldsStatusDurationMs);
 }
 
+void CGameActor::SetEnergyCoatStatus(bool active, u32 remainingMs)
+{
+    m_energyCoatStatusActive = active;
+    m_energyCoatStatusStartTick = timeGetTime();
+    // Legacy 0196 and infinite timers wait for the removal notification.
+    m_energyCoatStatusDurationMs = active && remainingMs != 0xFFFFFFFFu ? remainingMs : 0;
+    if (IsEnergyCoatStatusActive(m_energyCoatStatusStartTick)) {
+        LaunchEffect(kRagEffectEnergyCoatAura);
+    } else {
+        RemoveEffectById(kRagEffectEnergyCoatAura);
+    }
+}
+
+bool CGameActor::IsEnergyCoatStatusActive(u32 now) const
+{
+    return m_energyCoatStatusActive && m_stateId != kDeathStateId
+        && (m_energyCoatStatusDurationMs == 0
+            || now - m_energyCoatStatusStartTick < m_energyCoatStatusDurationMs);
+}
+
 void CGameActor::ProcessStatusEffects()
 {
+    if (m_energyCoatStatusActive) {
+        if (!IsEnergyCoatStatusActive(timeGetTime())) {
+            SetEnergyCoatStatus(false, 0);
+        } else if (g_session.m_isEffectOn) {
+            LaunchEffect(kRagEffectEnergyCoatAura);
+        } else {
+            RemoveEffectById(kRagEffectEnergyCoatAura);
+        }
+    }
+
     if (m_milleniumShieldsStatusActive) {
         if (!IsMilleniumShieldsStatusActive(timeGetTime())) {
             SetMilleniumShieldsStatus(false, 0);
@@ -5455,6 +5485,7 @@ void CGameActor::SetState(int state) {
         SetFrenzyStatus(false, 0);
         SetBloodsportStatus(false, 0);
         SetMilleniumShieldsStatus(false, 0);
+        SetEnergyCoatStatus(false, 0);
         m_path.Reset();
         m_moveStartPos = m_pos;
         m_moveEndPos = m_pos;

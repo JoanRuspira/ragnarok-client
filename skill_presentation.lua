@@ -58,6 +58,36 @@ return {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
+        [13] = { -- SK_MG_SOULSTRIKE
+            name = "Null Strike",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2101,
+                    -- Keep the requested filename's CP949 bytes intact.
+                    str = [[data\texture\effect\]] .. "\188\250\189\196\192\252\176\1794.str",
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                },
+            },
+        },
+        [340] = { -- SK_MG_DARKSTRIKE
+            name = "Dark Strike",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2102,
+                    -- Keep the requested filename's CP949 bytes intact.
+                    str = [[data\texture\effect\]] .. "\188\250\189\196\192\252\176\1795.str",
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                },
+            },
+        },
         [14] = { -- SK_MG_COLDBOLT
             name = "Cold Bolt",
             cast_motion_type = 1,
@@ -90,6 +120,29 @@ return {
                     once_per_hit = true,
                     delay_ms = 100,
                 },
+            },
+        },
+        [16] = { -- SK_MG_STONECURSE
+            name = "Stone Curse",
+            source = { -- Instant cast; the client presents its cast acknowledgement.
+                {
+                    effect_id = 2256,
+                    str = [[data\texture\effect\wooden_fairy\wooden_cast_bottom\wooden_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 2088,
+                    str = [[data\texture\effect\terremotus\terremotus\terremotus.str]],
+                    once_per_hit = false,
+                },
+            },
+        },
+        [92] = { -- SK_MG_QUAGMIRE
+            name = "Quagmire",
+            source = {
+                { effect_id = 2256 }, -- Shared Wooden Fairy caster bottom effect.
             },
         },
         [19] = { -- SK_MG_FIREBOLT
@@ -174,8 +227,9 @@ return {
             },
             target = {
                 {
-                    effect_id = 2088,
-                    str = [[data\texture\effect\terremotus\terremotus\terremotus.str]],
+                    effect_id = 1760,
+                    -- The installed GRF spells the 01b filename "vlolentquake".
+                    str = [[data\texture\effect\violentquake\violentquake\vlolentquake_01_b.str]],
                     once_per_hit = false,
                 },
                 {
@@ -187,6 +241,41 @@ return {
                 {
                     effect_id = 2090,
                     str = [[data\texture\effect\terremotus\terremotus_earth_care\terremotus_earth_care.str]],
+                    once_per_hit = false,
+                },
+            },
+        },
+        [2202] = { -- SK_MG_VOIDEXPANSION
+            name = "Void Expansion",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            source = { -- Instant cast: play on the caster when the skill is used.
+                { effect_id = 2101 }, -- Shared casting STR; bottom effect, offset 35 px.
+            },
+            target = {
+                {
+                    effect_id = 2104,
+                    str = [[data\texture\effect\test_effect\00\00.str]],
+                    once_per_hit = false,
+                },
+                {
+                    effect_id = 1983,
+                    str = [[data\texture\effect\4ig_thirdexorflame\thirdexorflame_cast\thirdexorflame_cast.str]],
+                    once_per_hit = false,
+                },
+            },
+        },
+        [844] = { -- SK_WZ_ICONOFSIN
+            name = "Icon of Sin",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            source = { -- Instant cast: play on the caster when the skill is used.
+                { effect_id = 2102 }, -- Dark Strike's casting STR; bottom effect, offset 35 px.
+            },
+            target = {
+                {
+                    effect_id = 2103,
+                    str = [[data\texture\effect\tetravortex\tetra_ball_00_core_ground\tetra_ball_00_core_grd.str]],
                     once_per_hit = false,
                 },
             },
@@ -1069,6 +1158,10 @@ return {
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [95] = { -- SK_MG_QUAGMIRE: only the center ground unit controls this loop.
+            str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],
+            bottom_effect = true,
+        },
         [312] = { -- EF_HEAL: shared by every skill that selects this Heal effect.
             str = [[data\texture\effect\argutustelum\argutustelum_cast\argutustelum_cast.str]],
         },

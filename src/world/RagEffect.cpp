@@ -39,7 +39,7 @@ constexpr u32 kRecoverySparkleStaggerMs = 10;
 constexpr u32 kSpriteFlashDurationMs = 240;
 constexpr u32 kGrandCrossDurationMs = 1000;
 constexpr u32 kBloodsportMistNotifyDurationMs = 5000;
-constexpr u32 kBloodsportMistCycleMs = 2400;
+constexpr u32 kStatusMistCycleMs = 2400;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
 constexpr float kMapPillarDurationFrames = 960.0f;
 constexpr float kWaterfallSegmentHeight = 40.0f;
@@ -2899,6 +2899,28 @@ bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float dir
     return true;
 }
 
+bool RenderSoulStrikeProjectile(const tlvertex3d& anchor, float alpha, float scale, u32 tint)
+{
+    // EF_SOULSTRIKE uses the installed particle1 SPR/ACT, shared through the
+    // same sprite-frame cache as spear and other effect particles.
+    const BakedEffectSpriteFrame* frame = GetBakedEffectSpriteFrame(
+        "data\\sprite\\\300\314\306\321\306\256\\particle1.act",
+        "data\\sprite\\\300\314\306\321\306\256\\particle1.spr", 0, 0);
+    if (!frame || !frame->texture) return false;
+
+    const float pixelRatio = ResolveEffectPixelRatio(anchor) * scale;
+    if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) return false;
+    const unsigned int opacity = static_cast<unsigned int>(
+        (std::max)(0.0f, (std::min)(1.0f, alpha)) * 255.0f);
+    SubmitScreenQuadPivot(anchor, frame->texture,
+        frame->pivotX * pixelRatio, frame->pivotY * pixelRatio,
+        static_cast<float>(frame->width) * pixelRatio,
+        static_cast<float>(frame->height) * pixelRatio, 0.0f,
+        (opacity << 24) | (tint & 0x00FFFFFFu), D3DBLEND_INVSRCALPHA,
+        anchor.oow, 1, kEffectSpriteDepthBias);
+    return true;
+}
+
 CEffectPrim::CEffectPrim()
     : m_master(nullptr)
     , m_type(PP_3DCIRCLE)
@@ -4263,6 +4285,15 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_presentationTexture = ResolveEffectTextureCandidates({ "data\\texture\\effect\\freeze_a.bmp" }, true);
         RefreshBloodsportMist();
         break;
+    case kRagEffectEnergyCoatAura:
+        m_handler = Handler::EnergyCoatAura;
+        // This BMP has a black background. Use a separate alpha-converted texture
+        // so dark smoke blends softly without drawing its rectangular background.
+        m_presentationTexture = g_texMgr.GetTexture("data\\texture\\effect\\freeze_a.bmp", true);
+        if (!m_presentationTexture || m_presentationTexture == &CTexMgr::s_dummy_texture) {
+            m_presentationTexture = GetSoftGlowTexture(true);
+        }
+        break;
     case 457: // EF_JUMPKICK: actor motion and sound, without a texture/STR.
         m_handler = Handler::JumpKick;
         m_duration = 15;
@@ -4620,6 +4651,14 @@ bool CRagEffect::IsSkillUnitFor(u32 casterGid, int effectId) const
         && m_skillUnitSourceGid == casterGid;
 }
 
+bool CRagEffect::IsSkillUnitCenterFor(u32 casterGid, int effectId, const vector3d& position) const
+{
+    return !m_cancelled && m_ownsMaster && !m_masterIsActor && m_type == effectId
+        && m_skillUnitSourceGid == casterGid
+        && std::fabs(m_cachedPos.x - position.x) < 0.01f
+        && std::fabs(m_cachedPos.z - position.z) < 0.01f;
+}
+
 bool CRagEffect::IsSkillUnitArea() const
 {
     return m_masterIsActor && (m_type == kRagEffectGospelArea || m_type == kRagEffectStealthField);
@@ -4776,7 +4815,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
-    if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink) Cancel();
+    if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink || m_type == kRagEffectEnergyCoatAura) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
     }
@@ -6903,7 +6942,7 @@ u8 CRagEffect::OnProcess()
         }
     }
     if ((m_handler == Handler::GuardSphere || m_handler == Handler::StealthFieldFog
-            || m_handler == Handler::GrandCross) && !m_presentationStarted) {
+            || m_handler == Handler::GrandCross || m_handler == Handler::EnergyCoatAura) && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }
@@ -6978,6 +7017,10 @@ u8 CRagEffect::OnProcess()
         // Standalone effect notifications (including remote actors without a
         // status packet) last until the next five-second server notification.
         return now - m_bloodsportMistLastNotifyTick < kBloodsportMistNotifyDurationMs ? 1 : 0;
+    }
+    if (m_handler == Handler::EnergyCoatAura) {
+        const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+        return actor && actor->IsEnergyCoatStatusActive(now) ? 1 : 0;
     }
     if (m_handler == Handler::SonicWave) {
         const auto& wave = m_proceduralPresentation->sonicWave;
@@ -7287,6 +7330,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
             || m_handler == Handler::SpriteFlash
             || m_handler == Handler::SpriteGlow || m_handler == Handler::CastCone
             || m_handler == Handler::DanceRays || m_handler == Handler::JumpKick
+            || m_handler == Handler::EnergyCoatAura
             || m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
             Cancel();
         }
@@ -7406,41 +7450,49 @@ void CRagEffect::RenderDanceRays(const matrix& viewMatrix)
     }
 }
 
-void CRagEffect::RenderBloodsportMist(const matrix& viewMatrix)
+void CRagEffect::RenderStatusMist(const matrix& viewMatrix)
 {
     if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
     const u32 now = timeGetTime();
     const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
-    if (m_bloodsportMistStatusOwned && (!actor || !actor->IsBloodsportStatusActive(now))) return;
+    const bool energyCoat = m_handler == Handler::EnergyCoatAura;
+    if (energyCoat && (!actor || !actor->IsEnergyCoatStatusActive(now))) return;
+    if (!energyCoat && m_bloodsportMistStatusOwned && (!actor || !actor->IsBloodsportStatusActive(now))) return;
     if (actor && (!actor->m_isVisible || !actor->m_isVisibleBody)) return;
     const u32 notifyElapsedMs = now - m_bloodsportMistLastNotifyTick;
-    if (!m_bloodsportMistStatusOwned && notifyElapsedMs >= kBloodsportMistNotifyDurationMs) return;
+    const bool statusOwned = energyCoat || m_bloodsportMistStatusOwned;
+    if (!statusOwned && notifyElapsedMs >= kBloodsportMistNotifyDurationMs) return;
 
     const u32 elapsedMs = now - m_presentationStartTick;
     const float fadeIn = (std::min)(1.0f, static_cast<float>(elapsedMs) / 200.0f);
-    const float fadeOut = m_bloodsportMistStatusOwned ? 1.0f
+    const float fadeOut = statusOwned ? 1.0f
         : (std::min)(1.0f, static_cast<float>(kBloodsportMistNotifyDurationMs - notifyElapsedMs) / 400.0f);
     const float actorAlpha = actor ? static_cast<float>(actor->GetHideFadeAlpha(now)) / 255.0f : 1.0f;
+    const COLORREF tint = energyCoat ? RGB(24, 48, 112) : RGB(255, 24, 16);
+    // Alpha blending keeps Energy Coat's smoke dark even over bright terrain.
+    const D3DBLEND destBlend = energyCoat ? D3DBLEND_INVSRCALPHA : D3DBLEND_ONE;
+    const int renderFlags = energyCoat ? 1 : (1 | 4);
+    const float mistScale = energyCoat ? 0.6f : 1.0f;
     const vector3d base = ResolveBasePosition();
     constexpr int kMistCount = 10;
     for (int index = 0; index < kMistCount; ++index) {
-        const u32 phaseMs = (elapsedMs + index * (kBloodsportMistCycleMs / kMistCount)) % kBloodsportMistCycleMs;
-        const float progress = static_cast<float>(phaseMs) / kBloodsportMistCycleMs;
+        const u32 phaseMs = (elapsedMs + index * (kStatusMistCycleMs / kMistCount)) % kStatusMistCycleMs;
+        const float progress = static_cast<float>(phaseMs) / kStatusMistCycleMs;
         const float envelope = std::sin(kPi * progress);
         const float angle = static_cast<float>(index) * 2.399963f + progress * 1.2f;
-        const float radius = 5.0f + envelope * 3.0f;
+        const float radius = (5.0f + envelope * 3.0f) * mistScale;
         const vector3d center = { base.x + std::cos(angle) * radius,
             base.y - 3.0f - progress * 18.0f, base.z + std::sin(angle) * radius };
         tlvertex3d anchor{};
         if (!ProjectPoint(center, viewMatrix, &anchor)) continue;
         const float pixelRatio = ResolveEffectPixelRatio(anchor);
         if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) continue;
-        const float width = (72.0f + progress * 56.0f) * pixelRatio;
-        const float height = (100.0f + progress * 56.0f) * pixelRatio;
+        const float width = (72.0f + progress * 56.0f) * pixelRatio * mistScale;
+        const float height = (100.0f + progress * 56.0f) * pixelRatio * mistScale;
         const unsigned int alpha = static_cast<unsigned int>(envelope * fadeIn * fadeOut * actorAlpha * 140.0f);
         SubmitScreenQuadPivot(anchor, m_presentationTexture, width * 0.5f, height * 0.5f,
             width, height, index * 37.0f + progress * 70.0f,
-            PackColor(alpha, RGB(255, 24, 16)), D3DBLEND_ONE, 0.0f, 1 | 4);
+            PackColor(alpha, tint), destBlend, energyCoat ? anchor.oow : 0.0f, renderFlags);
     }
 }
 
@@ -7931,7 +7983,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);
-    if (m_handler == Handler::BloodsportMist) RenderBloodsportMist(*viewMatrix);
+    if (m_handler == Handler::BloodsportMist || m_handler == Handler::EnergyCoatAura) RenderStatusMist(*viewMatrix);
     if (m_handler == Handler::StealthFieldFog) RenderStealthFieldFog(*viewMatrix);
     if (m_handler == Handler::RecoveryHp || m_handler == Handler::RecoverySp) {
         RenderRecoverySparkles(*viewMatrix);

@@ -594,6 +594,62 @@ damage packet. The server also sends `626` (`EF_MADNESS_RED`), now handled by
 the shared, fading red sprite-glow renderer. The caster visual and sound need an in-game
 comparison with the official client.
 
+Soul Strike (`13`, `SK_MG_SOULSTRIKE`) uses the installed
+`data\sprite\이펙트\particle1.spr` / `.act` white soul sprite for its projectiles,
+sharing the existing effect sprite cache. The
+[reference Soul Strike renderer](https://github.com/MrAntares/roBrowserLegacy/blob/master/src/DB/Effects/SoulStrikeEffect.js)
+identifies this sprite. Each reported damage hit contributes one ghost ball;
+all balls launch together from the caster on a shared clock. They have a
+white-blue tint (`RGB(192, 230, 255)`, matching Grand Cross's sparkles). Their distinct parabolic arcs sweep
+backward from the caster, then fan sideways and rise before descending onto the
+target; even the middle ball has a sideways bend. Each starts
+at twice its authored size and grows linearly on screen to four times that
+size at 98% of its flight, just before impact. Growth uses the launch depth so
+perspective along the arc cannot enlarge a ball early. Fading sprite copies
+follow its path and earlier size. The first impact occurs after 240 ms;
+individual flight times preserve the damage-number and hit-audio cadence,
+including configured white-number spacing and hits queued behind earlier attacks.
+Both actor and position damage notifications launch the projectiles. Flying shots
+follow moving targets, and a missing target retains its last position. Effects
+visibility is respected. The configured bottom casting STR in `skills[13].casting`
+continues to play during casting.
+
+Dark Strike (`340`, `SK_MG_DARKSTRIKE`) shares Soul Strike's original `particle1`
+sprite, simultaneous launch, backward sweep, distinct arcs, linear growth, and
+per-hit arrival timing. Its balls and trails use `RGB(140, 27, 63)`; each projectile
+owns its tint. Its caster uses `술식전개5.str` as a bottom casting effect with
+`bottom_offset_px = 35`, stored as CP949 byte escapes in `skills[340].casting`.
+
+Null Strike (Soul Strike, `13`) and Dark Strike still launch one ball per reported
+hit against immune targets. When zero damage produces no damage-number schedule,
+their visual arrivals start at 240 ms and continue 160 ms apart. This applies to
+both actor and position notifications without adding damage numbers or hit sounds.
+
+Stone Curse (`16`, `SK_MG_STONECURSE`) uses
+`wooden_fairy\wooden_cast_bottom\wooden_cast_bottom.str` as a bottom effect on
+the caster, configured in `skills[16].source`. The server sends an instant-cast
+acknowledgement and the target effect, without a successful-use notification.
+The client therefore presents the caster's configured effect and `Stone Curse!!`
+name on that acknowledgement, along with the configured `skills[16].target`
+effect. The target plays `terremotus\terremotus\terremotus.str` once per cast.
+The server's target effect remains independent.
+
+Earth Bolt (`839`, `SK_MG_EARTHBOLT`) plays the 01b variant,
+`violentquake\violentquake\vlolentquake_01_b.str`, on the target once per cast;
+the installed GRF uses that spelling. Its additional target bottom and earth-care
+effects remain configured alongside it.
+
+Quagmire (`92`, `SK_MG_QUAGMIRE`) replaces effect `95` through the shared `effects`
+table with `terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str`,
+drawn once as a bottom effect at the cast's center cell. The cast notification
+supplies that exact position; its matching ground unit `142` enables looping and
+owns removal, including early removal. Surrounding cells do not launch copies.
+Updates preserve the existing loop, and overlapping casts retain separate center
+visuals, including repeated casts at the same position.
+On use, `skills[92].source` plays shared effect `2256`,
+`wooden_fairy\wooden_cast_bottom\wooden_cast_bottom.str`, once on the caster as a
+bottom effect.
+
 ### Coverage and play checks
 
 Passive HP/SP recovery boosts (`SK_SM_RECOVERY`, skill `4`, and
@@ -709,6 +765,15 @@ disabling effects hides it, and re-enabling effects restores an active loop.
 Statuses received before local actor creation or across map changes are restored
 from the active status icons. The installed STR contains 80 frames at 60 FPS;
 all 35 texture references are present. No sound is configured.
+
+Energy Coat (`157`, `SK_MG_ENERGYCOAT`) maps `STATUS_ENERGYCOAT` to wire status
+`31` (`EFST_ENERGYCOAT`). While active, one dark blue smoky aura (`50020`) follows
+the affected actor, using `freeze_a.bmp` wisps with alpha blending and no sound.
+Status refreshes preserve the animation without stacking. Removal, timed expiry,
+death, or actor deletion ends the aura; legacy and infinite timers wait for removal.
+Re-enabling effects restores an active aura, and local bootstrap/map changes
+restore its remaining status duration. The two Venom Swamp activation STRs in
+`skills[157].source` play separately when the skill succeeds.
 
 Bleeding (`STATUS_BLEEDING`) sends effect `548` (`EF_RED_HIT`) to the affected
 actor every 500 ms in this server's status timer. It is a brief red sprite flash;
@@ -951,6 +1016,9 @@ in a running updated client. Compare these cases against the official client:
 | Shield Slam (947), moving/removed targets, repeated casts, camera rotation/zoom, and effects visibility | One 150%-size spinning shield falls over 560 ms, accelerates into the target, and briefly fades; rotation keeps its existing speed, longer attack motions delay release to align impact, and Shield Chain and Shield Boomerang are unchanged |
 | Rapid Smiting (480), varied hit counts, moving/removed targets, camera rotation/zoom, and effects visibility | Shields appear together around the target, simultaneously pass through their center, and exit on opposite sides with spinning cyan/gold afterimages and one combined impact burst; the count follows the packet and other shield skills are unchanged |
 | Sonic Wave (2002), near/far targets and varied camera angles | Attack motion and three blue crescents travel toward the target and fade within 1,032 ms; moving or removing the caster preserves their path, and Spirit Growth retains its own effect |
+| Soul Strike (13), one/multiple hits, moving actors, queued white damage, effects visibility, and actor/position notifications | All white-blue `particle1` ghost balls launch together, one per hit, sweep backward, then follow distinct parabolic paths toward the target and grow from 2x to 4x size; the first arrival is at 240 ms and arrivals match their damage numbers and hit sounds, while the bottom casting STR stays confined to casting |
+| Null Strike (13) / Dark Strike (340), immune targets, actor/position notifications, and effects visibility | The full volley still launches together with the existing colors, arcs, and growth; arrivals start at 240 ms and continue 160 ms apart, without damage numbers or hit sounds |
+| Stone Curse (16), instant cast and effects visibility | The cast acknowledgement shows `Stone Curse!!` above the caster, plays one caster-attached `wooden_cast_bottom.str` behind actors, and plays `terremotus.str` once on the target; the server also supplies its target effect |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
 | Hundred Spear (2312), one hit and multiple hits | Effects marked `once_per_hit` play once per reported hit, counting the server's first playback; with `delay_ms = 750`, the first waits 750 ms and repeats are 910 ms apart; unmarked components play once |
 | Damage skills with hit audio enabled, player and non-player casters, including Pierce | Players use normal-attack hit audio; non-players use `ef_hit2.wav`; one sound per hit uses the configured white-number spacing, including any white-number queue delay; misses, recovery, and animation-only packets remain silent |
@@ -983,6 +1051,7 @@ in a running updated client. Compare these cases against the official client:
 | Pharmacy / forging / arrow creation | Select items and successive materials; compare cancellation |
 | Repair Weapon / Sense | Repair an offered item; display the returned monster information |
 | Sanctuary / Magnus / Epiclesis / Psychic Wave | Ground effect persists and disappears with the server unit |
+| Quagmire (92), varied levels, overlapping/same-position casts, unit updates, early removal, and effects visibility | `wooden_cast_bottom.str` plays once on the caster as a bottom effect; one `terremotus_earth_care_bottom.str` visual loops at each cast's center; surrounding cells launch no copies, updates preserve the loop, and removing that cast's center unit removes its visual |
 | Gospel (369 / custom 951), activation beside walls/props and map edges, walking, camera rotation/zoom, slopes, repeated activation, and expiry | Both skill IDs use motion 1 to hold the caster's invocation pose; one complete area of upright glowing crosses follows the caster at the caster's floor height, including blocked cells omitted by the server (custom 951: 5x5; native 369: 33-cell cross); crosses stay visible over walls/props and sort in front of or behind actors by depth; unit updates do not duplicate or restart the aura, and removal of its last server unit removes the entire visual |
 | Hold the Line (950), activation, walking, walls/map edges, repeated activation, toggle-off, expiry, and actor removal | The existing cast effects still play; dense fog consistently covers every cell of the full 5x5 square around the caster, including cells omitted by server path checks; overlapping fog textures drift gently at steady opacity; moving unit updates do not duplicate or restart the fog, and removal of its last server unit or the caster removes the visual |
 | Bolts / small Heal / buff while another actor casts | Show hit/heal/buff effects without disturbing that cast |

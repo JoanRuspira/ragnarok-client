@@ -7144,6 +7144,7 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
             if (status.statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(true, remainingMs);
             if (status.statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(true, remainingMs);
             if (status.statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(true, remainingMs);
+            if (status.statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(true, remainingMs);
         }
     }
 

@@ -21,11 +21,14 @@ class CTexture;
 class CGndRes;
 class C3dWorldRes;
 
+constexpr float kWorldProjectileFrameMs = 24.0f;
+
 enum class WorldProjectileVisual {
     Arrow,
     Stone,
     Spear,
     Shield,
+    SoulStrike,
 };
 
 struct CLMInfo {
@@ -344,6 +347,8 @@ public:
         float travelFrames,
         float delayFrames = 0.0f,
         u32 sourceGid = 0);
+    void SpawnSoulStrikeProjectiles(const vector3d& sourcePos, const vector3d& targetPos,
+        u32 sourceGid, u32 targetGid, const std::vector<u32>& hitDelays, u32 tint);
     void SpawnShieldChainEffect(const vector3d& sourcePos, const vector3d& targetPos,
         u32 sourceGid, u32 targetGid, bool beginChain);
     void SpawnShieldSlamEffect(CGameActor* targetActor, const vector3d& targetPos, u32 impactDelayMs);

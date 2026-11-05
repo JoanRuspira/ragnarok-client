@@ -17,6 +17,7 @@ struct tlvertex3d;
 
 // Shares the effect SPR/ACT frame cache with the world projectile renderer.
 bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float directionY, float alpha);
+bool RenderSoulStrikeProjectile(const tlvertex3d& anchor, float alpha, float scale, u32 tint);
 
 enum EFFECTPRIMID {
     PP_3DCIRCLE = 0,
@@ -95,6 +96,7 @@ constexpr int kRagEffectVerdureTrap = 50015;
 constexpr int kRagEffectMilleniumShields = 50016; // Status-owned Holy Shield loop.
 constexpr int kRagEffectGospelArea = 50017; // Caster-owned visual, kept alive by Gospel units.
 constexpr int kRagEffectDevotionLink = 50019; // Links from the server's ZC_DEVOTIONLIST.
+constexpr int kRagEffectEnergyCoatAura = 50020; // Status-owned dark blue smoke.
 
 class CRagEffect;
 
@@ -190,6 +192,7 @@ public:
     void SetSkillUnitId(u32 id, u32 sourceGid = 0) { m_skillUnitId = id; m_skillUnitSourceGid = sourceGid; }
     u32 GetSkillUnitId() const { return m_skillUnitId; }
     bool IsSkillUnitFor(u32 casterGid, int effectId) const;
+    bool IsSkillUnitCenterFor(u32 casterGid, int effectId, const vector3d& position) const;
     bool IsSkillUnitArea() const;
     bool IsSkillUnitAreaFor(u32 casterGid, int effectId) const;
     void TrackAreaSkillUnit(u32 unitAid);
@@ -268,6 +271,7 @@ private:
         CastCone,
         DanceRays,
         BloodsportMist,
+        EnergyCoatAura,
         StealthFieldFog,
         JumpKick,
         GroundSurface,
@@ -331,7 +335,7 @@ private:
     void StartBuffEffect();
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);
-    void RenderBloodsportMist(const matrix& viewMatrix);
+    void RenderStatusMist(const matrix& viewMatrix);
     void RenderStealthFieldFog(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     void RenderDevotionLink(const matrix& viewMatrix);

@@ -1847,7 +1847,10 @@ public:
         WorldProjectileVisual visual,
         float travelFrames,
         float delayFrames,
-        u32 sourceGid)
+        u32 sourceGid,
+        float soulStrikePathOffset = 0.0f,
+        u32 startTick = 0,
+        u32 soulStrikeTint = 0x00FFFFFFu)
         : m_startPos(ResolveAnchorPosition(startPos))
         , m_currentPos(ResolveAnchorPosition(startPos))
         , m_lastPos(ResolveAnchorPosition(startPos))
@@ -1859,19 +1862,25 @@ public:
         , m_visual(visual)
         , m_travelFrames((std::max)(1.0f, travelFrames))
         , m_delayFrames((std::max)(0.0f, delayFrames))
-        , m_startTick(timeGetTime())
+        , m_soulStrikePathOffset(soulStrikePathOffset)
+        , m_soulStrikeTint(soulStrikeTint)
+        , m_startTick(startTick != 0 ? startTick : timeGetTime())
     {
     }
 
     u8 OnProcess() override
     {
         const u32 now = timeGetTime();
-        const float elapsedFrames = static_cast<float>(now - m_startTick) / 24.0f;
+        const float elapsedFrames = static_cast<float>(now - m_startTick) / kWorldProjectileFrameMs;
         if (elapsedFrames < m_delayFrames) {
             return 1;
         }
 
         if (!m_initializedTravel) {
+            if (m_visual == WorldProjectileVisual::SoulStrike && m_sourceGid != 0) {
+                // Every soul in the volley leaves the caster's current position.
+                if (!ResolveLiveActorPosition(m_sourceGid, &m_startPos)) return 0;
+            }
             vector3d resolvedTarget{};
             if (ResolveLiveActorPosition(m_targetGid, &resolvedTarget)) {
                 m_targetPos = resolvedTarget;
@@ -1882,6 +1891,10 @@ public:
         }
 
         const float travelElapsed = elapsedFrames - m_delayFrames;
+        if (m_visual == WorldProjectileVisual::SoulStrike) {
+            vector3d resolvedTarget{};
+            if (ResolveLiveActorPosition(m_targetGid, &resolvedTarget)) m_targetPos = resolvedTarget;
+        }
         if (m_visual == WorldProjectileVisual::Shield) {
             m_travelProgress = (std::min)(2.0f, (std::max)(0.0f, travelElapsed / m_travelFrames));
             m_lastPos = m_currentPos;
@@ -1896,7 +1909,7 @@ public:
         const float progress = (std::min)(1.0f, (std::max)(0.0f, travelElapsed / m_travelFrames));
         m_travelProgress = progress;
         m_lastPos = m_currentPos;
-        m_currentPos = LerpVec3(m_startPos, m_targetPos, progress);
+        m_currentPos = ResolveTravelPosition(progress);
         return progress < 1.0f ? 1 : 0;
     }
 
@@ -1905,10 +1918,13 @@ public:
         if (!viewMatrix || !m_initializedTravel) {
             return;
         }
-        if (m_visual == WorldProjectileVisual::Shield && !g_session.m_isEffectOn) return;
+        if ((m_visual == WorldProjectileVisual::Shield || m_visual == WorldProjectileVisual::SoulStrike)
+            && !g_session.m_isEffectOn) return;
 
-        CTexture* texture = m_visual == WorldProjectileVisual::Spear ? nullptr : ResolveTexture();
-        if (m_visual != WorldProjectileVisual::Spear && !texture) {
+        const bool spriteProjectile = m_visual == WorldProjectileVisual::Spear
+            || m_visual == WorldProjectileVisual::SoulStrike;
+        CTexture* texture = spriteProjectile ? nullptr : ResolveTexture();
+        if (!spriteProjectile && !texture) {
             if (!m_loggedTextureFailure) {
                 DbgLog("[Projectile] render skipped visual=%d reason=no-texture start=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f)\n",
                     static_cast<int>(m_visual),
@@ -1935,6 +1951,34 @@ public:
                     m_targetPos.y,
                     m_targetPos.z);
                 m_loggedProjectionFailure = true;
+            }
+            return;
+        }
+
+        if (m_visual == WorldProjectileVisual::SoulStrike) {
+            // Keep growth linear on screen: the rising arc must not magnify
+            // the sprite early just because it moves closer to the camera.
+            tlvertex3d launchAnchor{};
+            const float referenceOow = ProjectPoint(g_renderer, *viewMatrix, m_startPos, &launchAnchor)
+                ? launchAnchor.oow : anchor.oow;
+            // Fading copies of the authored soul sprite form its travelling tail.
+            const float trailStep = (1000.0f / 60.0f) / (m_travelFrames * kWorldProjectileFrameMs);
+            for (int index = 11; index > 0; --index) {
+                const float progress = m_travelProgress - static_cast<float>(index) * trailStep;
+                if (progress <= 0.0f) continue;
+                tlvertex3d trail{};
+                if (ProjectPoint(g_renderer, *viewMatrix, ResolveTravelPosition(progress), &trail)) {
+                    const float fade = 1.0f - static_cast<float>(index) / 12.0f;
+                    RenderSoulStrikeProjectile(trail, fade * fade * 0.45f,
+                        ResolveSoulStrikeScale(progress) * referenceOow / trail.oow
+                            * (0.5f + fade * 0.5f), m_soulStrikeTint);
+                }
+            }
+            if (!RenderSoulStrikeProjectile(anchor, 1.0f,
+                    ResolveSoulStrikeScale(m_travelProgress) * referenceOow / anchor.oow, m_soulStrikeTint)
+                && !m_loggedTextureFailure) {
+                DbgLog("[Projectile] render skipped visual=soul-strike reason=no-sprite-frame\n");
+                m_loggedTextureFailure = true;
             }
             return;
         }
@@ -2046,7 +2090,8 @@ public:
             return false;
         }
 
-        const vector3d start = m_initializedTravel ? m_currentPos : m_startPos;
+        const vector3d start = m_initializedTravel && m_visual != WorldProjectileVisual::SoulStrike
+            ? m_currentPos : m_startPos;
         const vector3d end = m_visual == WorldProjectileVisual::Shield && m_travelProgress >= 1.0f
             ? m_returnTargetPos : (m_initializedTravel ? m_targetPos : m_snapshotTargetPos);
         *outCenter = vector3d{
@@ -2059,10 +2104,67 @@ public:
         const float dz = end.z - start.z;
         const float halfDistance = std::sqrt(dx * dx + dy * dy + dz * dz) * 0.5f;
         *outRadius = halfDistance + (m_visual == WorldProjectileVisual::Arrow ? 12.0f : 16.0f);
+        if (m_visual == WorldProjectileVisual::SoulStrike) {
+            // Include the raised and sideways arc, backward sweep, and growing sprite.
+            const float halfArcHeight = ResolveSoulStrikeArcHeight() * 0.5f;
+            outCenter->y -= halfArcHeight;
+            const float lateralExtent = ResolveSoulStrikeArcHeight() * std::fabs(m_soulStrikePathOffset) * 0.75f;
+            *outRadius = halfDistance + halfArcHeight + lateralExtent
+                + ResolveSoulStrikeRetreatDistance() + 64.0f;
+        }
         return true;
     }
 
 private:
+    static constexpr float kSoulStrikeInitialScale = 2.0f;
+
+    static float ResolveSoulStrikeScale(float progress)
+    {
+        // Double at 98% of the flight, immediately before reaching the target.
+        const float growth = (std::max)(0.0f, (std::min)(1.0f, progress / 0.98f));
+        return kSoulStrikeInitialScale * (1.0f + growth);
+    }
+
+    float ResolveSoulStrikeRetreatDistance() const
+    {
+        return 8.0f + std::fabs(m_soulStrikePathOffset) * 4.0f;
+    }
+
+    float ResolveSoulStrikeArcHeight() const
+    {
+        const float distance = std::sqrt(SquareDistance2d(m_startPos, m_targetPos));
+        // Keep a clear rise at close range and account for terrain height so
+        // the ball leaves upwards and arrives descending on either slope.
+        const float height = (std::max)(24.0f, (std::min)(60.0f, distance * 0.45f))
+            + std::fabs(m_targetPos.y - m_startPos.y) * 0.25f;
+        return height * (1.0f + std::fabs(m_soulStrikePathOffset) * 0.3f);
+    }
+
+    vector3d ResolveTravelPosition(float progress) const
+    {
+        vector3d position = LerpVec3(m_startPos, m_targetPos, progress);
+        if (m_visual == WorldProjectileVisual::SoulStrike) {
+            // Negative world Y is up. Each parabola meets both actor anchors,
+            // while its sideways bend separates it from the rest of the volley.
+            const float arc = 4.0f * ResolveSoulStrikeArcHeight() * progress * (1.0f - progress);
+            position.y -= arc;
+            const float distance = std::sqrt(SquareDistance2d(m_startPos, m_targetPos));
+            const float forwardX = distance > 0.0001f ? (m_targetPos.x - m_startPos.x) / distance : 0.0f;
+            const float forwardZ = distance > 0.0001f ? (m_targetPos.z - m_startPos.z) / distance : 1.0f;
+            // A control point behind the caster makes the ball sweep back a
+            // short, bounded distance before accelerating toward the target.
+            const float retreat = ResolveSoulStrikeRetreatDistance();
+            const float controlDistance = retreat + std::sqrt(retreat * (retreat + distance));
+            const float backward = 2.0f * controlDistance * progress * (1.0f - progress);
+            position.x = m_startPos.x + (m_targetPos.x - m_startPos.x) * progress * progress - forwardX * backward;
+            position.z = m_startPos.z + (m_targetPos.z - m_startPos.z) * progress * progress - forwardZ * backward;
+            const float lateral = arc * m_soulStrikePathOffset * 0.75f;
+            position.x -= forwardZ * lateral;
+            position.z += forwardX * lateral;
+        }
+        return position;
+    }
+
     static vector3d ResolveAnchorPosition(const vector3d& pos)
     {
         vector3d adjusted = pos;
@@ -2121,6 +2223,8 @@ private:
     float m_travelFrames = 8.0f;
     float m_delayFrames = 0.0f;
     float m_travelProgress = 0.0f;
+    float m_soulStrikePathOffset = 0.0f;
+    u32 m_soulStrikeTint = 0x00FFFFFFu;
     u32 m_startTick = 0;
     bool m_initializedTravel = false;
     bool m_loggedFirstRender = false;
@@ -7092,6 +7196,25 @@ void CWorld::SpawnProjectileEffect(const vector3d& startPos,
         travelFrames,
         delayFrames,
         sourceGid));
+}
+
+void CWorld::SpawnSoulStrikeProjectiles(const vector3d& sourcePos, const vector3d& targetPos,
+    u32 sourceGid, u32 targetGid, const std::vector<u32>& hitDelays, u32 tint)
+{
+    const u32 startTick = timeGetTime();
+    for (size_t hit = 0; hit < hitDelays.size(); ++hit) {
+        const float fanPosition = hitDelays.size() > 1
+            ? 2.0f * static_cast<float>(hit) / static_cast<float>(hitDelays.size() - 1) - 1.0f : 0.0f;
+        // Leave a gap at the center of the fan: even a single or middle ball
+        // needs a visible sideways bend instead of following the direct line.
+        const float pathOffset = (fanPosition < 0.0f ? -1.0f : 1.0f)
+            * (0.35f + std::fabs(fanPosition) * 0.65f);
+        // Launch every ball together. Different flight times retain the hit
+        // cadence while the per-ball offsets fan their paths out from the caster.
+        const float travelFrames = static_cast<float>((std::max)(1u, hitDelays[hit])) / kWorldProjectileFrameMs;
+        m_gameObjectList.push_back(new CWorldProjectile(sourcePos, targetPos, targetGid,
+            WorldProjectileVisual::SoulStrike, travelFrames, 0.0f, sourceGid, pathOffset, startTick, tint));
+    }
 }
 
 void CWorld::SpawnShieldChainEffect(const vector3d& sourcePos, const vector3d& targetPos,

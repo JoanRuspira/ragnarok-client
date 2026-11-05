@@ -858,7 +858,7 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
     // Status visuals belong to the affected actor; only the local player's
     // status icons belong in the UI.
     if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport
-            || statusType == kStatusTypeMilleniumShields) && actorId != 0) {
+            || statusType == kStatusTypeMilleniumShields || statusType == kStatusTypeEnergyCoat) && actorId != 0) {
         CGameActor* actor = ResolveNotifyEffectActor(mode, actorId);
         // The local bootstrap creates a CPlayer; do not replace it with a generic
         // placeholder if the status arrives first. Its icon retains the status.
@@ -866,6 +866,7 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
         if (actor) {
             if (statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(active, remainingMs);
             else if (statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(active, remainingMs);
+            else if (statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(active, remainingMs);
             else actor->SetMilleniumShieldsStatus(active, remainingMs);
             DbgLog("[GameMode] actor status type=%d actor=%u active=%d remainingMs=%u\n",
                 statusType, actorId, active ? 1 : 0, remainingMs);
@@ -3546,6 +3547,17 @@ constexpr int kDefaultAttackMotionTime = 1440;
 constexpr int kDefaultSkillMotionTime = 450;
 constexpr u32 kRefDoubleAttackTermMs = 200;
 constexpr u32 kSkillHitNumberIntervalMs = 160;
+constexpr u16 kSkillIdSoulStrike = 13;
+constexpr u16 kSkillIdStoneCurse = 16;
+constexpr u16 kSkillIdQuagmire = 92;
+constexpr u16 kSkillIdDarkStrike = 340;
+constexpr int kEffectIdQuagmire = 95;
+constexpr u32 kSoulStrikeFirstImpactMs = 240;
+
+bool UsesSoulStrikeProjectiles(u16 skillId)
+{
+    return skillId == kSkillIdSoulStrike || skillId == kSkillIdDarkStrike;
+}
 
 struct ScheduledAttackHit {
     int damage = 0;
@@ -3929,7 +3941,7 @@ void PopulateCombatHitWaveName(CGameActor* sourceActor, CGameActor* targetActor,
 }
 
 std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
-    const std::vector<int>& hitDamages, u8 actionType)
+    const std::vector<int>& hitDamages, u8 actionType, u32 impactDelayMs = 0)
 {
     std::vector<u32> hitDelays;
     if (!targetActor || actionType == kNotifyActLuckyDodge) {
@@ -3946,7 +3958,7 @@ std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetAc
             ? GetWhiteDamageNumberSettings().delayBetweenNumbersMs
             : kSkillHitNumberIntervalMs;
         const u32 displayDelayMs = EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
-            static_cast<u32>(hitIndex) * intervalMs);
+            impactDelayMs + static_cast<u32>(hitIndex) * intervalMs);
         hitDelays.push_back(displayDelayMs);
         lastHitDelayMs = (std::max)(lastHitDelayMs, displayDelayMs);
         if (hitDamage > 0) {
@@ -3980,12 +3992,28 @@ u16 ResolveDisplayedSkillHitCount(u16 skillId, u16 level, u16 div)
 }
 
 std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
-    int damage, u8 actionType, u16 hitCountRaw)
+    int damage, u8 actionType, u16 hitCountRaw, u32 impactDelayMs = 0)
 {
     std::vector<int> hitDamages;
     hitDamages.reserve((std::max)(1, static_cast<int>(hitCountRaw)));
     AppendCombatDamageHits(hitDamages, damage, hitCountRaw);
-    return EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType);
+    return EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType, impactDelayMs);
+}
+
+void SpawnSoulStrikeProjectiles(CGameMode& mode, u16 skillId, CGameActor* sourceActor,
+    CGameActor* targetActor, const vector3d& targetPos, u16 hitCountRaw, std::vector<u32> hitDelays)
+{
+    if (!mode.m_world || !sourceActor || !g_session.m_isEffectOn) return;
+    // Immune targets have no damage numbers, but each reported hit still needs a ball.
+    if (hitDelays.empty()) {
+        hitDelays.resize((std::max)(1, static_cast<int>(hitCountRaw)));
+        for (size_t hit = 0; hit < hitDelays.size(); ++hit) {
+            hitDelays[hit] = kSoulStrikeFirstImpactMs + static_cast<u32>(hit) * kSkillHitNumberIntervalMs;
+        }
+    }
+    const u32 tint = skillId == kSkillIdDarkStrike ? 0x008C1B3Fu : 0x00C0E6FFu;
+    mode.m_world->SpawnSoulStrikeProjectiles(sourceActor->m_pos, targetPos,
+        sourceActor->m_gid, targetActor ? targetActor->m_gid : 0, hitDelays, tint);
 }
 
 template <typename LaunchEffect>
@@ -5325,7 +5353,10 @@ static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sour
     u32 previousDelayMs = 0;
     for (size_t hitIndex = 0; hitIndex < hitDelays.size(); ++hitIndex) {
         u32 delayMs = static_cast<u32>(hitIndex) * intervalMs;
-        if (whiteNumbers) {
+        if (UsesSoulStrikeProjectiles(skillId)) {
+            // These hit times also schedule the ghost balls' arrivals.
+            delayMs = hitDelays[hitIndex];
+        } else if (whiteNumbers) {
             // QueueDamageNumber may postpone white numbers behind earlier hits on this target.
             delayMs = (std::max)(delayMs, hitDelays[hitIndex]);
             if (hitIndex > 0) delayMs = (std::max)(delayMs, previousDelayMs + intervalMs);
@@ -5510,8 +5541,15 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     sourceActor->m_autoGuardCastAckUntilTick = skillId == kSkillIdAutoGuard
         ? timeGetTime() + static_cast<u32>((std::max)(0, castTimeMs)) + 2000u : 0;
 
-    // Instant skills receive their action/effects from the successful-use packet.
+    // Most instant skills receive their action/effects from the successful-use packet.
     if (castTimeMs <= 0) {
+        // Stone Curse sends only this acknowledgement and the target's effect,
+        // so present the configured caster/target effects and skill-name shout here.
+        if (skillId == kSkillIdStoneCurse) {
+            ClearAttachedSkillEffects(sourceActor);
+            StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultSkillMotionTime, skillId, targetActor);
+            EmitSkillImpactEffects(targetActor, skillId, 1);
+        }
         DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
             srcGid, dstGid, static_cast<unsigned int>(skillId), static_cast<unsigned int>(property),
             castTimeMs, cellX, cellY);
@@ -5686,7 +5724,13 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
             targetActor->LaunchEffect(healEffectId, vector3d{}, 0.0f);
         }
     }
-    std::vector<u32> hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
+    const u32 impactDelayMs = UsesSoulStrikeProjectiles(skillId) ? kSoulStrikeFirstImpactMs : 0;
+    std::vector<u32> hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount,
+        impactDelayMs);
+    if (UsesSoulStrikeProjectiles(skillId)) {
+        SpawnSoulStrikeProjectiles(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
+            displayHitCount, hitDelays);
+    }
     PlaySkillDamageSounds(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
         damage, actionType, std::move(hitDelays));
 
@@ -5763,13 +5807,22 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
             cellY);
         return;
     }
+    const u32 impactDelayMs = UsesSoulStrikeProjectiles(skillId) ? kSoulStrikeFirstImpactMs : 0;
     std::vector<u32> hitDelays;
     if (targetActor) {
         QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
         EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
-        hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount);
+        hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount, impactDelayMs);
     } else {
         hitDelays.resize(displayHitCount);
+        if (UsesSoulStrikeProjectiles(skillId)) {
+            for (size_t hit = 0; hit < hitDelays.size(); ++hit) {
+                hitDelays[hit] = impactDelayMs + static_cast<u32>(hit) * kSkillHitNumberIntervalMs;
+            }
+        }
+    }
+    if (UsesSoulStrikeProjectiles(skillId)) {
+        SpawnSoulStrikeProjectiles(mode, skillId, sourceActor, targetActor, impactPos, displayHitCount, hitDelays);
     }
 
     EmitGroundSkillEffects(mode, skillId, level, impactPos, displayHitCount);
@@ -5808,7 +5861,15 @@ void HandleGroundSkillNotify(CGameMode& mode, const PacketView& packet)
         ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, &worldPos, kDefaultSkillMotionTime, skillId);
     }
-    EmitGroundSkillEffects(mode, skillId, level, worldPos);
+    if (skillId == kSkillIdQuagmire) {
+        if (CRagEffect* effect = SpawnWorldSkillEffect(mode, kEffectIdQuagmire, worldPos)) {
+            // The center unit enables looping when it arrives. Until then,
+            // the STR keeps its normal lifetime if no ground unit is created.
+            effect->SetSkillUnitId(0, srcGid);
+        }
+    } else {
+        EmitGroundSkillEffects(mode, skillId, level, worldPos);
+    }
     PlayGroundSkillImpactSound(skillId, worldPos);
 
     DbgLog("[GameMode] ground skill src=%u skill=%u level=%u cell=(%d,%d)\n",
@@ -6118,7 +6179,7 @@ int ResolveSkillUnitEffectId(u16 unitId)
     case 133: return 141;
     case 135: return 96;
     case 136: return 97;
-    case 142: return 95;
+    case 142: return kEffectIdQuagmire;
     case 143: case 144: case 145:
     case 147: case 148: case 149: case 150: case 151: case 152: case 153:
     case 214: case 215: case 216: case 217:
@@ -6229,6 +6290,27 @@ void HandleSkillUnitSet(CGameMode& mode, const PacketView& packet)
     const int effectId = ResolveSkillUnitEffectId(unitId);
     if (packet.data[15] == 0) {
         CancelSkillUnitEffect(mode.m_world, unitAid);
+        return;
+    }
+    if (unitId == 142) { // Quagmire: only the notified cast center owns a visual.
+        const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
+        CRagEffect* centerEffect = nullptr;
+        for (CGameObject* object : mode.m_world->m_gameObjectList) {
+            auto* effect = dynamic_cast<CRagEffect*>(object);
+            if (!effect || !effect->IsSkillUnitCenterFor(srcGid, effectId, worldPos)) continue;
+            if (effect->GetSkillUnitId() == unitAid) {
+                centerEffect = effect;
+                break; // An update preserves this cast's existing loop.
+            }
+            if (effect->GetSkillUnitId() == 0) centerEffect = effect;
+        }
+        CancelSkillUnitEffect(mode.m_world, unitAid, centerEffect);
+        if (centerEffect) {
+            centerEffect->SetSkillUnitId(unitAid, srcGid);
+            centerEffect->SetLooping(true);
+            DbgLog("[SkillUnit] quagmire center unitAid=%u src=%u cell=(%d,%d)\n",
+                unitAid, srcGid, cellX, cellY);
+        }
         return;
     }
     CRagEffect* areaEffect = nullptr;

@@ -3924,7 +3924,8 @@ void CRagEffect::LoadEzEffect(const char* fName)
 void CRagEffect::InitEZ2STRFrame()
 {
     m_iCurLayer = 0;
-    m_stateCnt = 0;
+    // EF_LIGHTNING's first 35 frames are empty; start at its first animation key.
+    m_stateCnt = m_type == 29 ? 35 : 0;
     m_cEndLayer = m_aniClips ? m_aniClips->cLayer : 0;
     if (m_aniClips && m_aniClips->cLayer > 0 && m_aniClips->aLayer[0].cAniKey == 0) {
         m_cEndLayer = m_aniClips->cLayer - 1;

@@ -58,6 +58,139 @@ return {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
+        [14] = { -- SK_MG_COLDBOLT
+            name = "Cold Bolt",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2091,
+                    str = [[data\texture\effect\mineffect\new_tetravortex\new_tetravortex_water_bottom\new_tetravortex_water_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 2092,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_b_bottom\acidified_zone_water_b_bottom.str]],
+                    bottom_effect = true,
+                    once_per_hit = true,
+                    delay_ms = 100, -- Add 100 ms between iterations for a 260 ms cadence.
+                },
+                {
+                    effect_id = 2093,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_water\acidified_zone_water_water.str]],
+                    once_per_hit = true,
+                    delay_ms = 100,
+                },
+                {
+                    effect_id = 2094,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_a_loop\acidified_zone_water_a_loop.str]],
+                    once_per_hit = true,
+                    delay_ms = 100,
+                },
+            },
+        },
+        [19] = { -- SK_MG_FIREBOLT
+            name = "Fire Bolt",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2095,
+                    str = [[data\texture\effect\mineffect\new_tetravortex\new_tetravortex_fire_bottom\new_tetravortex_fire_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 2096,
+                    str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_water\acidified_zone_fire_water.str]],
+                    once_per_hit = true,
+                    delay_ms = 100, -- Match Cold Bolt's 260 ms cadence.
+                },
+                {
+                    effect_id = 2097,
+                    str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_cast\acidified_zone_fire_cast.str]],
+                    once_per_hit = true,
+                    delay_ms = 100,
+                },
+                {
+                    effect_id = 2098,
+                    str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_b_bottom\acidified_zone_fire_b_bottom.str]],
+                    bottom_effect = true,
+                    once_per_hit = true,
+                    delay_ms = 100,
+                },
+            },
+        },
+        [20] = { -- SK_MG_LIGHTNINGBOLT
+            name = "Lightning Bolt",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2086,
+                    str = [[data\texture\effect\mineffect\new_tetravortex\new_tetravortex_wind_bottom\new_tetravortex_wind_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 29,
+                    str = [[data\texture\effect\lightning.str]],
+                    once_per_hit = false,
+                },
+            },
+        },
+        [157] = { -- SK_MG_ENERGYCOAT
+            name = "Energy Coat",
+            source = {
+                {
+                    effect_id = 2099,
+                    str = [[data\texture\effect\venom_swamp\venom_swamp_cast_bottom\venom_swamp_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 2100,
+                    str = [[data\texture\effect\venom_swamp\venom_swamp_cast\venom_swamp_cast.str]],
+                },
+            },
+        },
+        [839] = { -- SK_MG_EARTHBOLT
+            name = "Earth Bolt",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 2087,
+                    str = [[data\texture\effect\mineffect\new_tetravortex\new_tetravortex_earth_bottom\new_tetravortex_earth_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 2088,
+                    str = [[data\texture\effect\terremotus\terremotus\terremotus.str]],
+                    once_per_hit = false,
+                },
+                {
+                    effect_id = 2089,
+                    str = [[data\texture\effect\terremotus\terremotus_cast_bottom\terremotus_cast_bottom.str]],
+                    bottom_effect = true,
+                    once_per_hit = false,
+                },
+                {
+                    effect_id = 2090,
+                    str = [[data\texture\effect\terremotus\terremotus_earth_care\terremotus_earth_care.str]],
+                    once_per_hit = false,
+                },
+            },
+        },
         [369] = { -- SK_PA_GOSPEL
             name = "Gospel",
             cast_motion_type = 1,

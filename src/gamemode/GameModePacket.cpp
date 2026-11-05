@@ -4042,7 +4042,6 @@ void EmitSkillImpactEffect(CGameActor* targetActor, u16 skillId, u32 delayMs)
         break;
     case 20: // MG_LIGHTNINGBOLT
         launch(29);
-        launch(52);
         break;
     case 42: launch(10); break;
     case 46: launch(64); break;

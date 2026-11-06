@@ -269,6 +269,9 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     table = AbsoluteIndex(state, table);
     if (!lua_istable(state, table)
         || !ReadBoolean(state, table, "loop", effect.loop, error)
+        || !ReadString(state, table, "loop_wav", effect.loopWavPath, false, error)
+        || (!effect.loopWavPath.empty()
+            && !ValidateResourcePath(effect.loopWavPath, "data\\wav\\", ".wav", error))
         || !ReadBoolean(state, table, "once_per_hit", effect.oncePerHit, error)
         || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
@@ -500,6 +503,9 @@ struct PresentationCatalog {
                 || !ReadString(state, entry, "name", skill.name, true, error)
                 || !ReadBoolean(state, entry, "passive", skill.passive, error)
                 || !ReadBoolean(state, entry, "silence_hit_sound", skill.hitSoundEnabled, error)
+                || !ReadString(state, entry, "hit_wav", skill.hitWavPath, false, error)
+                || (!skill.hitWavPath.empty()
+                    && !ValidateResourcePath(skill.hitWavPath, "data\\wav\\", ".wav", error))
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
@@ -521,7 +527,7 @@ struct PresentationCatalog {
         // Validate references after every inline definition is registered; Lua table order is unspecified.
         for (const auto& entry : skills) {
             const SkillPresentation& skill = entry.second;
-            if (skill.passive && sounds.count(entry.first)) {
+            if (skill.passive && (sounds.count(entry.first) || !skill.hitWavPath.empty())) {
                 error = "passive skill must have no presentation sound";
                 return false;
             }

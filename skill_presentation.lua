@@ -3,10 +3,12 @@
 -- Damage skills use normal player attack hit audio,
 -- or data\wav\effect\ef_hit2.wav for non-player casters, once per hit.
 -- Hit audio follows WhiteDamageNumbers.DelayBetweenNumbersMs in open-midgard.ini.
+-- A skills entry can set hit_wav to replace its default per-hit audio.
 -- Completion WAVs play alongside hit audio, once even for per-hit visuals.
 -- In a skills entry, silence_hit_sound = false disables only its per-hit audio.
 -- Omit silence_hit_sound or set it to true to keep hit audio enabled.
--- Casting WAVs belong to the casting stage; omitting an effect WAV silences that effect.
+-- Casting WAVs belong to the casting stage; omit wav and loop_wav for a silent effect.
+-- loop_wav repeats independently of visual timing while the effect is looping.
 -- source/target/ground select the attachment. server_notified means the server
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
@@ -52,6 +54,30 @@ return {
             wav = [[data\wav\effect\cru_shield boomerang.wav]],
             trigger = "damage",
         },
+        [839] = { -- SK_MG_EARTHBOLT
+            wav = [[data\wav\effect\bo_acidified_zone_ground.wav]],
+            trigger = "damage",
+        },
+        [14] = { -- SK_MG_COLDBOLT
+            wav = [[data\wav\effect\wizard_icewall.wav]],
+            trigger = "damage",
+        },
+        [19] = { -- SK_MG_FIREBOLT
+            wav = [[data\wav\effect\ef_fireball.wav]],
+            trigger = "damage",
+        },
+        [20] = { -- SK_MG_LIGHTNINGBOLT
+            wav = [[data\wav\chainlight.wav]],
+            trigger = "damage",
+        },
+        [157] = { -- SK_MG_ENERGYCOAT
+            wav = [[data\wav\effect\ag_deadly_projection.wav]],
+            trigger = "no_damage",
+        },
+        [15] = { -- SK_MG_FROSTDIVER
+            wav = [[data\wav\effect\ef_frostdiver2.wav]],
+            trigger = "damage",
+        },
     },
     skills = {
         [3] = {
@@ -60,6 +86,7 @@ return {
         },
         [13] = { -- SK_MG_SOULSTRIKE
             name = "Null Strike",
+            hit_wav = [[data\wav\effect\ef_soulstrike.wav]],
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -75,6 +102,7 @@ return {
         },
         [340] = { -- SK_MG_DARKSTRIKE
             name = "Dark Strike",
+            hit_wav = [[data\wav\effect\ef_soulstrike.wav]],
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -90,6 +118,7 @@ return {
         },
         [14] = { -- SK_MG_COLDBOLT
             name = "Cold Bolt",
+            silence_hit_sound = false, -- Disable generic hit audio; sounds[14] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -105,7 +134,6 @@ return {
                     effect_id = 2092,
                     str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_b_bottom\acidified_zone_water_b_bottom.str]],
                     bottom_effect = true,
-                    once_per_hit = true,
                     delay_ms = 100, -- Add 100 ms between iterations for a 260 ms cadence.
                 },
                 {
@@ -116,9 +144,57 @@ return {
                 },
                 {
                     effect_id = 2094,
-                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_a_loop\acidified_zone_water_a_loop.str]],
-                    once_per_hit = true,
+                    str = [[data\texture\effect\new_jackfrost\new_jackfrost\new_jackfrost_01.str]],
                     delay_ms = 100,
+                },
+            },
+        },
+        [15] = { -- SK_MG_FROSTDIVER
+            name = "Frost Diver",
+            silence_hit_sound = false, -- Disable generic hit audio; sounds[15] supplies the impact WAV.
+            source = {
+                {
+                    effect_id = 50023,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_b_bottom\acidified_zone_water_b_bottom.str]],
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 50024,
+                    str = [[data\texture\effect\adv_protection\adv_protection_bottom\adv_protection_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = { -- Freeze status also loops these effects for any affected actor.
+                {
+                    effect_id = 50025,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_water\acidified_zone_water_water.str]],
+                },
+                {
+                    effect_id = 50026,
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_cast\acidified_zone_water_cast.str]],
+                },
+            },
+        },
+        [2204] = { -- SK_MG_ICEWALL
+            name = "Jack Frost",
+            silence_hit_sound = false, -- Disable generic hit audio; the caster effect supplies the WAV.
+            source = { -- Caster presentation is deduplicated across area-damage targets.
+                {
+                    effect_id = 50030, -- Separate from Frost Diver's silent shared effect 50023.
+                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_b_bottom\acidified_zone_water_b_bottom.str]],
+                    wav = [[data\wav\effect\ef_frostdiver2.wav]],
+                    bottom_effect = true,
+                },
+                { effect_id = 50024 },
+            },
+            target = {
+                {
+                    effect_id = 50027,
+                    str = [[data\texture\effect\new_jackfrost\new_jackfrost_magicrune\new_jackfrost_frost.str]],
+                },
+                {
+                    effect_id = 50028,
+                    str = [[data\texture\effect\new_jackfrost\new_jackfrost_cast\new_jackfrost_cast.str]],
                 },
             },
         },
@@ -147,6 +223,7 @@ return {
         },
         [19] = { -- SK_MG_FIREBOLT
             name = "Fire Bolt",
+            silence_hit_sound = false, -- Disable generic hit audio; sounds[19] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -174,13 +251,13 @@ return {
                     effect_id = 2098,
                     str = [[data\texture\effect\acidified_zone_fire\acidified_zone_fire_b_bottom\acidified_zone_fire_b_bottom.str]],
                     bottom_effect = true,
-                    once_per_hit = true,
                     delay_ms = 100,
                 },
             },
         },
         [20] = { -- SK_MG_LIGHTNINGBOLT
             name = "Lightning Bolt",
+            silence_hit_sound = false, -- Disable generic hit audio; sounds[20] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -195,6 +272,12 @@ return {
                 {
                     effect_id = 29,
                     str = [[data\texture\effect\lightning.str]],
+                    once_per_hit = false,
+                },
+                {
+                    effect_id = 50029,
+                    str = [[data\texture\effect\acidified_zone_wind\acidified_zone_wind_b_bottom\acidified_zone_wind_b_bottom.str]],
+                    bottom_effect = true,
                     once_per_hit = false,
                 },
             },
@@ -215,6 +298,7 @@ return {
         },
         [839] = { -- SK_MG_EARTHBOLT
             name = "Earth Bolt",
+            silence_hit_sound = false, -- Disable generic hit audio; sounds[839] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -234,7 +318,7 @@ return {
                 },
                 {
                     effect_id = 2089,
-                    str = [[data\texture\effect\terremotus\terremotus_cast_bottom\terremotus_cast_bottom.str]],
+                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_b_bottom\acidified_zone_ground_b_bottom.str]],
                     bottom_effect = true,
                     once_per_hit = false,
                 },
@@ -250,7 +334,14 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 2,
             source = { -- Instant cast: play on the caster when the skill is used.
-                { effect_id = 2101 }, -- Shared casting STR; bottom effect, offset 35 px.
+                {
+                    effect_id = 50032, -- Own copy of Null Strike's casting visual with Void Expansion's WAV.
+                    -- Keep the requested filename's CP949 bytes intact.
+                    str = [[data\texture\effect\]] .. "\188\250\189\196\192\252\176\1794.str",
+                    wav = [[data\wav\effect\ag_climax.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                },
             },
             target = {
                 {
@@ -270,7 +361,14 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 2,
             source = { -- Instant cast: play on the caster when the skill is used.
-                { effect_id = 2102 }, -- Dark Strike's casting STR; bottom effect, offset 35 px.
+                {
+                    effect_id = 50031, -- Own copy of Dark Strike's casting visual with Icon of Sin's WAV.
+                    -- Keep the requested filename's CP949 bytes intact.
+                    str = [[data\texture\effect\]] .. "\188\250\189\196\192\252\176\1795.str",
+                    wav = [[data\wav\effect\assasin_poisonreact.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                },
             },
             target = {
                 {
@@ -1160,6 +1258,7 @@ return {
     effects = {
         [95] = { -- SK_MG_QUAGMIRE: only the center ground unit controls this loop.
             str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],
+            loop_wav = [[data\wav\effect\wizard_quagmire.wav]],
             bottom_effect = true,
         },
         [312] = { -- EF_HEAL: shared by every skill that selects this Heal effect.

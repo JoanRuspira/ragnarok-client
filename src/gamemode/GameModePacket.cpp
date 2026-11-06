@@ -5341,7 +5341,9 @@ static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sour
     if (presentation && (presentation->passive || !presentation->hitSoundEnabled)) return;
 
     std::string wavPath = "data\\wav\\effect\\ef_hit2.wav";
-    if (sourceActor && sourceActor->m_isPc != 0) {
+    if (presentation && !presentation->hitWavPath.empty()) {
+        wavPath = presentation->hitWavPath;
+    } else if (sourceActor && sourceActor->m_isPc != 0) {
         char waveName[128] = {};
         PopulateCombatHitWaveName(sourceActor, targetActor, waveName, sizeof(waveName));
         if (waveName[0] != '\0') wavPath = waveName;

@@ -1921,7 +1921,8 @@ ActMotionSample ResolveActorRenderSample(const CGameActor& actor, CActRes* actRe
     int action, int selectedMotion)
 {
     if (!GetCachedGraphicsSettings().spriteInterpolation || !actRes
-        || actor.m_isMotionFreezed || actor.m_isMotionFinished || actor.m_isNeverAnimation
+        || actor.IsStatusAnimationFrozen() || actor.m_isMotionFreezed
+        || actor.m_isMotionFinished || actor.m_isNeverAnimation
         || (actor.m_isPc && ((action & ~7) == 0 || (action & ~7) == 16))) {
         return ActMotionSample::Pose(selectedMotion);
     }
@@ -2013,7 +2014,8 @@ int ResolveTimedMotionIndex(const CGameActor& actor, CActRes* actRes, int action
         return 0;
     }
 
-    if (actor.m_isMotionFreezed || (actor.m_isMotionFinished && actor.m_motionType == 1)) {
+    if (actor.IsStatusAnimationFrozen() || actor.m_isMotionFreezed
+        || (actor.m_isMotionFinished && actor.m_motionType == 1)) {
         return (std::max)(0, (std::min)(actor.m_curMotion, motionCount - 1));
     }
     return ResolveMotionFrame(ResolveActorMotionProgress(actor, actRes, resolvedAction),
@@ -2197,7 +2199,7 @@ void ResolveTransientSpriteState(const CGameActor& actor,
         return;
     }
 
-    if (actor.m_isMotionFinished || actor.m_isMotionFreezed) {
+    if (actor.IsStatusAnimationFrozen() || actor.m_isMotionFinished || actor.m_isMotionFreezed) {
         *outMotion = (std::min)(actor.m_curMotion, motionCount - 1);
         return;
     }
@@ -4432,6 +4434,9 @@ void CRenderObject::SetAction(int act, int mot, int type) {
 }
 
 void CRenderObject::ProcessMotion() {
+    if (const auto* actor = dynamic_cast<const CGameActor*>(this); actor && actor->IsStatusAnimationFrozen()) {
+        return;
+    }
     CActRes* actRes = ResolveRuntimeActorActRes(this);
     if (CGameActor* actor = dynamic_cast<CGameActor*>(this)) {
         if (actor->m_isPc != 0) {
@@ -4560,10 +4565,17 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
             }
         }
     }
-    if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura) {
+    const auto* actor = dynamic_cast<const CGameActor*>(this);
+    const bool freezeStatusEffect = (effectId == kRagEffectFrozenWater || effectId == kRagEffectFrozenCast)
+        && actor && actor->IsFreezeStatusActive();
+    if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura
+        || freezeStatusEffect) {
         // Status refreshes and frame updates keep one continuous aura.
         for (CRagEffect* effect : m_effectList) {
-            if (effect && effect->GetEffectType() == effectId) return effect;
+            if (effect && effect->GetEffectType() == effectId) {
+                if (freezeStatusEffect) effect->SetFreezeStatusLoop();
+                return effect;
+            }
         }
     }
 
@@ -4586,6 +4598,7 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
     }
 
     effect->Init(this, effectId, rotatedDelta);
+    if (freezeStatusEffect) effect->SetFreezeStatusLoop();
     gameMode->m_world->m_gameObjectList.push_back(effect);
     m_effectList.push_back(effect);
     return effect;
@@ -4634,7 +4647,7 @@ void CAbleToMakeEffect::RemoveEffectById(int effectId)
             m_magicTargetEffect = nullptr;
         }
 
-        if (effectId == kRagEffectMilleniumShields) effect->Cancel();
+        if (effectId == kRagEffectMilleniumShields || effect->IsFreezeStatusLoop()) effect->Cancel();
         effect->SendMsg(effect, 109, 0, 0, 0);
         effect->DetachFromMaster(this);
         it = m_effectList.erase(it);
@@ -4832,6 +4845,28 @@ bool CGameActor::HasActiveSkillName(u32 now) const
     return !m_skillNameText.empty() && static_cast<s32>(m_skillNameUntilTick - now) > 0;
 }
 
+bool CGameActor::IsFreezeStatusActive() const
+{
+    return m_bodyState == kActorBodyStateFreeze && m_stateId != kDeathStateId;
+}
+
+bool CGameActor::IsStatusAnimationFrozen() const
+{
+    return m_stateId != kDeathStateId
+        && (m_bodyState == kActorBodyStateStone || m_bodyState == kActorBodyStateFreeze);
+}
+
+u32 CGameActor::GetBodyStateSpriteTint() const
+{
+    if (m_stateId == kDeathStateId) return 0xFFFFFFu;
+    switch (m_bodyState) {
+    case kActorBodyStateStoneWait: return 0xE6CDAAu; // Mild brown while petrifying.
+    case kActorBodyStateStone: return 0xA06F46u; // Strong brown while petrified.
+    case kActorBodyStateFreeze: return 0x80C0FFu; // Blue while frozen.
+    default: return 0xFFFFFFu;
+    }
+}
+
 void CGameActor::StartHideFade(u32 durationMs)
 {
     const u32 now = timeGetTime();
@@ -4941,6 +4976,24 @@ bool CGameActor::IsEnergyCoatStatusActive(u32 now) const
 
 void CGameActor::ProcessStatusEffects()
 {
+    if (IsFreezeStatusActive() && g_session.m_isEffectOn) {
+        // Adopt existing Frost Diver impacts as loops without restarting them.
+        LaunchEffect(kRagEffectFrozenWater);
+        LaunchEffect(kRagEffectFrozenCast);
+    } else {
+        // End only the status loops; ordinary skill impacts still finish once.
+        for (auto it = m_effectList.begin(); it != m_effectList.end();) {
+            CRagEffect* effect = *it;
+            if (effect && effect->IsFreezeStatusLoop()) {
+                effect->Cancel();
+                effect->DetachFromMaster(this);
+                it = m_effectList.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     if (m_energyCoatStatusActive) {
         if (!IsEnergyCoatStatusActive(timeGetTime())) {
             SetEnergyCoatStatus(false, 0);
@@ -6497,6 +6550,11 @@ CActRes* ResolveRuntimeActorActRes(CRenderObject* object)
 
 bool CPc::EnsureBillboardTexture(float cameraLongitude)
 {
+    if (IsStatusAnimationFrozen() && m_billboardTexture) {
+        // Hold the complete displayed pose, including interpolated layers and
+        // independently animated accessories, until the server clears opt1.
+        return true;
+    }
     const bool isVulkanBackend = GetRenderDevice().GetBackendType() == RenderBackendType::Vulkan;
     const bool useSharedBillboardCache = GetRenderDevice().GetBackendType() != RenderBackendType::LegacyDirect3D7;
 

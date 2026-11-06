@@ -97,6 +97,9 @@ constexpr int kRagEffectMilleniumShields = 50016; // Status-owned Holy Shield lo
 constexpr int kRagEffectGospelArea = 50017; // Caster-owned visual, kept alive by Gospel units.
 constexpr int kRagEffectDevotionLink = 50019; // Links from the server's ZC_DEVOTIONLIST.
 constexpr int kRagEffectEnergyCoatAura = 50020; // Status-owned dark blue smoke.
+// Shared with Frost Diver's target effects in skill_presentation.lua.
+constexpr int kRagEffectFrozenWater = 50025;
+constexpr int kRagEffectFrozenCast = 50026;
 
 class CRagEffect;
 
@@ -202,6 +205,8 @@ public:
     bool IsDevotionLinkTo(const CGameActor* target) const;
     void SetDevotionTarget(u32 targetGid, u16 maxDistance);
     void SetLooping(bool looping);
+    void SetFreezeStatusLoop();
+    bool IsFreezeStatusLoop() const { return m_freezeStatusOwned; }
     void SetCastDurationMs(int milliseconds);
     // Scheduling offset, added to this effect's configured delay_ms.
     void SetStartDelayMs(u32 milliseconds);
@@ -224,6 +229,7 @@ private:
     std::vector<u32> m_areaSkillUnitIds;
     bool m_gospelNativeLayout = false;
     bool m_cancelled = false;
+    bool m_freezeStatusOwned = false;
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
     float m_presentationOffsetY = 0.0f;
@@ -232,6 +238,8 @@ private:
     bool m_presentationDrawOverActors = false;
     float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
+    std::string m_loopedPresentationSound;
+    void StopPresentationSoundLoop();
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;
     const SkillEffectPresentation* m_directionalPresentation = nullptr;
     int m_directionalVariant = 0;

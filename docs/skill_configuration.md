@@ -238,7 +238,7 @@ definition preserves the earlier Quicken correction for all weapon types.
 
 Each skill can define `casting`, `source`, `target`, and `ground` arrays. Their
 entries carry an `effect_id` and full GRF resource paths: `str` begins with
-`data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav`
+`data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav` and `loop_wav`
 silences that effect. Damage skills also play per-hit audio unless disabled with
 `silence_hit_sound = false`, as described below. A `variants` array pairs visual
 and audio paths so both use the same random variant. `offset_y` sets the vertical
@@ -444,6 +444,11 @@ delays also postpone their hit sounds. Misses, recovery amounts, passive skills,
 and animation-only damage packets do not produce default hit audio. Audio remains
 independent of the effects visibility setting.
 
+Set `hit_wav = [[data\wav\effect\ef_soulstrike.wav]]` in a skill entry to replace
+its default per-hit sound. Soul Strike (`13`) and Dark Strike (`340`) use this WAV
+once per hit, timed with their projectile arrivals and queued damage numbers.
+The existing `silence_hit_sound` switch also controls this replacement.
+
 A `sounds` entry or a WAV in the skill's `source`, `target`, or `ground` effects
 plays alongside the per-hit audio. This includes shared effect references,
 variants, and procedural renderers. Each configured WAV plays once per skill
@@ -634,6 +639,28 @@ name on that acknowledgement, along with the configured `skills[16].target`
 effect. The target plays `terremotus\terremotus\terremotus.str` once per cast.
 The server's target effect remains independent.
 
+Stone Curse's target presentation follows the server's `opt1` body state.
+Petrifying (`6`, `OPT1_STONEWAIT`) applies a mild brown sprite filter
+(`RGB(230, 205, 170)`) while animation continues. Petrified (`1`, `OPT1_STONE`)
+uses a stronger brown filter (`RGB(160, 111, 70)`) and holds the complete displayed
+sprite, including interpolated frames and animated accessories. Motion processing
+also stops advancing its frames during full petrification. Clearing the body state
+restores normal colors and animation; death can still play its normal animation.
+The filters apply when drawing each actor, preserving shared sprite textures.
+
+Freeze from Frost Diver or any other skill follows the server's `opt1` body state
+`2` (`OPT1_FREEZE`), including actors that enter view already frozen. It holds the
+complete displayed sprite and stops motion processing, using the same animation
+hold as full petrification. It applies a blue sprite filter (`RGB(128, 192, 255)`)
+through the same draw-time tint as Stone Curse. Effects `50025` and `50026` loop
+their configured Acidified Zone Water water/cast STRs for the status duration.
+Existing Frost Diver target impacts become the status loops without restarting;
+targets that do not freeze retain single-playback impacts. Status refreshes keep
+one loop of each effect. Clearing the body state, death, or actor removal removes
+the loops; clearing freeze also restores the sprite's normal color and animation.
+Disabling effects hides the loops while preserving the blue tint and animation
+hold, and enabling effects restores them while frozen.
+
 Earth Bolt (`839`, `SK_MG_EARTHBOLT`) plays the 01b variant,
 `violentquake\violentquake\vlolentquake_01_b.str`, on the target once per cast;
 the installed GRF uses that spelling. Its additional target bottom and earth-care
@@ -646,6 +673,16 @@ supplies that exact position; its matching ground unit `142` enables looping and
 owns removal, including early removal. Surrounding cells do not launch copies.
 Updates preserve the existing loop, and overlapping casts retain separate center
 visuals, including repeated casts at the same position.
+Its `loop_wav = [[data\wav\effect\wizard_quagmire.wav]]` starts when the center
+ground unit enables looping and stops when that unit is removed or the map is
+unloaded. The WAV loops at its own duration, independently of STR frames. Each
+cast owns its audio, so unit updates preserve playback and overlapping casts
+stop independently. Volume follows the sound setting and distance from the
+listener; muting or leaving audible range stops playback, and returning resumes
+it while the ground effect remains active. This audio remains active when
+visual effects are hidden, and coexists with ambient loops such as rain.
+Other effects can use `loop_wav` with the same full GRF WAV path format; omitting
+it preserves their existing audio.
 On use, `skills[92].source` plays shared effect `2256`,
 `wooden_fairy\wooden_cast_bottom\wooden_cast_bottom.str`, once on the caster as a
 bottom effect.
@@ -1019,6 +1056,8 @@ in a running updated client. Compare these cases against the official client:
 | Soul Strike (13), one/multiple hits, moving actors, queued white damage, effects visibility, and actor/position notifications | All white-blue `particle1` ghost balls launch together, one per hit, sweep backward, then follow distinct parabolic paths toward the target and grow from 2x to 4x size; the first arrival is at 240 ms and arrivals match their damage numbers and hit sounds, while the bottom casting STR stays confined to casting |
 | Null Strike (13) / Dark Strike (340), immune targets, actor/position notifications, and effects visibility | The full volley still launches together with the existing colors, arcs, and growth; arrivals start at 240 ms and continue 160 ms apart, without damage numbers or hit sounds |
 | Stone Curse (16), instant cast and effects visibility | The cast acknowledgement shows `Stone Curse!!` above the caster, plays one caster-attached `wooden_cast_bottom.str` behind actors, and plays `terremotus.str` once on the target; the server also supplies its target effect |
+| Stone Curse status, players/monsters, both stages, hits, animated accessories, cure/expiry, death, and entering view while affected | Petrifying shows a mild brown tint with normal animation; petrified shows a stronger brown tint and holds the entire sprite pose through hit notifications; cure/expiry restores normal presentation and death can animate |
+| Freeze status from Frost Diver or another skill, players/monsters, animated accessories, repeated status notifications, entering view already frozen, cure/expiry, death, actor removal, and effects visibility | The complete actor pose stays still with a blue tint and one loop each of effects 50025 and 50026; clearing freeze restores normal color/animation and removes both loops; death can animate; effects visibility changes hide/restore the loops while preserving the tint and animation hold; Frost Diver impacts still play once on targets that do not freeze |
 | Multi-hit skill, including actor and position damage notifications | Individual hit numbers appear 160 ms apart by default; white numbers use the configured spacing, and one larger yellow total follows the last displayed hit by `DelayAfterLastHitMs` (default 320 ms), without losing division remainders or truncating totals above 999,999 |
 | Hundred Spear (2312), one hit and multiple hits | Effects marked `once_per_hit` play once per reported hit, counting the server's first playback; with `delay_ms = 750`, the first waits 750 ms and repeats are 910 ms apart; unmarked components play once |
 | Damage skills with hit audio enabled, player and non-player casters, including Pierce | Players use normal-attack hit audio; non-players use `ef_hit2.wav`; one sound per hit uses the configured white-number spacing, including any white-number queue delay; misses, recovery, and animation-only packets remain silent |
@@ -1051,7 +1090,7 @@ in a running updated client. Compare these cases against the official client:
 | Pharmacy / forging / arrow creation | Select items and successive materials; compare cancellation |
 | Repair Weapon / Sense | Repair an offered item; display the returned monster information |
 | Sanctuary / Magnus / Epiclesis / Psychic Wave | Ground effect persists and disappears with the server unit |
-| Quagmire (92), varied levels, overlapping/same-position casts, unit updates, early removal, and effects visibility | `wooden_cast_bottom.str` plays once on the caster as a bottom effect; one `terremotus_earth_care_bottom.str` visual loops at each cast's center; surrounding cells launch no copies, updates preserve the loop, and removing that cast's center unit removes its visual |
+| Quagmire (92), varied levels, overlapping/same-position casts, unit updates, early removal, effects visibility, sound mute/volume, distance, rain, and map changes | `wooden_cast_bottom.str` plays once on the caster as a bottom effect; one `terremotus_earth_care_bottom.str` visual and one `wizard_quagmire.wav` loop belong to each cast's center; surrounding cells launch no copies and updates preserve playback; audio follows sound volume and listener distance, continues with effects hidden, and coexists with rain; removing the center unit or leaving the map stops that cast's audio and visual |
 | Gospel (369 / custom 951), activation beside walls/props and map edges, walking, camera rotation/zoom, slopes, repeated activation, and expiry | Both skill IDs use motion 1 to hold the caster's invocation pose; one complete area of upright glowing crosses follows the caster at the caster's floor height, including blocked cells omitted by the server (custom 951: 5x5; native 369: 33-cell cross); crosses stay visible over walls/props and sort in front of or behind actors by depth; unit updates do not duplicate or restart the aura, and removal of its last server unit removes the entire visual |
 | Hold the Line (950), activation, walking, walls/map edges, repeated activation, toggle-off, expiry, and actor removal | The existing cast effects still play; dense fog consistently covers every cell of the full 5x5 square around the caster, including cells omitted by server path checks; overlapping fog textures drift gently at steady opacity; moving unit updates do not duplicate or restart the fog, and removal of its last server unit or the caster removes the visual |
 | Bolts / small Heal / buff while another actor casts | Show hit/heal/buff effects without disturbing that cast |

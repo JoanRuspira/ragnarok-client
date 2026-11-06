@@ -14,6 +14,7 @@
 #endif
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -55,6 +56,18 @@ void CleanupOneShot(MiniaudioOneShot* instance)
         instance->decoderInitialized = false;
     }
 }
+
+struct MiniaudioLoopedWave {
+    std::string path;
+    CWave data;
+    MiniaudioOneShot voice;
+
+    ~MiniaudioLoopedWave()
+    {
+        if (voice.soundInitialized) ma_sound_stop(&voice.sound);
+        CleanupOneShot(&voice);
+    }
+};
 
 class MiniaudioAudioBackend final : public IAudioBackend {
 public:
@@ -136,63 +149,65 @@ public:
         return true;
     }
 
-    bool PlayLoopedWave(const char* fName, float volume) override
+    bool PlayLoopedWave(const char* fName, float volume, const void* owner = nullptr) override
     {
         if (!fName || !*fName || volume <= 0.0f || !Init()) {
             return false;
         }
 
-        StopLoopedWave();
+        const auto existing = m_loopedWaves.find(owner);
+        if (existing != m_loopedWaves.end() && existing->second->path == fName) {
+            SetLoopedWaveVolume(volume, owner);
+            return true;
+        }
+        StopLoopedWave(owner);
+        auto loop = std::make_unique<MiniaudioLoopedWave>();
+        loop->path = fName;
         // Keep the file bytes alive for the decoder, independently of the
         // resource cache, which can be unloaded while the loop is playing.
-        if (!m_loopedWaveData.Load(fName)) {
+        if (!loop->data.Load(fName)) {
             return false;
         }
 
         ma_decoder_config decoderConfig = ma_decoder_config_init_default();
         if (ma_decoder_init_memory(
-                m_loopedWaveData.m_fileImage,
-                static_cast<size_t>(m_loopedWaveData.m_fileSize),
+                loop->data.m_fileImage,
+                static_cast<size_t>(loop->data.m_fileSize),
                 &decoderConfig,
-                &m_loopedWave.decoder) != MA_SUCCESS) {
-            StopLoopedWave();
+                &loop->voice.decoder) != MA_SUCCESS) {
             return false;
         }
-        m_loopedWave.decoderInitialized = true;
+        loop->voice.decoderInitialized = true;
 
         if (ma_sound_init_from_data_source(
                 &m_engine,
-                &m_loopedWave.decoder,
+                &loop->voice.decoder,
                 MA_SOUND_FLAG_NO_SPATIALIZATION,
                 nullptr,
-                &m_loopedWave.sound) != MA_SUCCESS) {
-            StopLoopedWave();
+                &loop->voice.sound) != MA_SUCCESS) {
             return false;
         }
-        m_loopedWave.soundInitialized = true;
-        ma_sound_set_looping(&m_loopedWave.sound, MA_TRUE);
-        SetLoopedWaveVolume(volume);
-        if (ma_sound_start(&m_loopedWave.sound) != MA_SUCCESS) {
-            StopLoopedWave();
+        loop->voice.soundInitialized = true;
+        ma_sound_set_looping(&loop->voice.sound, MA_TRUE);
+        ma_sound_set_volume(&loop->voice.sound, volume);
+        if (ma_sound_start(&loop->voice.sound) != MA_SUCCESS) {
             return false;
         }
 
+        m_loopedWaves.emplace(owner, std::move(loop));
         return true;
     }
 
-    void StopLoopedWave() override
+    void StopLoopedWave(const void* owner = nullptr) override
     {
-        if (m_loopedWave.soundInitialized) {
-            ma_sound_stop(&m_loopedWave.sound);
-        }
-        CleanupOneShot(&m_loopedWave);
-        m_loopedWaveData.Reset();
+        m_loopedWaves.erase(owner);
     }
 
-    void SetLoopedWaveVolume(float volume) override
+    void SetLoopedWaveVolume(float volume, const void* owner = nullptr) override
     {
-        if (m_loopedWave.soundInitialized) {
-            ma_sound_set_volume(&m_loopedWave.sound, volume);
+        const auto loop = m_loopedWaves.find(owner);
+        if (loop != m_loopedWaves.end()) {
+            ma_sound_set_volume(&loop->second->voice.sound, volume);
         }
     }
 
@@ -272,7 +287,7 @@ public:
 
     void StopAllSounds() override
     {
-        StopLoopedWave();
+        m_loopedWaves.clear();
         for (const std::unique_ptr<MiniaudioOneShot>& instance : m_activeSounds) {
             CleanupOneShot(instance.get());
         }
@@ -359,8 +374,7 @@ private:
     ma_engine m_engine{};
     bool m_initialized = false;
     std::vector<std::unique_ptr<MiniaudioOneShot>> m_activeSounds;
-    MiniaudioOneShot m_loopedWave{};
-    CWave m_loopedWaveData;
+    std::map<const void*, std::unique_ptr<MiniaudioLoopedWave>> m_loopedWaves;
 
     ma_decoder m_bgmDecoder{};
     ma_sound m_bgmSound{};

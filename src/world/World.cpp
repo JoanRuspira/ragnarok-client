@@ -3282,6 +3282,15 @@ bool RenderCachedBillboard(const CWorld::BillboardScreenEntry& entry)
             tint |= static_cast<u32>(channel + (target - channel) * fraction) << shift;
         }
     }
+    const u32 bodyStateTint = actor->GetBodyStateSpriteTint();
+    if (bodyStateTint != 0xFFFFFFu) {
+        u32 filteredTint = 0;
+        for (int shift : { 0, 8, 16 }) {
+            const u32 channel = ((tint >> shift) & 255u) * ((bodyStateTint >> shift) & 255u) / 255u;
+            filteredTint |= channel << shift;
+        }
+        tint = filteredTint;
+    }
     const u32 billboardColor = (alpha << 24) | tint;
 
     const auto submit = [&](u32 color, float offsetX, float offsetY, D3DBLEND destBlend,

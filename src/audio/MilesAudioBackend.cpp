@@ -4,6 +4,7 @@
 #include "core/DllMgr.h"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,6 +21,19 @@ int ClampMilesVolume(int value)
 {
     return (std::max)(0, (std::min)(kMaxVolume, value));
 }
+
+struct MilesLoopedWave {
+    std::string path;
+    CWave data;
+    HSAMPLE sample = nullptr;
+
+    ~MilesLoopedWave()
+    {
+        if (!sample) return;
+        if (g_dllExports.AIL_end_sample) g_dllExports.AIL_end_sample(sample);
+        if (g_dllExports.AIL_release_sample_handle) g_dllExports.AIL_release_sample_handle(sample);
+    }
+};
 
 class MilesAudioBackend final : public IAudioBackend {
 public:
@@ -125,7 +139,7 @@ public:
         return true;
     }
 
-    bool PlayLoopedWave(const char* fName, float volume) override
+    bool PlayLoopedWave(const char* fName, float volume, const void* owner = nullptr) override
     {
         if (!fName || !*fName || volume <= 0.0f || !Init()
             || !g_dllExports.AIL_allocate_sample_handle
@@ -139,44 +153,44 @@ public:
             return false;
         }
 
-        StopLoopedWave();
-        if (!m_loopedWaveData.Load(fName)) {
+        const auto existing = m_loopedWaves.find(owner);
+        if (existing != m_loopedWaves.end() && existing->second->path == fName) {
+            SetLoopedWaveVolume(volume, owner);
+            return true;
+        }
+        StopLoopedWave(owner);
+        auto loop = std::make_unique<MilesLoopedWave>();
+        loop->path = fName;
+        if (!loop->data.Load(fName)) {
             return false;
         }
 
         // A dedicated handle keeps one-shot effects from reusing the loop.
-        m_loopedSample = g_dllExports.AIL_allocate_sample_handle(m_digDriver);
-        if (!m_loopedSample) {
-            StopLoopedWave();
+        loop->sample = g_dllExports.AIL_allocate_sample_handle(m_digDriver);
+        if (!loop->sample) {
             return false;
         }
 
-        g_dllExports.AIL_init_sample(m_loopedSample);
-        g_dllExports.AIL_set_sample_file(m_loopedSample, m_loopedWaveData.m_fileImage, 0);
-        g_dllExports.AIL_set_sample_loop_count(m_loopedSample, 0); // Infinite playback.
-        SetLoopedWaveVolume(volume);
-        g_dllExports.AIL_start_sample(m_loopedSample);
+        g_dllExports.AIL_init_sample(loop->sample);
+        g_dllExports.AIL_set_sample_file(loop->sample, loop->data.m_fileImage, 0);
+        g_dllExports.AIL_set_sample_loop_count(loop->sample, 0); // Infinite playback.
+        g_dllExports.AIL_set_sample_volume(loop->sample,
+            ClampMilesVolume(static_cast<int>(volume * static_cast<float>(kMaxVolume))));
+        g_dllExports.AIL_start_sample(loop->sample);
+        m_loopedWaves.emplace(owner, std::move(loop));
         return true;
     }
 
-    void StopLoopedWave() override
+    void StopLoopedWave(const void* owner = nullptr) override
     {
-        if (m_loopedSample) {
-            if (g_dllExports.AIL_end_sample) {
-                g_dllExports.AIL_end_sample(m_loopedSample);
-            }
-            if (g_dllExports.AIL_release_sample_handle) {
-                g_dllExports.AIL_release_sample_handle(m_loopedSample);
-            }
-            m_loopedSample = nullptr;
-        }
-        m_loopedWaveData.Reset();
+        m_loopedWaves.erase(owner);
     }
 
-    void SetLoopedWaveVolume(float volume) override
+    void SetLoopedWaveVolume(float volume, const void* owner = nullptr) override
     {
-        if (m_loopedSample && g_dllExports.AIL_set_sample_volume) {
-            g_dllExports.AIL_set_sample_volume(m_loopedSample,
+        const auto loop = m_loopedWaves.find(owner);
+        if (loop != m_loopedWaves.end() && g_dllExports.AIL_set_sample_volume) {
+            g_dllExports.AIL_set_sample_volume(loop->second->sample,
                 ClampMilesVolume(static_cast<int>(volume * static_cast<float>(kMaxVolume))));
         }
     }
@@ -234,7 +248,7 @@ public:
 
     void StopAllSounds() override
     {
-        StopLoopedWave();
+        m_loopedWaves.clear();
         if (!g_dllExports.AIL_end_sample) {
             return;
         }
@@ -303,8 +317,7 @@ private:
 
     HDIGDRIVER m_digDriver = nullptr;
     std::vector<HSAMPLE> m_samples;
-    HSAMPLE m_loopedSample = nullptr;
-    CWave m_loopedWaveData;
+    std::map<const void*, std::unique_ptr<MilesLoopedWave>> m_loopedWaves;
     void* m_bgmStream = nullptr;
     int m_bgmVolume = kMaxVolume;
     bool m_bgmPaused = false;

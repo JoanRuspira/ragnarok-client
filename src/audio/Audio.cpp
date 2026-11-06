@@ -24,6 +24,30 @@ float ClampUnit(float value)
     return (std::max)(0.0f, (std::min)(1.0f, value));
 }
 
+float SpatialVolumeFactor(const vector3d& soundPos, const vector3d& listenerPos,
+    int volumeMaxDist, int volumeMinDist)
+{
+    const float dx = soundPos.x - listenerPos.x;
+    const float dy = soundPos.y - listenerPos.y;
+    const float dz = soundPos.z - listenerPos.z;
+    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const float maxDist = static_cast<float>((std::max)(volumeMaxDist, 1));
+    const float minDist = static_cast<float>((std::max)(volumeMinDist, 1));
+    if (distance >= maxDist) return 0.0f;
+    return distance > minDist ? minDist / distance : 1.0f;
+}
+
+float WaveVolumeScale(const char* path)
+{
+    std::string name = path;
+    const size_t separator = name.find_last_of("\\/");
+    if (separator != std::string::npos) name.erase(0, separator + 1);
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return name == "ef_beginspell.wav" ? 0.5f : 1.0f;
+}
+
 bool CopyBuffer(unsigned char** dst, int* dstSize, const unsigned char* src, int size)
 {
     if (!dst || !dstSize || !src || size <= 0) {
@@ -100,7 +124,7 @@ bool CAudio::PlaySound(const char* fName, float vol)
         return false;
     }
 
-    const float clampedVolume = ClampUnit(vol * m_soundVolume);
+    const float clampedVolume = ClampUnit(vol * m_soundVolume) * WaveVolumeScale(fName);
     if (clampedVolume <= 0.0f || !Init()) {
         return false;
     }
@@ -143,7 +167,8 @@ bool CAudio::SyncLoopedSound()
         return false;
     }
 
-    const float volume = ClampUnit(m_loopedSoundVolume * m_soundVolume);
+    const float volume = ClampUnit(m_loopedSoundVolume * m_soundVolume)
+        * WaveVolumeScale(m_loopedSoundPath.c_str());
     if (!g_soundMode || !g_isSoundOn || volume <= 0.0f) {
         if (m_backend) {
             m_backend->StopLoopedWave();
@@ -168,21 +193,31 @@ bool CAudio::SyncLoopedSound()
 bool CAudio::PlaySound3D(const char* fName, const vector3d& soundPos, const vector3d& listenerPos,
     int volumeMaxDist, int volumeMinDist, float vol)
 {
-    const float dx = soundPos.x - listenerPos.x;
-    const float dy = soundPos.y - listenerPos.y;
-    const float dz = soundPos.z - listenerPos.z;
-    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const float maxDist = static_cast<float>((std::max)(volumeMaxDist, 1));
-    const float minDist = static_cast<float>((std::max)(volumeMinDist, 1));
-    if (distance >= maxDist) {
+    const float distanceFactor = SpatialVolumeFactor(soundPos, listenerPos, volumeMaxDist, volumeMinDist);
+    return distanceFactor > 0.0f && PlaySound(fName, ClampUnit(vol * distanceFactor));
+}
+
+bool CAudio::PlayLoopedSound3D(const void* owner, const char* fName,
+    const vector3d& soundPos, const vector3d& listenerPos,
+    int volumeMaxDist, int volumeMinDist, float vol)
+{
+    if (!owner) return false;
+    if (!m_enabled || !fName || !*fName || !g_soundMode || !g_isSoundOn) {
+        StopLoopedSound(owner);
         return false;
     }
-
-    float distanceFactor = 1.0f;
-    if (distance > minDist) {
-        distanceFactor = minDist / distance;
+    const float distanceFactor = SpatialVolumeFactor(soundPos, listenerPos, volumeMaxDist, volumeMinDist);
+    const float volume = ClampUnit(ClampUnit(vol * distanceFactor) * m_soundVolume) * WaveVolumeScale(fName);
+    if (volume <= 0.0f) {
+        StopLoopedSound(owner);
+        return false;
     }
-    return PlaySound(fName, ClampUnit(vol * distanceFactor));
+    return Init() && m_backend->PlayLoopedWave(fName, volume, owner);
+}
+
+void CAudio::StopLoopedSound(const void* owner)
+{
+    if (owner && m_backend) m_backend->StopLoopedWave(owner);
 }
 
 void CAudio::PlayBGM(const char* fName)

@@ -77,6 +77,11 @@ public:
     // Muting retains the request; StopLoopedSound cancels it entirely.
     bool PlayLoopedSound(const char* fName, float vol = 1.0f);
     void StopLoopedSound();
+    // Effect-owned loops coexist with ambient audio and stop independently.
+    bool PlayLoopedSound3D(const void* owner, const char* fName,
+        const vector3d& soundPos, const vector3d& listenerPos,
+        int volumeMaxDist = 250, int volumeMinDist = 40, float vol = 1.0f);
+    void StopLoopedSound(const void* owner);
     bool PlaySound3D(const char* fName, const vector3d& soundPos, const vector3d& listenerPos,
         int volumeMaxDist = 250, int volumeMinDist = 40, float vol = 1.0f);
     void PlayBGM(const char* fName);

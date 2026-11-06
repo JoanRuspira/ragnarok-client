@@ -108,6 +108,11 @@ constexpr int kGameActorCastingLoopStateId = 13;
 constexpr int kGameActorDanceStateId = 16;
 constexpr int kGameActorSingStateId = 17;
 
+// Server opt1/body states: petrified, frozen, and the preceding petrifying stage.
+constexpr int kActorBodyStateStone = 1;
+constexpr int kActorBodyStateFreeze = 2;
+constexpr int kActorBodyStateStoneWait = 6;
+
 //===========================================================================
 // Actor Hierarchy
 //===========================================================================
@@ -243,6 +248,9 @@ public:
     bool BeginSkillPresentation(int skillId, const std::string& name, u32 now);
     bool HasActiveSkillName(u32 now) const;
     const std::string& GetSkillNameText() const { return m_skillNameText; }
+    bool IsFreezeStatusActive() const;
+    bool IsStatusAnimationFrozen() const;
+    u32 GetBodyStateSpriteTint() const;
 
     int m_moveDestX, m_moveDestY;
     int m_moveSrcX, m_moveSrcY;

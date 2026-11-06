@@ -75,6 +75,7 @@ struct SkillEffectPresentation {
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
+    std::string loopWavPath; // Plays while this effect is looping, independently of visual cadence.
     bool bottomEffect = false;
     bool drawOverActors = false;
     float bottomOffsetPx = 4.0f;
@@ -90,6 +91,7 @@ struct SkillPresentation {
     bool passive = false;
     // silence_hit_sound = false disables hit audio; omitted or true enables it.
     bool hitSoundEnabled = true;
+    std::string hitWavPath; // Optional replacement for the default per-hit WAV.
     bool sourceServerNotified = false;
     bool targetServerNotified = false;
     bool groundServerNotified = false;

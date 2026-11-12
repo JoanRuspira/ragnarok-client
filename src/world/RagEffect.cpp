@@ -4141,6 +4141,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_castEndTick = 0;
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
+    m_strPlaysRemaining = 1;
     m_presentationBottomEffect = false;
     m_presentationDrawOverActors = false;
     m_presentationBottomOffsetPx = 4.0f;
@@ -4192,6 +4193,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
         m_loopedPresentationSound = presentation->loopWavPath;
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
+        m_strPlaysRemaining = presentation->playCount;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
         m_presentationDrawOverActors = presentation->drawOverActors;
@@ -7123,7 +7125,9 @@ u8 CRagEffect::OnProcess()
     }
 
     for (int step = 0; step < steps && alive; ++step) {
-        if (m_loop && m_handler == Handler::EzStr && m_aniClips && m_stateCnt >= m_aniClips->cFrame) {
+        if ((m_loop || m_strPlaysRemaining > 1) && m_handler == Handler::EzStr
+            && m_aniClips && m_stateCnt >= m_aniClips->cFrame) {
+            if (!m_loop) --m_strPlaysRemaining;
             InitEZ2STRFrame();
         }
         const bool dispatchHandler = m_loop || frameDrivenStrHandler || m_stateCnt < m_duration;

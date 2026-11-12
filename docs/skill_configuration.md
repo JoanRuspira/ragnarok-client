@@ -245,6 +245,31 @@ and audio paths so both use the same random variant. `offset_y` sets the vertica
 attachment offset, and `loop` controls repetition; STR playback uses the
 animation's authored FPS.
 
+STR effects accept `play_count`, a positive integer counting the initial playback
+and any replays. It defaults to `1`; `play_count = 2` plays the full clip twice
+at its authored FPS and then stops. The configured WAV still plays only once.
+This supports both `str` and `directional_str` and cannot be combined with
+`loop = true` when greater than `1`. Casting and status loops retain their
+existing lifetimes. Earth Strain (`2446`, `SK_WZ_EARTHSTRAIN`) sets `play_count = 2`
+on both Strantum Tremor ground effects; its caster effect lasts only during casting.
+Lord of Vermilion (`85`, `SK_WZ_LORDOFVERMILION`) replaces `lord.str` with the
+main and bottom `new_tornadostorm` ground clips. Each uses `play_count = 8` to
+play its 30 frames eight times, for 240 frames total, at the selected ground cell.
+During casting, `tetravortex\tetra_02_wind_ground\tetra_02_wind_grd.str` loops
+beneath the caster and stops on completion or cancellation.
+Storm Gust (`89`, `SK_WZ_STORMGUST`) similarly loops
+`tetravortex\tetra_04_water_ground\tetra_04_water_grd.str` beneath its caster
+while casting. It stops on completion or cancellation; successful casts retain
+the existing `storm gust.str` animation at the selected ground cell.
+Meteor Storm (`83`, `SK_WZ_METEORSTORM`) loops
+`tetravortex\tetra_01_fire_ground\tetra_01_fire_grd.str` beneath its caster
+until casting completes or is cancelled. Its ground effect preserves the
+existing random choice of `meteor1.str`, `meteor2.str`, and `meteor3.str`.
+Stalagmite (`90`, `SK_WZ_STALAGMITE`) shares Earth Strain's bottom casting effect
+(`50033`). On successful use, it plays `violentquake_01.str`,
+`violentquake_02.str`, and `violentquake_03.str` together on the target, once
+each. Its casting effect stops on completion or cancellation.
+
 Bottom STR effects normally draw beneath actor sprites. Set
 `draw_over_actors = true` alongside `bottom_effect = true` to retain the
 `bottom_offset_px` shift while drawing over actors through the normal STR pass.
@@ -1078,6 +1103,11 @@ in a running updated client. Compare these cases against the official client:
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
+| Stalagmite (90), casting, cancellation, and target damage | Earth Strain's bottom effect loops beneath the caster only while casting; completion stops it and plays all three Violent Quake clips together on the target once each, while cancellation launches no target clips |
+| Meteor Storm (83), casting, cancellation, and successful use | The fire ground STR loops beneath the caster only during casting and stops on completion or cancellation; successful casts retain the random meteor1.str/meteor2.str/meteor3.str ground visual |
+| Storm Gust (89), casting, cancellation, and movement after completion | The water ground STR loops beneath the caster only during casting and stops on completion or cancellation; successful casts still play storm gust.str at the selected ground cell |
+| Lord of Vermilion (85), empty ground/enemies, cancellation, movement after casting, and low frame rates | The wind ground STR loops beneath the caster during casting and stops at completion or cancellation; both Tornado Storm ground clips start together at the selected cell and each plays exactly eight full 30-frame cycles before disappearing; the bottom clip stays beneath actors, the old lord.str is absent, and cancelled casts launch no ground clips |
+| Earth Strain (2446), empty ground/enemies, cancellation, movement after casting, and low frame rates | The caster's bottom effect stops when casting ends; both Strantum Tremor ground clips play exactly twice at their authored FPS at the selected cell, then disappear; the bottom clip stays beneath actors, and cancelled casts launch no ground clips |
 | Genesis Ray (2321), casting at empty ground or several enemies, cancellation, and movement after casting | Casting effects stop at completion; the main STR plays once at the selected cell even with no victims, stays there when the caster moves, and does not start for cancelled casts; each damaged enemy retains its target effect |
 | Grand Cross (254), empty area/enemies, movement or caster removal after completion, repeated casts, camera rotation/zoom, slopes, cancellation, and effects visibility | Genesis Ray's casting effects stop at completion; two nested crosses with curved corners and translucent light curtains rotate together through 45 degrees with sparse rising sparkles, remain whole on slopes and beneath actors at the cast position, and expire together after one second with one Grand Cross WAV; no completion cross for cancelled casts or duplicates from damage packets |
 | Sworn Protector (255), up to five allies, recasting, replacing/removing targets, movement, hiding, actor deletion, camera zoom, and effects visibility | Motion 1 and one target STR on successful use; blue links with a white core and travelling glints follow both endpoints, pulse between the existing width and 50% wider with soft rounded ends even at short distances, repeated/reordered lists do not duplicate them, removed links disappear, and re-enabling effects restores active links |

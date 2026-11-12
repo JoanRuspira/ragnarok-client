@@ -25,6 +25,7 @@
 -- For server-notified effects, the server supplies the first playback.
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
 -- STR effects can set hue_shift_degrees = 0..360; omitted or 0 keeps original colors.
+-- play_count = 1 (default) sets total STR playbacks; use 2 to play twice, then stop.
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -326,6 +327,162 @@ return {
                     effect_id = 2090,
                     str = [[data\texture\effect\terremotus\terremotus_earth_care\terremotus_earth_care.str]],
                     once_per_hit = false,
+                },
+            },
+        },
+        [83] = { -- SK_WZ_METEORSTORM
+            name = "Meteor Storm",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50041,
+                    str = [[data\texture\effect\tetravortex\tetra_01_fire_ground\tetra_01_fire_grd.str]],
+                    bottom_effect = true,
+                },
+            },
+            ground = { -- Keep the existing random meteor completion visual.
+                {
+                    effect_id = 50042,
+                    variants = {
+                        { str = [[data\texture\effect\meteor1.str]] },
+                        { str = [[data\texture\effect\meteor2.str]] },
+                        { str = [[data\texture\effect\meteor3.str]] },
+                    },
+                },
+            },
+        },
+        [2211] = { -- SK_WZ_CRIMSONROCK
+            name = "Crimson Rock",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50041 }, -- Shared Meteor Storm bottom casting effect.
+            },
+            target = {
+                {
+                    effect_id = 50046,
+                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock\new_crimsonrock.str]],
+                },
+                {
+                    effect_id = 50047,
+                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock_bottom\new_crimsonrock_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [85] = { -- SK_WZ_LORDOFVERMILION
+            name = "Lord of Vermilion",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50038,
+                    str = [[data\texture\effect\tetravortex\tetra_02_wind_ground\tetra_02_wind_grd.str]],
+                    bottom_effect = true,
+                },
+            },
+            ground = {
+                {
+                    effect_id = 50036,
+                    str = [[data\texture\effect\new_tornadostorm\new_tornadostorm\new_tornadostorm.str]],
+                    play_count = 8, -- Eight 30-frame clips replace the 240-frame lord.str.
+                },
+                {
+                    effect_id = 50037,
+                    str = [[data\texture\effect\new_tornadostorm\new_tornadostorm_bottom\new_tornadostorm_bottom.str]],
+                    bottom_effect = true,
+                    play_count = 8,
+                },
+            },
+        },
+        [884] = { -- SK_WZ_THUNDERSTORM (Thunderbolt)
+            name = "Thunderbolt",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50038 }, -- Shared Lord of Vermilion bottom casting effect.
+            },
+        },
+        [89] = { -- SK_WZ_STORMGUST
+            name = "Storm Gust",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50039,
+                    str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+                    bottom_effect = true,
+                },
+            },
+            ground = { -- Keep the existing completion visual at the selected cell.
+                {
+                    effect_id = 50040,
+                    str = [[data\texture\effect\storm gust.str]],
+                },
+            },
+        },
+        [838] = { -- SK_WZ_ICEBERG
+            name = "Iceberg",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50039 }, -- Shared Storm Gust bottom casting effect.
+            },
+        },
+        [90] = { -- SK_WZ_STALAGMITE
+            name = "Stalagmite",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50033 }, -- Shared Earth Strain bottom casting effect.
+            },
+            target = {
+                {
+                    effect_id = 50043,
+                    str = [[data\texture\effect\violentquake\violentquake\violentquake_01.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                    draw_over_actors = true,
+                },
+                {
+                    effect_id = 50044,
+                    str = [[data\texture\effect\violentquake\violentquake\violentquake_02.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                    draw_over_actors = true,
+                },
+                {
+                    effect_id = 50045,
+                    str = [[data\texture\effect\violentquake\violentquake\violentquake_03.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                    draw_over_actors = true,
+                },
+            },
+        },
+        [2446] = { -- SK_WZ_EARTHSTRAIN
+            name = "Earth Strain",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50033,
+                    str = [[data\texture\effect\tetravortex\tetra_03_earth_ground\tetra_03_earth_grd.str]],
+                    bottom_effect = true,
+                },
+            },
+            ground = {
+                {
+                    effect_id = 50034,
+                    str = [[data\texture\effect\strantumtremor\strantumtremor_bottom\strantumtremor_bottom.str]],
+                    bottom_effect = true,
+                    play_count = 2,
+                },
+                {
+                    effect_id = 50035,
+                    str = [[data\texture\effect\strantumtremor\strantumtremor\strantumtremor.str]],
+                    play_count = 2,
                 },
             },
         },

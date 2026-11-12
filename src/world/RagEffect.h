@@ -234,6 +234,7 @@ private:
     u32 m_castEndTick = 0;
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
+    int m_strPlaysRemaining = 1;
     bool m_presentationBottomEffect = false;
     bool m_presentationDrawOverActors = false;
     float m_presentationBottomOffsetPx = 4.0f;

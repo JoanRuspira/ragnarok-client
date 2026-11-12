@@ -269,6 +269,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     table = AbsoluteIndex(state, table);
     if (!lua_istable(state, table)
         || !ReadBoolean(state, table, "loop", effect.loop, error)
+        || !ReadInteger(state, table, "play_count", effect.playCount, error)
         || !ReadString(state, table, "loop_wav", effect.loopWavPath, false, error)
         || (!effect.loopWavPath.empty()
             && !ValidateResourcePath(effect.loopWavPath, "data\\wav\\", ".wav", error))
@@ -279,6 +280,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadBoolean(state, table, "draw_over_actors", effect.drawOverActors, error)) return false;
     if (effect.drawOverActors && !effect.bottomEffect) {
         error = "draw_over_actors requires bottom_effect = true";
+        return false;
+    }
+    if (effect.playCount < 1 || (effect.loop && effect.playCount > 1)) {
+        error = "play_count must be positive and cannot exceed 1 with loop = true";
         return false;
     }
     if (effect.delayMs < 0) {
@@ -301,6 +306,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    if (effect.playCount > 1 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
+        error = "play_count requires an STR renderer";
+        return false;
+    }
     if (effect.drawOverActors && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
         error = "draw_over_actors requires an STR renderer";
         return false;

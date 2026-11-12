@@ -276,6 +276,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadBoolean(state, table, "once_per_hit", effect.oncePerHit, error)
         || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
+        || !ReadInteger(state, table, "saturation_percent", effect.saturationPercent, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
         || !ReadBoolean(state, table, "draw_over_actors", effect.drawOverActors, error)) return false;
     if (effect.drawOverActors && !effect.bottomEffect) {
@@ -292,6 +293,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     }
     if (effect.hueShiftDegrees < 0 || effect.hueShiftDegrees > 360) {
         error = "expected hue_shift_degrees between 0 and 360";
+        return false;
+    }
+    if (effect.saturationPercent < 0 || effect.saturationPercent > 100) {
+        error = "expected saturation_percent between 0 and 100";
         return false;
     }
     lua_getfield(state, table, "bottom_offset_px");
@@ -314,8 +319,9 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         error = "draw_over_actors requires an STR renderer";
         return false;
     }
-    if (effect.hueShiftDegrees != 0 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
-        error = "hue_shift_degrees requires an STR renderer";
+    if ((effect.hueShiftDegrees != 0 || effect.saturationPercent != 100)
+            && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
+        error = "hue_shift_degrees and saturation_percent require an STR renderer";
         return false;
     }
     if (renderer == "body_burst") {
@@ -327,7 +333,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         return ReadBodyBurst(state, table, effect.bodyBurst, error);
     }
     if (!renderer.empty() && renderer != "str" && renderer != "directional_str"
-        && renderer != "guard_sphere" && renderer != "sonic_wave") {
+        && renderer != "guard_sphere" && renderer != "sonic_wave" && renderer != "ground_circle") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -341,6 +347,22 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         effect.offsetY = static_cast<float>(offset);
     }
     lua_pop(state, 1);
+    if (renderer == "ground_circle") {
+        effect.renderer = SkillEffectPresentation::Renderer::GroundCircle;
+        if (!ReadInteger(state, table, "color", effect.groundCircle.color, error)) return false;
+        if (effect.groundCircle.color < 0 || effect.groundCircle.color > 0xFFFFFF) {
+            error = "ground_circle color must be between 0x000000 and 0xFFFFFF";
+            return false;
+        }
+        lua_getfield(state, table, "rotation_speed");
+        const bool hasRotationSpeed = !lua_isnil(state, -1);
+        lua_pop(state, 1);
+        return ReadString(state, table, "texture", effect.groundCircle.texturePath, true, error)
+            && ValidateResourcePath(effect.groundCircle.texturePath, "data\\texture\\effect\\", ".tga", error)
+            && ReadNumber(state, table, "radius_cells", effect.groundCircle.radiusCells, 0.1f, 100.0f, error)
+            && (!hasRotationSpeed || ReadNumber(state, table, "rotation_speed",
+                effect.groundCircle.rotationSpeed, -100.0f, 100.0f, error));
+    }
     if (renderer == "directional_str") {
         effect.renderer = SkillEffectPresentation::Renderer::DirectionalStr;
         return ReadDirectionalStr(state, table, effect.directionalStr, error);
@@ -516,11 +538,13 @@ struct PresentationCatalog {
                 || (!skill.hitWavPath.empty()
                     && !ValidateResourcePath(skill.hitWavPath, "data\\wav\\", ".wav", error))
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
+                || !ReadBoolean(state, entry, "source_once_per_cast", skill.sourceOncePerCast, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
                 || !ReadSkillMotionType(state, entry, "cast_motion_type", skill.castMotionType, error)
                 || !ReadSkillMotionType(state, entry, "skill_motion_type", skill.skillMotionType, error)
                 || !ReadSkillEffects(state, entry, "casting", skill.castingEffects, error)
+                || !ReadSkillEffects(state, entry, "casting_ground", skill.castingGroundEffects, error)
                 || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
                 || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)) return false;
@@ -544,7 +568,8 @@ struct PresentationCatalog {
                 error = "passive skill must have no cast-start effect";
                 return false;
             }
-            for (const auto* ids : { &skill.castingEffects, &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
+            for (const auto* ids : { &skill.castingEffects, &skill.castingGroundEffects,
+                    &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
                 for (int effectId : *ids) {
                     if (!effects.count(effectId)) {
                         error = "undefined effect reference: " + std::to_string(effectId);

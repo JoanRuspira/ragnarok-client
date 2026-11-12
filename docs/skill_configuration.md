@@ -236,7 +236,7 @@ in the running server database, so its entry explicitly has no effects or audio.
 Two Hand Quicken (`817`) is a separate active skill. The shared effect `130`
 definition preserves the earlier Quicken correction for all weapon types.
 
-Each skill can define `casting`, `source`, `target`, and `ground` arrays. Their
+Each skill can define `casting`, `casting_ground`, `source`, `target`, and `ground` arrays. Their
 entries carry an `effect_id` and full GRF resource paths: `str` begins with
 `data\texture\effect\`, while `wav` begins with `data\wav\`. Omitting `wav` and `loop_wav`
 silences that effect. Damage skills also play per-hit audio unless disabled with
@@ -251,7 +251,8 @@ at its authored FPS and then stops. The configured WAV still plays only once.
 This supports both `str` and `directional_str` and cannot be combined with
 `loop = true` when greater than `1`. Casting and status loops retain their
 existing lifetimes. Earth Strain (`2446`, `SK_WZ_EARTHSTRAIN`) sets `play_count = 2`
-on both Strantum Tremor ground effects; its caster effect lasts only during casting.
+on both Strantum Tremor ground effects; its caster effect and ground targeting
+circle last only during casting.
 Lord of Vermilion (`85`, `SK_WZ_LORDOFVERMILION`) replaces `lord.str` with the
 main and bottom `new_tornadostorm` ground clips. Each uses `play_count = 8` to
 play its 30 frames eight times, for 240 frames total, at the selected ground cell.
@@ -265,6 +266,9 @@ Meteor Storm (`83`, `SK_WZ_METEORSTORM`) loops
 `tetravortex\tetra_01_fire_ground\tetra_01_fire_grd.str` beneath its caster
 until casting completes or is cancelled. Its ground effect preserves the
 existing random choice of `meteor1.str`, `meteor2.str`, and `meteor3.str`.
+`source_once_per_cast = true` plays its motion `2` and skill-name shout once;
+later falling meteors and damage notifications play their effects without
+restarting or interrupting the caster.
 Stalagmite (`90`, `SK_WZ_STALAGMITE`) shares Earth Strain's bottom casting effect
 (`50033`). On successful use, it plays `violentquake_01.str`,
 `violentquake_02.str`, and `violentquake_03.str` together on the target, once
@@ -284,6 +288,19 @@ range; black/magenta masking happens before recoloring. Recolored textures use
 separate managed cache entries, so shared textures and GRF assets stay unchanged.
 This field supports `str` and `directional_str` renderers. Restart the client
 after editing it, as with other presentation settings.
+
+STR entries also accept `saturation_percent`, an integer from `0` to `100`.
+The default `100` preserves authored saturation; `0` removes color while keeping
+the brightest channel, producing a white/gray glow. Intermediate values soften
+colors. It applies to both textures and animated layer RGB, preserves alpha,
+and uses a separate managed texture cache entry for each hue/saturation pair.
+It supports both `str` and `directional_str` renderers.
+
+Extreme Vacuum (`845`) and Phantom Spear (`883`) share caster effect `50063`:
+Storm Gust's `tetra_04_water_grd.str` with `bottom_effect = true` and
+`saturation_percent = 0`. It loops beneath the caster only while casting.
+Storm Gust's blue clip and Shadow Bomb/Reality Breaker's purple clip retain
+their authored saturation.
 
 Gloria Domini's Petitio effect (`50021`) uses `hue_shift_degrees = 180` to turn
 its yellow/gold artwork blue. Its bottom effect (`50022`) keeps its original
@@ -333,11 +350,57 @@ casting = {
 },
 ```
 
-A nonempty `casting` array replaces `begin_effect_id`; existing skills using
+A nonempty `casting` or `casting_ground` array replaces `begin_effect_id`; existing skills using
 only `begin_effect_id` keep their single casting effect. `server_notified` and
-the per-attachment flags apply to completion effects, while `casting` is always
+the per-attachment flags apply to completion effects, while both casting arrays are
 driven locally by the cast-start notification. Passive skills cannot have
 casting effects. Configure `source`, `target`, and `ground` for successful use.
+
+`casting_ground` uses the same effect-entry format and cleanup as `casting`, but
+fixes the visual at the cast-start packet's selected ground cell and terrain height.
+The caster still owns its lifetime: completion, cancellation, cast expiry, death,
+removal, or a replacement cast stops the marker. Instant casts launch neither
+casting array.
+
+Ground casting circles share the `ground_casting_circle(color)` helper in
+`skill_presentation.lua`. Its effect definitions give each skill a tint:
+
+| Skill | Effect ID | RGB tint |
+| --- | --- | --- |
+| Earth Strain (`2446`) | `50050` | `0xB47844` (brown) |
+| Lord of Vermilion (`85`) | `50051` | `0x40E8FF` (cyan) |
+| Storm Gust (`89`) | `50052` | `0x3264FF` (deep blue) |
+| Meteor Storm (`83`) | `50053` | `0xFF4030` (red) |
+| Reality Breaker (`846`) | `50054` | `0xB85CFF` (purple) |
+| Extreme Vacuum (`845`) | `50048` | Original texture colors |
+
+Enable the original circle for any future skill entirely in
+`skill_presentation.lua` by adding:
+
+```lua
+casting_ground = {
+    { effect_id = 50048 },
+},
+```
+
+The helper uses `renderer = "ground_circle"`,
+`texture = [[data\texture\effect\magic_target.tga]]`, `radius_cells = 4.5`, and
+`rotation_speed = 1.0`. This rune-circle TGA is present in the installed
+`data.grf`; it has no accompanying STR. `rotation_speed` is radians per second
+and defaults to `1.0` (one revolution every 6.3 seconds); `0` stops rotation and
+negative values reverse it. Values must be finite and between `-100` and `100`.
+`color` is an optional RGB tint from `0x000000` to `0xFFFFFF`, defaulting to white
+(`0xFFFFFF`) to preserve the texture's authored colors. It multiplies the texture
+RGB without changing alpha or its resource. The helper's color argument sets it
+per effect; add another effect ID using the helper to define a new tint. Edit
+the helper to change the shared texture, radius, or speed for all these circles.
+
+The renderer rotates a flat ground quad sized in map cells, so camera rotation
+and zoom preserve its footprint. The 4.5-cell radius spans nine cells, matching
+Earth Strain's server area (`Unit.Range = 4`). `bottom_effect = true` and
+`bottom_offset_px = 0` keep it under actors and centered on the selected cell.
+It is silent and respects the effects visibility setting. Each skill's caster
+STR and completion clips retain their separate attachments and playback.
 
 Directional effects use `renderer = "directional_str"`, an optional `wav`, and a
 `directions` array of one to eight clips. Each clip defines a `str` path and
@@ -547,6 +610,16 @@ starts, and `skill_motion_type` for the caster animation when successful use is
 reported. The fields are independent: omitting either (or setting it to `-1`)
 preserves that stage's existing `motion_type` behavior. Explicit stage settings
 bypass the legacy cast-pose substitutions and skill-motion fallback.
+
+Set `source_once_per_cast = true` for skills that send repeated ground or damage
+notifications for a single cast, such as Meteor Storm. Only the first successful
+notification starts the caster's motion, shout, and `source` effects. Later
+notifications still play ground/target effects, damage numbers, and impact audio,
+while preserving the caster's current action and any newer cast's effects.
+Each cast-start acknowledgement re-arms that skill, even for an instant cast;
+casting a different skill does not re-arm old impacts. Impacts received while a
+new cast of the same skill is still charging do not end it early. This setting
+defaults to false, retaining the existing 120 ms duplicate-notification guard.
 
 ```lua
 [71] = { -- SK_CR_SWORDSTOPLOWSHARES
@@ -1104,10 +1177,10 @@ in a running updated client. Compare these cases against the official client:
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
 | Stalagmite (90), casting, cancellation, and target damage | Earth Strain's bottom effect loops beneath the caster only while casting; completion stops it and plays all three Violent Quake clips together on the target once each, while cancellation launches no target clips |
-| Meteor Storm (83), casting, cancellation, and successful use | The fire ground STR loops beneath the caster only during casting and stops on completion or cancellation; successful casts retain the random meteor1.str/meteor2.str/meteor3.str ground visual |
-| Storm Gust (89), casting, cancellation, and movement after completion | The water ground STR loops beneath the caster only during casting and stops on completion or cancellation; successful casts still play storm gust.str at the selected ground cell |
-| Lord of Vermilion (85), empty ground/enemies, cancellation, movement after casting, and low frame rates | The wind ground STR loops beneath the caster during casting and stops at completion or cancellation; both Tornado Storm ground clips start together at the selected cell and each plays exactly eight full 30-frame cycles before disappearing; the bottom clip stays beneath actors, the old lord.str is absent, and cancelled casts launch no ground clips |
-| Earth Strain (2446), empty ground/enemies, cancellation, movement after casting, and low frame rates | The caster's bottom effect stops when casting ends; both Strantum Tremor ground clips play exactly twice at their authored FPS at the selected cell, then disappear; the bottom clip stays beneath actors, and cancelled casts launch no ground clips |
+| Meteor Storm (83), casting, cancellation, repeated meteors, instant/repeated casts, and movement or another cast during falling meteors | The fire ground STR loops beneath the caster while the shared rune circle rotates at the selected cell; both stop on completion or cancellation; motion 2 and the skill-name shout play once per cast; later ground/damage notifications retain their meteor visuals, numbers, and audio without interrupting movement or a newer cast; each fresh acknowledgement allows one new source presentation |
+| Storm Gust (89), casting, cancellation, and movement after completion | The water ground STR loops beneath the caster while the shared rune circle rotates at the selected cell; both stop on completion or cancellation; successful casts still play storm gust.str at the selected ground cell |
+| Lord of Vermilion (85), empty ground/enemies, cancellation, movement after casting, and low frame rates | The wind ground STR loops beneath the caster while the shared rune circle rotates at the selected cell; both stop at completion or cancellation; both Tornado Storm ground clips start together at the selected cell and each plays exactly eight full 30-frame cycles before disappearing; the bottom clip stays beneath actors, the old lord.str is absent, and cancelled casts launch no ground clips |
+| Earth Strain (2446), empty ground/enemies, cancellation, repeated casts, caster death/removal, camera rotation/zoom, effects visibility, movement after casting, and low frame rates | A large rotating rune circle appears at the selected ground cell during casting, stays fixed beneath actors, and stops with the caster's bottom effect on completion, cancellation, expiry, death, or removal; instant casts show no marker; successful casts play both Strantum Tremor ground clips exactly twice at their authored FPS at the selected cell, then disappear; the bottom clip stays beneath actors, and cancelled casts launch no completion clips |
 | Genesis Ray (2321), casting at empty ground or several enemies, cancellation, and movement after casting | Casting effects stop at completion; the main STR plays once at the selected cell even with no victims, stays there when the caster moves, and does not start for cancelled casts; each damaged enemy retains its target effect |
 | Grand Cross (254), empty area/enemies, movement or caster removal after completion, repeated casts, camera rotation/zoom, slopes, cancellation, and effects visibility | Genesis Ray's casting effects stop at completion; two nested crosses with curved corners and translucent light curtains rotate together through 45 degrees with sparse rising sparkles, remain whole on slopes and beneath actors at the cast position, and expire together after one second with one Grand Cross WAV; no completion cross for cancelled casts or duplicates from damage packets |
 | Sworn Protector (255), up to five allies, recasting, replacing/removing targets, movement, hiding, actor deletion, camera zoom, and effects visibility | Motion 1 and one target STR on successful use; blue links with a white core and travelling glints follow both endpoints, pulse between the existing width and 50% wider with soft rounded ends even at short distances, repeated/reordered lists do not duplicate them, removed links disappear, and re-enabling effects restores active links |

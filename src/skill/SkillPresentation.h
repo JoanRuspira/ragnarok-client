@@ -67,20 +67,30 @@ struct SkillSonicWavePresentation {
     float height = 14.0f;
 };
 
+// A textured ground marker, sized in map cells rather than screen pixels.
+struct SkillGroundCirclePresentation {
+    std::string texturePath;
+    float radiusCells = 4.5f;
+    float rotationSpeed = 1.0f; // Radians per second.
+    int color = 0xFFFFFF; // RGB tint; white preserves the texture's authored colors.
+};
+
 struct SkillEffectPresentation {
-    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave };
+    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, GroundCircle };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
     SkillDirectionalStrPresentation directionalStr;
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
+    SkillGroundCirclePresentation groundCircle;
     std::string loopWavPath; // Plays while this effect is looping, independently of visual cadence.
     bool bottomEffect = false;
     bool drawOverActors = false;
     float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
+    int saturationPercent = 100; // STR color saturation; 0 makes a white/gray glow.
     bool loop = false;
     int playCount = 1; // Total STR playbacks, including the first.
     bool oncePerHit = false;
@@ -94,6 +104,7 @@ struct SkillPresentation {
     bool hitSoundEnabled = true;
     std::string hitWavPath; // Optional replacement for the default per-hit WAV.
     bool sourceServerNotified = false;
+    bool sourceOncePerCast = false; // Later impact notifications preserve the caster's current action.
     bool targetServerNotified = false;
     bool groundServerNotified = false;
     int beginEffectId = -1;
@@ -103,6 +114,7 @@ struct SkillPresentation {
     int castMotionType = -1;
     int skillMotionType = -1;
     std::vector<int> castingEffects;
+    std::vector<int> castingGroundEffects;
     std::vector<int> sourceEffects;
     std::vector<int> targetEffects;
     std::vector<int> groundEffects;

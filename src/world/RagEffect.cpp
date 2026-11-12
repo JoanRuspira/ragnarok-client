@@ -4028,8 +4028,9 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     }
 
     const int aniFrame = (std::max)(0, (std::min)(layer.cTex - 1, static_cast<int>(xform.aniframe)));
-    CTexture* texture = m_presentationHueShiftDegrees != 0
-        ? g_texMgr.GetHueShiftedTexture(layer.m_texName[static_cast<size_t>(aniFrame)], m_presentationHueShiftDegrees)
+    CTexture* texture = m_presentationHueShiftDegrees != 0 || m_presentationSaturationPercent != 100
+        ? g_texMgr.GetHueShiftedTexture(layer.m_texName[static_cast<size_t>(aniFrame)],
+            m_presentationHueShiftDegrees, m_presentationSaturationPercent)
         : const_cast<KAC_LAYER&>(layer).GetTexture(aniFrame);
     if (!texture || texture == &CTexMgr::s_dummy_texture) {
         return;
@@ -4085,7 +4086,9 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
         | (clampColor(xform.crR) << 16)
         | (clampColor(xform.crG) << 8)
         | clampColor(xform.crB);
-    if (m_presentationHueShiftDegrees != 0) color = ShiftColorHue(color, m_presentationHueShiftDegrees);
+    if (m_presentationHueShiftDegrees != 0 || m_presentationSaturationPercent != 100) {
+        color = ShiftColorHue(color, m_presentationHueShiftDegrees, m_presentationSaturationPercent);
+    }
 
     float axisX = 0.0f, axisY = 0.0f, authoredLength = 1.0f, targetLength = 1.0f;
     if (direction) {
@@ -4139,8 +4142,10 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_cancelled = false;
     m_startDelayMs = 0;
     m_castEndTick = 0;
+    m_fixedWorldPosition.reset();
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
+    m_presentationSaturationPercent = 100;
     m_strPlaysRemaining = 1;
     m_presentationBottomEffect = false;
     m_presentationDrawOverActors = false;
@@ -4193,11 +4198,21 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
         m_loopedPresentationSound = presentation->loopWavPath;
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
+        m_presentationSaturationPercent = presentation->saturationPercent;
         m_strPlaysRemaining = presentation->playCount;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
         m_presentationDrawOverActors = presentation->drawOverActors;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
+        if (presentation->renderer == SkillEffectPresentation::Renderer::GroundCircle) {
+            m_handler = Handler::GroundCircle;
+            m_proceduralPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            m_presentationTexture = TryResolveEffectTextureCandidates({ presentation->groundCircle.texturePath.c_str() });
+            SetLooping(presentation->loop);
+            if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", presentation->groundCircle.texturePath.c_str());
+            return;
+        }
         if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
             const auto& wave = presentation->sonicWave;
             m_handler = Handler::SonicWave;
@@ -4933,6 +4948,7 @@ CAbleToMakeEffect* CRagEffect::ResolveCurrentEffectOwner() const
 
 vector3d CRagEffect::ResolveBasePosition() const
 {
+    if (m_fixedWorldPosition) return *m_fixedWorldPosition;
     // The completed cross stays where it was cast, even after movement/removal.
     if (m_handler == Handler::GrandCross) return m_grandCrossOrigin;
     if (CRenderObject* master = ResolveCurrentMaster()) {
@@ -4959,6 +4975,11 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::GroundCircle:
+        center.y += m_presentationOffsetY;
+        radius = m_proceduralPresentation->groundCircle.radiusCells
+            * static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5) * 1.415f;
+        break;
     case Handler::GrandCross: {
         const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
         radius = cellSize * 8.0f;
@@ -6966,7 +6987,7 @@ u8 CRagEffect::OnProcess()
                 burst.haloAlpha, burst.haloRadius };
         }
     }
-    if ((m_handler == Handler::GuardSphere || m_handler == Handler::StealthFieldFog
+    if ((m_handler == Handler::GuardSphere || m_handler == Handler::GroundCircle || m_handler == Handler::StealthFieldFog
             || m_handler == Handler::GrandCross || m_handler == Handler::EnergyCoatAura) && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
@@ -7040,7 +7061,7 @@ u8 CRagEffect::OnProcess()
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return now - m_presentationStartTick < kGrandCrossDurationMs ? 1 : 0;
     }
-    if (m_handler == Handler::StealthFieldFog) {
+    if (m_handler == Handler::StealthFieldFog || m_handler == Handler::GroundCircle) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return (m_loop || m_stateCnt < m_duration) ? 1 : 0;
     }
@@ -7427,6 +7448,31 @@ void CRagEffect::StartBuffEffect()
             actor->SetState(kGameActorAttackStateId);
         }
     }
+}
+
+void CRagEffect::RenderGroundCircle(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
+    const u32 elapsedMs = timeGetTime() - m_presentationStartTick;
+    const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+    const float radius = m_proceduralPresentation->groundCircle.radiusCells * cellSize;
+    const vector3d base = ResolveBasePosition();
+    const float angle = elapsedMs * 0.001f * m_proceduralPresentation->groundCircle.rotationSpeed;
+    const float rotationCos = std::cos(angle);
+    const float rotationSin = std::sin(angle);
+    const auto point = [&](float x, float z) {
+        return vector3d{ base.x + (x * rotationCos - z * rotationSin) * radius,
+            base.y + m_presentationOffsetY - 0.1f,
+            base.z + (x * rotationSin + z * rotationCos) * radius };
+    };
+    const vector3d quad[4] = { point(-1.0f, -1.0f), point(1.0f, -1.0f),
+        point(-1.0f, 1.0f), point(1.0f, 1.0f) };
+    const unsigned int color = 0xDC000000u | static_cast<unsigned int>(m_proceduralPresentation->groundCircle.color);
+    const unsigned int colors[4] = { color, color, color, color };
+    const float uvs[4][2] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f } };
+    // The bottom pass keeps the circle beneath actors; overlay depth prevents
+    // sloped terrain and nearby walls from cutting through its surface.
+    SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, uvs, D3DBLEND_ONE, 0.0f, 1 | 4, true);
 }
 
 void CRagEffect::RenderCastCone(const matrix& viewMatrix)
@@ -8024,6 +8070,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
     if (m_handler == Handler::GrandCross) RenderGrandCross(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
+    if (m_handler == Handler::GroundCircle) RenderGroundCircle(*viewMatrix);
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);
     if (m_handler == Handler::DanceRays) RenderDanceRays(*viewMatrix);

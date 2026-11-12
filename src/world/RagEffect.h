@@ -7,6 +7,7 @@
 #include <array>
 #include <list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -208,6 +209,8 @@ public:
     void SetFreezeStatusLoop();
     bool IsFreezeStatusLoop() const { return m_freezeStatusOwned; }
     void SetCastDurationMs(int milliseconds);
+    // Keep the caster as lifetime owner while anchoring a cast marker to its cell.
+    void FixWorldPosition(const vector3d& position) { m_fixedWorldPosition = position; }
     // Scheduling offset, added to this effect's configured delay_ms.
     void SetStartDelayMs(u32 milliseconds);
     void SuppressPresentationSound();
@@ -232,8 +235,10 @@ private:
     bool m_freezeStatusOwned = false;
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
+    std::optional<vector3d> m_fixedWorldPosition;
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
+    int m_presentationSaturationPercent = 100;
     int m_strPlaysRemaining = 1;
     bool m_presentationBottomEffect = false;
     bool m_presentationDrawOverActors = false;
@@ -274,6 +279,7 @@ private:
         BodyBurst,
         GuardSphere,
         SonicWave,
+        GroundCircle,
         GrandCross,
         SpriteFlash,
         SpriteGlow,
@@ -340,6 +346,7 @@ private:
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
     void RenderSonicWave(const matrix& viewMatrix);
+    void RenderGroundCircle(const matrix& viewMatrix);
     void RenderGrandCross(const matrix& viewMatrix);
     void StartBuffEffect();
     void RenderCastCone(const matrix& viewMatrix);

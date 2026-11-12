@@ -8,6 +8,7 @@
 #include <vector>
 #include <list>
 #include <memory>
+#include <set>
 
 // Forward declarations
 class CGameObject;
@@ -245,7 +246,8 @@ public:
     void ClearChatBubbleText();
     bool HasActiveChatBubble(u32 now) const;
     const std::string& GetChatBubbleText() const { return m_chatBubbleText; }
-    bool BeginSkillPresentation(int skillId, const std::string& name, u32 now);
+    void ResetSkillPresentationForCast(int skillId);
+    bool BeginSkillPresentation(int skillId, const std::string& name, u32 now, bool oncePerCast = false);
     bool HasActiveSkillName(u32 now) const;
     const std::string& GetSkillNameText() const { return m_skillNameText; }
     bool IsFreezeStatusActive() const;
@@ -308,6 +310,7 @@ public:
     std::string m_chatBubbleText;
     std::string m_skillNameText;
     int m_lastPresentedSkillId = 0;
+    std::set<int> m_presentedCastSkillIds;
     u16 m_castingSkillId = 0;
     u32 m_vigorEffectSuppressUntilTick = 0;
     u32 m_parryCastAckUntilTick = 0;

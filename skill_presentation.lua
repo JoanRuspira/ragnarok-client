@@ -12,8 +12,11 @@
 -- source/target/ground select the attachment. server_notified means the server
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
+-- source_once_per_cast = true plays the caster's motion, shout, and source effects once per cast.
 -- casting effects attach to the caster for the cast's duration and stop together.
--- A nonempty casting array replaces the legacy begin_effect_id.
+-- casting_ground effects share that lifetime but stay at the targeted ground cell.
+-- Add casting_ground = { { effect_id = 50048 } } to reuse the shared ground circle.
+-- Nonempty casting/casting_ground arrays replace the legacy begin_effect_id.
 -- ground effects play at the notified ground cell after casting and stay there.
 -- cast_motion_type and skill_motion_type independently select each stage's motion.
 -- Omit either to preserve that stage's legacy motion_type behavior.
@@ -25,7 +28,22 @@
 -- For server-notified effects, the server supplies the first playback.
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
 -- STR effects can set hue_shift_degrees = 0..360; omitted or 0 keeps original colors.
+-- saturation_percent = 100 (default) keeps STR colors; 0 gives a white/gray glow.
 -- play_count = 1 (default) sets total STR playbacks; use 2 to play twice, then stop.
+
+-- Ground casting circles share their geometry and timing; color is an optional 0xRRGGBB tint.
+local function ground_casting_circle(color)
+    return {
+        renderer = "ground_circle",
+        texture = [[data\texture\effect\magic_target.tga]],
+        radius_cells = 4.5, -- A 9-cell-wide circle; matches Earth Strain's server radius 4.
+        rotation_speed = 1.0, -- Radians per second; 0 holds still, negative reverses direction.
+        color = color, -- Omitted uses the original texture colors.
+        bottom_effect = true,
+        bottom_offset_px = 0,
+    }
+end
+
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -334,12 +352,16 @@ return {
             name = "Meteor Storm",
             cast_motion_type = 1,
             skill_motion_type = 2,
+            source_once_per_cast = true, -- Later meteors only play their ground/target effects.
             casting = {
                 {
                     effect_id = 50041,
                     str = [[data\texture\effect\tetravortex\tetra_01_fire_ground\tetra_01_fire_grd.str]],
                     bottom_effect = true,
                 },
+            },
+            casting_ground = {
+                { effect_id = 50053 }, -- Red.
             },
             ground = { -- Keep the existing random meteor completion visual.
                 {
@@ -382,6 +404,9 @@ return {
                     bottom_effect = true,
                 },
             },
+            casting_ground = {
+                { effect_id = 50051 }, -- Cyan.
+            },
             ground = {
                 {
                     effect_id = 50036,
@@ -403,6 +428,12 @@ return {
             casting = {
                 { effect_id = 50038 }, -- Shared Lord of Vermilion bottom casting effect.
             },
+            target = {
+                {
+                    effect_id = 50064,
+                    str = [[data\texture\effect\thunderstorm.str]],
+                },
+            },
         },
         [89] = { -- SK_WZ_STORMGUST
             name = "Storm Gust",
@@ -415,11 +446,59 @@ return {
                     bottom_effect = true,
                 },
             },
+            casting_ground = {
+                { effect_id = 50052 }, -- Deep blue.
+            },
             ground = { -- Keep the existing completion visual at the selected cell.
                 {
                     effect_id = 50040,
                     str = [[data\texture\effect\storm gust.str]],
                 },
+            },
+        },
+        [845] = { -- SK_WZ_EXTREMEVACUUM
+            name = "Extreme Vacuum",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+            },
+            casting_ground = {
+                { effect_id = 50048 }, -- Original untinted ground casting circle.
+            },
+            ground = {
+                {
+                    effect_id = 50055,
+                    str = [[data\texture\effect\new_tigercannon\new_tigercannon.str]],
+                },
+                {
+                    effect_id = 50056,
+                    str = [[data\texture\effect\destructive_hurricane\destructive_hurricane_bottom\destructive_hurricane_bottom.str]],
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 50061,
+                    str = [[data\texture\effect\diluvio\diluvio_ice_bottom\diluvio_ice_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [846] = { -- SK_WZ_REALITYBREAKER
+            name = "Reality Breaker",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50060 }, -- Shared Shadow Bomb purple bottom casting effect.
+            },
+            casting_ground = {
+                { effect_id = 50054 }, -- Purple.
+            },
+            ground = { -- Additional local visual alongside the server's effects.
+                {
+                    effect_id = 50057,
+                    str = [[data\texture\effect\4abc_abyss_slayer\abyss_slayer\abyss_slayer.str]],
+                },
+                { effect_id = 50059 }, -- Shared Abyss Strike ground clip.
             },
         },
         [838] = { -- SK_WZ_ICEBERG
@@ -459,6 +538,7 @@ return {
                     bottom_offset_px = 35,
                     draw_over_actors = true,
                 },
+                { effect_id = 2090 }, -- Shared Terremotus Earth Care target effect.
             },
         },
         [2446] = { -- SK_WZ_EARTHSTRAIN
@@ -472,6 +552,9 @@ return {
                     bottom_effect = true,
                 },
             },
+            casting_ground = {
+                { effect_id = 50050 }, -- Brown.
+            },
             ground = {
                 {
                     effect_id = 50034,
@@ -483,6 +566,56 @@ return {
                     effect_id = 50035,
                     str = [[data\texture\effect\strantumtremor\strantumtremor\strantumtremor.str]],
                     play_count = 2,
+                },
+            },
+        },
+        [2449] = { -- SK_WZ_PSYCHICWAVE
+            name = "Psychic Wave",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50049,
+                    str = [[data\texture\effect\new_psychicwave\new_psychicwave_cast\new_psychicwave_cast.str]],
+                },
+            },
+        },
+        [882] = { -- SK_SO_SHADOWBOMB
+            name = "Shadow Bomb",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                {
+                    effect_id = 50060,
+                    str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+                    bottom_effect = true,
+                    hue_shift_degrees = 80, -- Water blue/cyan to purple.
+                },
+            },
+            target = {
+                {
+                    effect_id = 50058,
+                    str = [[data\texture\effect\abyss_strike\abyss_strike\abyss_strike.str]],
+                },
+                {
+                    effect_id = 50059,
+                    str = [[data\texture\effect\abyss_strike\abyss_strike_ground\abyss_strike_ground.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [883] = { -- SK_SO_PHANTOMSPEAR
+            name = "Phantom Spear",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+            },
+            target = {
+                {
+                    effect_id = 50062,
+                    str = [[data\texture\effect\new_varetyrspear\new_varetyrspear_bottom\new_varetyrspear_bottom.str]],
+                    bottom_effect = true,
                 },
             },
         },
@@ -1454,6 +1587,18 @@ return {
             wav = [[data\wav\effect\ab_offertorium.wav]],
             loop = true,
         },
+        [50063] = { -- White variant shared by Extreme Vacuum and Phantom Spear while casting.
+            str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+            bottom_effect = true,
+            saturation_percent = 0,
+        },
+        -- Reuse these IDs in a skill's casting_ground array, or add another color here.
+        [50048] = ground_casting_circle(),           -- Extreme Vacuum: original texture colors.
+        [50050] = ground_casting_circle(0xB47844),   -- Earth Strain: brown.
+        [50051] = ground_casting_circle(0x40E8FF),   -- Lord of Vermilion: cyan.
+        [50052] = ground_casting_circle(0x3264FF),   -- Storm Gust: deep blue.
+        [50053] = ground_casting_circle(0xFF4030),   -- Meteor Storm: red.
+        [50054] = ground_casting_circle(0xB85CFF),   -- Reality Breaker: purple.
         [1032] = { -- EF_MAXPAIN: brief orange guard barrier; there is no authored STR.
             renderer = "guard_sphere",
             texture = [[data\texture\effect\guardK2.tga]],

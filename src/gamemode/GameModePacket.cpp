@@ -4981,17 +4981,23 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     }
 
     const UseSkillPacketInfo packetInfo = skillId != 0 ? ResolveUseSkillPacketInfo(skillId) : UseSkillPacketInfo{};
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
     if (skillId != 0) {
         g_skillMgr.EnsureLoaded();
         const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillId);
         const PLAYER_SKILL_INFO* learned = g_session.GetSkillItemBySkillId(skillId);
         const std::string name = metadata && !metadata->displayName.empty()
             ? metadata->displayName : (learned ? learned->skillName : std::string());
-        if (!actor->BeginSkillPresentation(skillId, name, timeGetTime())) {
+        if (!actor->BeginSkillPresentation(skillId, name, timeGetTime(),
+                presentation && presentation->sourceOncePerCast)) {
             return;
         }
     }
 
+    // Repeated impacts that skip the source presentation also preserve an
+    // in-progress cast's effects, movement, facing, and casting bar.
+    ClearAttachedSkillEffects(actor,
+        skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
     actor->m_isSitting = 0;
     actor->m_targetGid = 0;
     StopActorMovementForAction(actor);
@@ -5039,7 +5045,7 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
         }
         return effect;
     };
-    if (const SkillPresentation* presentation = FindSkillPresentation(skillId)) {
+    if (presentation) {
         if (!presentation->passive) {
             if (presentation->sourceServerNotified && targetPos) {
                 // Server effect packets carry only the caster. Supply the skill
@@ -5531,6 +5537,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         ? targetActor->m_pos
         : ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
+    // A fresh acknowledgement re-arms only this skill, including instant casts.
+    sourceActor->ResetSkillPresentationForCast(skillId);
+
     // Track Vigor even for instant casts: its effect notifications precede the
     // successful-use response. Bound the suppression if that response never arrives.
     sourceActor->m_vigorEffectSuppressUntilTick = skillId == 2016
@@ -5548,7 +5557,6 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         // Stone Curse sends only this acknowledgement and the target's effect,
         // so present the configured caster/target effects and skill-name shout here.
         if (skillId == kSkillIdStoneCurse) {
-            ClearAttachedSkillEffects(sourceActor);
             StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultSkillMotionTime, skillId, targetActor);
             EmitSkillImpactEffects(targetActor, skillId, 1);
         }
@@ -5620,7 +5628,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
             }
             sourceActor->SetState(motionToApply);
         }
-        if (beginEffectId >= 0 && (!presentation || presentation->castingEffects.empty())) {
+        if (beginEffectId >= 0 && (!presentation
+                || (presentation->castingEffects.empty() && presentation->castingGroundEffects.empty()))) {
             sourceActor->SendMsg(sourceActor, 85, beginEffectId, 0, 0);
             if (sourceActor->m_beginSpellEffect) sourceActor->m_beginSpellEffect->SetCastDurationMs(castTimeMs);
         }
@@ -5632,6 +5641,12 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     if (presentation) {
         for (int effectId : presentation->castingEffects) {
             sourceActor->LaunchCastingEffect(effectId, castTimeMs);
+        }
+        const vector3d groundPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
+        for (int effectId : presentation->castingGroundEffects) {
+            if (CRagEffect* effect = sourceActor->LaunchCastingEffect(effectId, castTimeMs)) {
+                effect->FixWorldPosition(groundPos);
+            }
         }
     }
 
@@ -5684,10 +5699,6 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         return;
     }
 
-    if (skillId != kSkillIdShieldChainAttack) {
-        ClearAttachedSkillEffects(sourceActor,
-            skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
-    }
     if (skillId == kSkillIdShieldChainAttack) {
         if (sourceActor && mode.m_world && damage != kSkillAnimationOnlyDamage) {
             mode.m_world->SpawnShieldChainEffect(sourceActor->m_pos, targetActor->m_pos,
@@ -5775,10 +5786,6 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
     const vector3d impactPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
     if (sourceActor) {
-        if (skillId != kSkillIdShieldChainAttack) {
-            ClearAttachedSkillEffects(sourceActor,
-                skillId == kSkillIdGrimtooth ? static_cast<int>(kEffectIdGrimtooth) : -1);
-        }
         if (skillId == kSkillIdShieldChainAttack) {
             if (mode.m_world && damage != kSkillAnimationOnlyDamage) {
                 mode.m_world->SpawnShieldChainEffect(sourceActor->m_pos, impactPos,
@@ -5860,7 +5867,6 @@ void HandleGroundSkillNotify(CGameMode& mode, const PacketView& packet)
     CGameActor* sourceActor = ResolveCombatActor(mode, srcGid, true);
     const vector3d worldPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
     if (sourceActor) {
-        ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, &worldPos, kDefaultSkillMotionTime, skillId);
     }
     if (skillId == kSkillIdQuagmire) {
@@ -5922,7 +5928,6 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     // Automatic blocks keep the actor's current action and attached cast effects.
     // Their target barrier is emitted independently below.
     if (sourceActor && result != 0 && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
-        ClearAttachedSkillEffects(sourceActor);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
     }

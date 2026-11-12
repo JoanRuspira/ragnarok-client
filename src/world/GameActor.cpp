@@ -4819,11 +4819,24 @@ bool CGameActor::HasActiveChatBubble(u32 now) const
         && static_cast<s32>(m_chatTick - now) > 0;
 }
 
-bool CGameActor::BeginSkillPresentation(int skillId, const std::string& name, u32 now)
+void CGameActor::ResetSkillPresentationForCast(int skillId)
+{
+    m_presentedCastSkillIds.erase(skillId);
+    if (m_lastPresentedSkillId == skillId) m_lastPresentedSkillId = 0;
+}
+
+bool CGameActor::BeginSkillPresentation(int skillId, const std::string& name, u32 now, bool oncePerCast)
 {
     // Area skills send one damage packet per victim. Keep the caster's action and shout continuous.
     if (m_lastPresentedSkillId == skillId && now - m_lastSkillPresentationTick < 120) {
         return false;
+    }
+    if (oncePerCast) {
+        // Older impacts must not finish a new cast of the same skill early.
+        if (m_castingSkillId == skillId && static_cast<s32>(m_skillRechargeEndTick - now) > 0) {
+            return false;
+        }
+        if (!m_presentedCastSkillIds.insert(skillId).second) return false;
     }
     m_lastPresentedSkillId = skillId;
     m_lastSkillPresentationTick = now;

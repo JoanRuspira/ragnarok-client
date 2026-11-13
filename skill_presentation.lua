@@ -508,6 +508,13 @@ return {
             casting = {
                 { effect_id = 50039 }, -- Shared Storm Gust bottom casting effect.
             },
+            target = {
+                {
+                    effect_id = 636, -- EF_HYOUSYOURAKU / Falling Ice Pillar.
+                    str = [[data\texture\effect\icy.str]],
+                    wav = [[data\wav\effect\]] .. "\186\249\193\164\182\244.wav", -- CP949 native effect sound.
+                },
+            },
         },
         [90] = { -- SK_WZ_STALAGMITE
             name = "Stalagmite",
@@ -539,6 +546,33 @@ return {
                     draw_over_actors = true,
                 },
                 { effect_id = 2090 }, -- Shared Terremotus Earth Care target effect.
+            },
+        },
+        [365] = { -- SK_WZ_MAGICCRASHER
+            name = "Magic Crasher",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            target = {
+                {
+                    effect_id = 1380,
+                    str = [[data\texture\effect\new_dragonbreath\new_dragonbreath_01_clock\new_dragonbreath_01_clock.str]],
+                },
+                {
+                    effect_id = 1637,
+                    str = [[data\texture\effect\new_chainlightning\new_chainlightning_lockon\new_chainlightning_lockon.str]],
+                },
+            },
+        },
+        [403] = { -- SK_WZ_FORESIGHT
+            name = "Foresight",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            source = {
+                {
+                    effect_id = 50065,
+                    str = [[data\texture\effect\4ig_judge\judge\judge.str]],
+                },
+                { effect_id = 1539 }, -- Shared Judge cast clip.
             },
         },
         [2446] = { -- SK_WZ_EARTHSTRAIN
@@ -573,7 +607,7 @@ return {
             name = "Psychic Wave",
             cast_motion_type = 1,
             skill_motion_type = 2,
-            casting = {
+            casting_ground = {
                 {
                     effect_id = 50049,
                     str = [[data\texture\effect\new_psychicwave\new_psychicwave_cast\new_psychicwave_cast.str]],

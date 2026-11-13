@@ -4070,7 +4070,9 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
 
     const float uScale = texture->m_w > 0 ? static_cast<float>(texture->m_updateWidth) / static_cast<float>(texture->m_w) : 1.0f;
     const float vScale = texture->m_h > 0 ? static_cast<float>(texture->m_updateHeight) / static_cast<float>(texture->m_h) : 1.0f;
-    const float angle = xform.rz * (kPi / 512.0f);
+    const float rotation = m_presentationStarted
+        ? (timeGetTime() - m_presentationStartTick) * 0.001f * m_presentationRotationSpeed : 0.0f;
+    const float angle = xform.rz * (kPi / 512.0f) + rotation;
     const float s = std::sin(angle);
     const float c = std::cos(angle);
 
@@ -4114,12 +4116,19 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
             rotatedY = along * targetY + across * targetX;
         }
         tlvertex3d& vert = face->m_verts[index];
-        vert = anchor;
-        vert.x = rotatedX + m_tlvertX;
-        vert.y = rotatedY + m_tlvertY;
-        // STR layers are flat screen-space artwork. Using the anchor's world
-        // depth lets foreground terrain cut through the lower half of the quad.
-        // The bottom-effect pass puts actors on top without changing this depth.
+        if (m_presentationGroundPlane) {
+            // Match the STR pixel scale in world units, then let the camera
+            // project the rotating artwork flat beneath actors.
+            const vector3d position{ anchorPos.x + localX * kEffectPixelRatioScale,
+                anchorPos.y - 0.1f, anchorPos.z + localY * kEffectPixelRatioScale };
+            if (!ProjectPoint(position, *viewMatrix, &vert)) return;
+        } else {
+            vert = anchor;
+            vert.x = rotatedX + m_tlvertX;
+            vert.y = rotatedY + m_tlvertY;
+        }
+        // Overlay depth keeps terrain from cutting through the artwork.
+        // The bottom-effect pass still puts actors on top.
         vert.z = 0.000031f;
         vert.color = color;
         vert.specular = 0xFFFFFFFFu;
@@ -4146,6 +4155,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
     m_presentationSaturationPercent = 100;
+    m_presentationGroundPlane = false;
+    m_presentationRotationSpeed = 0.0f;
     m_strPlaysRemaining = 1;
     m_presentationBottomEffect = false;
     m_presentationDrawOverActors = false;
@@ -4199,6 +4210,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_loopedPresentationSound = presentation->loopWavPath;
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
         m_presentationSaturationPercent = presentation->saturationPercent;
+        m_presentationGroundPlane = presentation->groundPlane;
+        m_presentationRotationSpeed = presentation->rotationSpeed;
         m_strPlaysRemaining = presentation->playCount;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
@@ -6988,7 +7001,8 @@ u8 CRagEffect::OnProcess()
         }
     }
     if ((m_handler == Handler::GuardSphere || m_handler == Handler::GroundCircle || m_handler == Handler::StealthFieldFog
-            || m_handler == Handler::GrandCross || m_handler == Handler::EnergyCoatAura) && !m_presentationStarted) {
+            || m_handler == Handler::GrandCross || m_handler == Handler::EnergyCoatAura
+            || (m_handler == Handler::EzStr && m_presentationRotationSpeed != 0.0f)) && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
     }

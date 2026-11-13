@@ -362,6 +362,17 @@ The caster still owns its lifetime: completion, cancellation, cast expiry, death
 removal, or a replacement cast stops the marker. Instant casts launch neither
 casting array.
 
+Comet (`2213`, `SK_SO_COMET`) shares Extreme Vacuum's white bottom casting clip
+(`50063`) on the caster, with cast motion `1` and skill motion `2`.
+It also uses `new_comet_cast_magicrune.str` at its
+selected ground cell while casting. Its STR sets `ground_plane = true` to
+project the authored artwork onto the horizontal ground plane and
+`rotation_speed = 1.0` to rotate at one radian per second. Normal STR effects
+default to screen-space artwork with no added rotation; negative speeds reverse
+the direction. Rotation follows elapsed time across animation loops. The rune
+draws beneath actors and stops on completion, cancellation, cast expiry, death,
+or actor removal; instant casts do not show it.
+
 Ground casting circles share the `ground_casting_circle(color)` helper in
 `skill_presentation.lua`. Its effect definitions give each skill a tint:
 
@@ -1174,8 +1185,11 @@ in a running updated client. Compare these cases against the official client:
 | Vigor (2016) | Buff and status icon apply with normal skill motion/name; no green glow, cone, or casting WAV; Acid Terror still shows its green glow |
 | Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
+| Hindsight (2206), successful use and cancellation | `firstfaithpower.str` and the shared `thirdexorflame_cast.str` play once together on the caster after successful use; cancelled casts launch neither effect |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
+| Comet (2213), Doom, and other ground skills using invisible effect actors | Impact effects play at their selected cells without white hiding flashes or briefly visible carrier sprites; actors that spawn hidden stay hidden, while visible actors entering hiding still play their normal fade and flash |
+| Comet (2213), timed/instant casts, cancellation, repeated casts, camera rotation/zoom, and caster movement/removal | Cast motion 1 and the shared white bottom clip (50063) play on the caster while one `new_comet_cast_magicrune.str` lies flat beneath actors at the selected ground cell and rotates continuously through STR loops; completion, cancellation, expiry, death, or removal stops both clips; instant casts show neither casting clip; successful use selects skill motion 2 and retains the existing impact effects |
 | Stalagmite (90), casting, cancellation, and target damage | Earth Strain's bottom effect loops beneath the caster only while casting; completion stops it and plays all three Violent Quake clips together on the target once each, while cancellation launches no target clips |
 | Meteor Storm (83), casting, cancellation, repeated meteors, instant/repeated casts, and movement or another cast during falling meteors | The fire ground STR loops beneath the caster while the shared rune circle rotates at the selected cell; both stop on completion or cancellation; motion 2 and the skill-name shout play once per cast; later ground/damage notifications retain their meteor visuals, numbers, and audio without interrupting movement or a newer cast; each fresh acknowledgement allows one new source presentation |
 | Storm Gust (89), casting, cancellation, and movement after completion | The water ground STR loops beneath the caster while the shared rune circle rotates at the selected cell; both stop on completion or cancellation; successful casts still play storm gust.str at the selected ground cell |

@@ -29,6 +29,7 @@
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
 -- STR effects can set hue_shift_degrees = 0..360; omitted or 0 keeps original colors.
 -- saturation_percent = 100 (default) keeps STR colors; 0 gives a white/gray glow.
+-- ground_plane = true lays an STR flat on the ground; rotation_speed is radians per second.
 -- play_count = 1 (default) sets total STR playbacks; use 2 to play twice, then stop.
 
 -- Ground casting circles share their geometry and timing; color is an optional 0xRRGGBB tint.
@@ -603,6 +604,24 @@ return {
                 },
             },
         },
+        [2213] = { -- SK_SO_COMET
+            name = "Cataclysm",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+            },
+            casting_ground = {
+                {
+                    effect_id = 50066,
+                    str = [[data\texture\effect\new_comet\new_comet_cast_magicrune\new_comet_cast_magicrune.str]],
+                    ground_plane = true,
+                    rotation_speed = 1.0,
+                    bottom_effect = true,
+                    bottom_offset_px = 0,
+                },
+            },
+        },
         [2449] = { -- SK_WZ_PSYCHICWAVE
             name = "Psychic Wave",
             cast_motion_type = 1,
@@ -651,6 +670,16 @@ return {
                     str = [[data\texture\effect\new_varetyrspear\new_varetyrspear_bottom\new_varetyrspear_bottom.str]],
                     bottom_effect = true,
                 },
+            },
+        },
+        [2206] = { -- SK_SO_HINDSIGHT
+            name = "Hindsight",
+            source = {
+                {
+                    effect_id = 50067,
+                    str = [[data\texture\effect\4ig_firstfaithpower\firstfaithpower\firstfaithpower.str]],
+                },
+                { effect_id = 1983 }, -- Shared thirdexorflame_cast.str.
             },
         },
         [2202] = { -- SK_MG_VOIDEXPANSION
@@ -1621,7 +1650,7 @@ return {
             wav = [[data\wav\effect\ab_offertorium.wav]],
             loop = true,
         },
-        [50063] = { -- White variant shared by Extreme Vacuum and Phantom Spear while casting.
+        [50063] = { -- White variant shared by Extreme Vacuum, Phantom Spear, and Comet while casting.
             str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
             bottom_effect = true,
             saturation_percent = 0,

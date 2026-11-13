@@ -277,6 +277,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
         || !ReadInteger(state, table, "saturation_percent", effect.saturationPercent, error)
+        || !ReadBoolean(state, table, "ground_plane", effect.groundPlane, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
         || !ReadBoolean(state, table, "draw_over_actors", effect.drawOverActors, error)) return false;
     if (effect.drawOverActors && !effect.bottomEffect) {
@@ -311,6 +312,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    if (effect.groundPlane && !renderer.empty() && renderer != "str") {
+        error = "ground_plane requires an STR renderer";
+        return false;
+    }
     if (effect.playCount > 1 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
         error = "play_count requires an STR renderer";
         return false;
@@ -382,6 +387,12 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
             return false;
         }
         return ReadGuardSphere(state, table, effect.guardSphere, error);
+    }
+    lua_getfield(state, table, "rotation_speed");
+    const bool hasRotationSpeed = !lua_isnil(state, -1);
+    lua_pop(state, 1);
+    if (hasRotationSpeed && !ReadNumber(state, table, "rotation_speed", effect.rotationSpeed, -100.0f, 100.0f, error)) {
+        return false;
     }
     lua_getfield(state, table, "variants");
     if (lua_isnil(state, -1)) {

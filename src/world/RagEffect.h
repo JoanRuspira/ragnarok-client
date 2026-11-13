@@ -239,6 +239,8 @@ private:
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
     int m_presentationSaturationPercent = 100;
+    bool m_presentationGroundPlane = false;
+    float m_presentationRotationSpeed = 0.0f;
     int m_strPlaysRemaining = 1;
     bool m_presentationBottomEffect = false;
     bool m_presentationDrawOverActors = false;

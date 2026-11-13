@@ -91,6 +91,8 @@ struct SkillEffectPresentation {
     float offsetY = 0.0f;
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
     int saturationPercent = 100; // STR color saturation; 0 makes a white/gray glow.
+    bool groundPlane = false; // Project STR coordinates onto the world XZ plane.
+    float rotationSpeed = 0.0f; // Additional STR rotation, in radians per second.
     bool loop = false;
     int playCount = 1; // Total STR playbacks, including the first.
     bool oncePerHit = false;

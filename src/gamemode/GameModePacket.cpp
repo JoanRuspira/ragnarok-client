@@ -6892,7 +6892,9 @@ void ApplyRuntimeActorState(CGameMode& mode, const RuntimeActorState& state)
     }
 
     const bool hadResolvedIdentity = actor->m_job != 0 || actor->m_objectType != 0 || actor->m_isPc != 0;
-    const int oldEffectState = actor->m_effectState;
+    // The first actor snapshot initializes visibility; it is not a hide transition.
+    // Ground effects use actors that spawn invisible and must not emit a hiding flash.
+    const int oldEffectState = hadResolvedIdentity ? actor->m_effectState : state.effectState;
 
     actor->m_speed = state.speed;
     actor->m_job = state.job;

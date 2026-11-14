@@ -9297,7 +9297,7 @@ void DrawBootstrapScene(HWND hwnd, const CGameMode& mode)
 }
 }
 
-bool ArmPendingSkillUseFromSkillList(int skillId)
+bool ArmPendingSkillUseFromSkillList(int skillId, int selectedLevel)
 {
     if (skillId <= 0) {
         return false;
@@ -9314,7 +9314,7 @@ bool ArmPendingSkillUseFromSkillList(int skillId)
     }
 
     const u16 skillIdU = static_cast<u16>(skillId & 0xFFFF);
-    const u16 skillLevel = static_cast<u16>(skill->level > 0 ? skill->level : 1);
+    const u16 skillLevel = static_cast<u16>(selectedLevel > 0 ? std::clamp(selectedLevel, 1, skill->level) : skill->level);
     const int skillInf = skill->type;
     const ShortcutSkillUseMode skillUseMode = ResolveShortcutSkillUseMode(skillIdU);
 

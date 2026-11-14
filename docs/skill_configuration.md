@@ -62,6 +62,8 @@ be loaded.
 | `lua files/skillinfoz/skillid.lub` | Symbolic names mapped to server skill IDs (`SKID`) |
 | `lua files/skillinfoz/skillinfolist.lub` | Icon resource name, displayed name, displayed maximum level, and per-level SP metadata (`SKILL_INFO_LIST`) |
 | `lua files/skillinfoz/skilldescript.lub` | Tooltip title and description lines (`SKILL_DESCRIPT`) |
+| `lua files/skillinfoz/skilltreeview.lub` | Per-class positions (`SKILL_TREEVIEW_FOR_JOB`) and optional column titles (`SKILL_TREE_TITLES_FOR_JOB`) |
+| `lua files/skillinfoz/jobinheritlist.lub` | Class IDs (`JOBID`) and parent classes (`JOB_INHERIT_LIST`) for the job tabs |
 
 For example, matching server skill 19:
 
@@ -97,10 +99,84 @@ lowercased, under `data/texture/유저인터페이스/item/`, for example
 `sk_mg_firebolt.bmp`. Restart the client after metadata changes. Upgrade
 availability and the current SP cost come from server packets.
 
-The current skill window is a flat list of learned or learnable skills, sorted
-by skill ID. It does not read `skilltreeview.lub`, `jobinheritlist.lub`, or
-`jobskillinfo.lub` for class tabs or a graphical tree. Editing those layout files
-does not change this window's layout or grant skills to a class.
+## Skill window layout
+
+Alt+S opens a 780 by 680 window with two tabs: **1st Job** and **2nd Job**.
+Third-job skills share the second-job tab. Each tab has five parallel trees and
+six authored rows. The window keeps the navy background and gold frame in both
+native and Qt rendering.
+Downward arrows connect consecutive skills in each tree. They are gray until
+the skill above the arrow reaches level 3, then use the gold color and dark outline.
+Rows are spaced to leave room for the arrows. Trees that extend below the
+visible area have a scrollbar on the right; use the mouse wheel, drag its
+thumb, or click the track to scroll. Tabs, column titles, and the footer stay
+fixed, and switching tabs resets the scroll position. The window remains
+780 by 680 and the icons stay at their original size.
+Cells have no visible frame or skill name. Each skill icon has a yellow frame:
+one pixel for an unlearned skill and four pixels once its learned level is
+greater than zero. Unlearned icons are grayscale; icons at level 1 or higher
+use their original colors. Icon frames and level badges have the same rounded corners.
+A 22 by 22 black badge with a thin yellow frame shows the level, overlapping
+the icon's bottom-right corner and extending 12 pixels past its right and
+bottom edges. Right-click a skill to see its name and description.
+
+Skills with `bSeperateLv = true` in `SKILL_INFO_LIST` have small left/right
+triangle buttons beside the level badge. The badge shows the selected casting
+level, initially the highest learned level. Selection is limited to levels
+1 through the character's learned level; buttons at the limits are disabled,
+and unlearned skills cannot select a casting level. The window remembers each
+skill's selection for the current character and clamps it after a skill reset.
+Skills without this flag keep their learned level and have no selector buttons.
+
+Dragging a skill onto a shortcut bar copies the selected level into that slot.
+Changing the window's selection afterward does not change existing shortcuts,
+so the same skill can occupy multiple slots at different casting levels. The
+saved level is also sent with shortcut updates to the server. Shortcut casting
+uses the saved level, capped at the current learned level. The window's **Use**
+button also uses the selected level. Icon colors, frame thickness, and tree
+arrow colors always use the actual learned level.
+
+`SKILL_TREEVIEW_FOR_JOB` uses zero-based positions in a seven-column grid.
+The window removes the two gutter columns (source columns 0 and 6). A skill
+at position `row * 7 + column + 1` appears in visible column `column` and row
+`row`, both zero-based. Empty positions remain empty; learning a skill does
+not move other skills. For example, positions 1, 8, 15, 22, 29, and 36 form
+the first vertical tree. Novice's legacy positions 0, 7, and 14 are also shown
+in its first tree so its basic skills remain accessible.
+
+Tabs follow the character's configured class ancestry, excluding Novice when
+a job layout exists. For example, Knight High uses Swordman on the first tab,
+with Knight and Knight High together on the second tab. Later-job skills are
+overlaid at their authored grid positions, while the second-job class supplies
+the column titles. Class aliases without their own layout inherit their parent
+layout. Tabs without a configured layout show an empty grid.
+All configured skills appear, including locked ones; only skills authorized
+by the server can be upgraded, used, or dragged to shortcuts. Right-clicking
+a skill opens its description.
+
+Column titles default to **Tree 1** through **Tree 5**. To configure them per
+class, add this optional table alongside the layouts in `skilltreeview.lub`:
+
+```lua
+SKILL_TREE_TITLES_FOR_JOB = {
+    [JOBID.JT_SWORDMAN] = {
+        "Tree 1", "Tree 2", "Tree 3", "Tree 4", "Tree 5"
+    },
+    [JOBID.JT_KNIGHT] = {
+        "Knight Tree 1", "Knight Tree 2", "Knight Tree 3",
+        "Knight Tree 4", "Knight Tree 5"
+    }
+}
+```
+
+The tree window prefers the large BMPs in the loose `data/texture/.../item/`
+folder over legacy GRF icons when loose data is enabled. Icons occupy a 64 by
+64 viewport at their original pixel size, without scaling; excess border
+pixels are clipped. Missing large artwork leaves an icon frame and level
+badge; legacy 24 by 24 icons are never enlarged. Shortcut and description icons
+retain their existing asset lookup. Restart the client after layout or title
+changes. These files control presentation; the server still grants skills
+and enforces prerequisites.
 
 ## Skill packets and effects
 

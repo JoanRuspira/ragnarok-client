@@ -142,6 +142,82 @@ std::string CSkillMgr::GetSkillIconPath(int skillId) const
     return std::string(kUiKorPrefix) + "item\\" + ToLowerAscii(metadata->skillIdName) + ".bmp";
 }
 
+std::string CSkillMgr::GetSkillTreeIconPath(int skillId) const
+{
+    const std::string path = GetSkillIconPath(skillId);
+    if (path.empty()) {
+        return {};
+    }
+    // The loose data folder contains the 64px artwork; legacy GRFs may still
+    // contain a 24px icon with the same name. Respect the data-folder setting.
+    const std::string dataPath = "data\\" + path;
+    if (g_fileMgr.IsDataExist(dataPath.c_str())) {
+        return dataPath;
+    }
+    return path;
+}
+
+void CSkillMgr::LoadSkillTrees()
+{
+    if (m_skillTreesLoaded) {
+        return;
+    }
+    EnsureLoaded();
+    m_skillTreesLoaded = true;
+    std::vector<SkillTreeLayout> layouts;
+    if (g_buabridge.GetSkillTreeLayouts(&layouts, &m_jobInheritance)) {
+        for (SkillTreeLayout& layout : layouts) {
+            m_skillTrees.emplace(layout.jobId, std::move(layout));
+        }
+    }
+}
+
+std::array<SkillTreeLayout, kSkillTreeJobTabs> CSkillMgr::GetSkillTreeTabs(int jobId)
+{
+    LoadSkillTrees();
+    std::vector<const SkillTreeLayout*> lineage;
+    std::vector<int> visited;
+    // Only layouts in the character's ancestry belong in its job tabs. Aliases
+    // without their own layout inherit the nearest configured class.
+    while (std::find(visited.begin(), visited.end(), jobId) == visited.end()) {
+        visited.push_back(jobId);
+        const auto tree = m_skillTrees.find(jobId);
+        if (tree != m_skillTrees.end() && (jobId != 0 || lineage.empty())) {
+            lineage.push_back(&tree->second);
+        }
+        const auto parent = m_jobInheritance.find(jobId);
+        if (parent == m_jobInheritance.end()) {
+            break;
+        }
+        jobId = parent->second;
+    }
+    std::reverse(lineage.begin(), lineage.end());
+    std::array<SkillTreeLayout, kSkillTreeJobTabs> tabs{};
+    if (!lineage.empty()) {
+        tabs[0] = *lineage.front();
+    }
+    if (lineage.size() > 1) {
+        tabs[1] = *lineage[1];
+        // Later jobs extend the second-job tree at their authored positions.
+        // Keep its class titles and all cells not replaced by an extension.
+        for (size_t index = 2; index < lineage.size(); ++index) {
+            for (size_t cell = 0; cell < tabs[1].skillIds.size(); ++cell) {
+                if (lineage[index]->skillIds[cell] > 0) {
+                    tabs[1].skillIds[cell] = lineage[index]->skillIds[cell];
+                }
+            }
+        }
+    }
+    for (SkillTreeLayout& tab : tabs) {
+        for (size_t column = 0; column < tab.titles.size(); ++column) {
+            if (tab.titles[column].empty()) {
+                tab.titles[column] = "Tree " + std::to_string(column + 1);
+            }
+        }
+    }
+    return tabs;
+}
+
 bool CSkillMgr::LoadSkillMetadata()
 {
     m_byId.clear();
@@ -322,6 +398,7 @@ void CSkillMgr::LoadLuaSkillMetadata()
         if (entry.maxLevel > 0) {
             metadata.maxLevel = entry.maxLevel;
         }
+        metadata.separateLevels = entry.separateLevels;
         if (!entry.descriptionLines.empty()) {
             metadata.descriptionLines = entry.descriptionLines;
         }

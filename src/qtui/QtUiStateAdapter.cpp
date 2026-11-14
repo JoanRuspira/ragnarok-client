@@ -2440,7 +2440,7 @@ void PopulateSkillListState(QtUiState* state)
         return;
     }
 
-    const UISkillListWnd* const skillWnd = g_windowMgr.m_skillListWnd;
+    UISkillListWnd* const skillWnd = g_windowMgr.m_skillListWnd;
     const bool visible = IsGameplayWindowVisible(state, skillWnd);
     state->setSkillListVisible(visible);
     if (!visible) {
@@ -2476,19 +2476,62 @@ void PopulateSkillListState(QtUiState* state)
         data.insert(QStringLiteral("systemButtons"), systemButtons);
 
         data.insert(QStringLiteral("skillPointCount"), display.skillPointCount);
-        data.insert(QStringLiteral("skillPointText"), QStringLiteral("Skill Point : %1").arg(display.skillPointCount));
+        data.insert(QStringLiteral("skillPointText"), QStringLiteral("Skill Points: %1").arg(display.skillPointCount));
         data.insert(QStringLiteral("upgradeLabel"), QStringLiteral("+"));
-        data.insert(QStringLiteral("viewOffset"), display.viewOffset);
-        data.insert(QStringLiteral("maxViewOffset"), display.maxViewOffset);
-        data.insert(QStringLiteral("scrollBarVisible"), display.scrollBarVisible);
-        data.insert(QStringLiteral("scrollTrackX"), display.scrollTrackX);
-        data.insert(QStringLiteral("scrollTrackY"), display.scrollTrackY);
-        data.insert(QStringLiteral("scrollTrackWidth"), display.scrollTrackWidth);
-        data.insert(QStringLiteral("scrollTrackHeight"), display.scrollTrackHeight);
-        data.insert(QStringLiteral("scrollThumbX"), display.scrollThumbX);
-        data.insert(QStringLiteral("scrollThumbY"), display.scrollThumbY);
-        data.insert(QStringLiteral("scrollThumbWidth"), display.scrollThumbWidth);
-        data.insert(QStringLiteral("scrollThumbHeight"), display.scrollThumbHeight);
+        data.insert(QStringLiteral("activeTab"), display.activeTab);
+        data.insert(QStringLiteral("iconSize"), display.iconSize);
+        data.insert(QStringLiteral("viewportX"), display.viewportX);
+        data.insert(QStringLiteral("viewportY"), display.viewportY);
+        data.insert(QStringLiteral("viewportWidth"), display.viewportWidth);
+        data.insert(QStringLiteral("viewportHeight"), display.viewportHeight);
+        QVariantMap scrollBar;
+        scrollBar.insert(QStringLiteral("visible"), display.scrollBar.visible);
+        scrollBar.insert(QStringLiteral("dragging"), display.scrollBar.dragging);
+        scrollBar.insert(QStringLiteral("x"), display.scrollBar.x);
+        scrollBar.insert(QStringLiteral("y"), display.scrollBar.y);
+        scrollBar.insert(QStringLiteral("width"), display.scrollBar.width);
+        scrollBar.insert(QStringLiteral("height"), display.scrollBar.height);
+        scrollBar.insert(QStringLiteral("thumbY"), display.scrollBar.thumbY);
+        scrollBar.insert(QStringLiteral("thumbHeight"), display.scrollBar.thumbHeight);
+        data.insert(QStringLiteral("scrollBar"), scrollBar);
+        QVariantList tabs;
+        for (const UISkillListWnd::DisplayButton& tab : display.tabs) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("x"), tab.x);
+            entry.insert(QStringLiteral("y"), tab.y);
+            entry.insert(QStringLiteral("width"), tab.width);
+            entry.insert(QStringLiteral("height"), tab.height);
+            entry.insert(QStringLiteral("label"), ToQString(tab.label));
+            entry.insert(QStringLiteral("selected"), tab.selected);
+            entry.insert(QStringLiteral("hovered"), tab.hovered);
+            entry.insert(QStringLiteral("pressed"), tab.pressed);
+            tabs.push_back(entry);
+        }
+        data.insert(QStringLiteral("tabs"), tabs);
+        QVariantList columns;
+        for (const UISkillListWnd::DisplayColumn& column : display.columns) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("x"), column.x);
+            entry.insert(QStringLiteral("y"), column.y);
+            entry.insert(QStringLiteral("width"), column.width);
+            entry.insert(QStringLiteral("height"), column.height);
+            entry.insert(QStringLiteral("title"), ToQString(column.title));
+            columns.push_back(entry);
+        }
+        data.insert(QStringLiteral("columns"), columns);
+        QVariantList connections;
+        for (const UISkillListWnd::DisplayConnection& connection : display.connections) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("x"), connection.x);
+            entry.insert(QStringLiteral("y"), connection.y);
+            entry.insert(QStringLiteral("width"), connection.width);
+            entry.insert(QStringLiteral("height"), connection.height);
+            entry.insert(QStringLiteral("shaftWidth"), connection.shaftWidth);
+            entry.insert(QStringLiteral("headHeight"), connection.headHeight);
+            entry.insert(QStringLiteral("active"), connection.active);
+            connections.push_back(entry);
+        }
+        data.insert(QStringLiteral("connections"), connections);
 
         QVariantList rows;
         rows.reserve(static_cast<qsizetype>(display.rows.size()));
@@ -2499,7 +2542,28 @@ void PopulateSkillListState(QtUiState* state)
             entry.insert(QStringLiteral("y"), row.y);
             entry.insert(QStringLiteral("width"), row.width);
             entry.insert(QStringLiteral("height"), row.height);
+            entry.insert(QStringLiteral("iconX"), row.iconX);
+            entry.insert(QStringLiteral("iconY"), row.iconY);
+            entry.insert(QStringLiteral("iconFrameWidth"), row.iconFrameWidth);
+            entry.insert(QStringLiteral("levelX"), row.levelX);
+            entry.insert(QStringLiteral("levelY"), row.levelY);
+            entry.insert(QStringLiteral("levelSize"), row.levelSize);
+            entry.insert(QStringLiteral("levelSelectionVisible"), row.levelSelectionVisible);
+            QVariantList levelSelectors;
+            for (const UISkillListWnd::DisplayLevelSelector& selector : row.levelSelectors) {
+                QVariantMap control;
+                control.insert(QStringLiteral("x"), selector.x);
+                control.insert(QStringLiteral("y"), selector.y);
+                control.insert(QStringLiteral("width"), selector.width);
+                control.insert(QStringLiteral("height"), selector.height);
+                control.insert(QStringLiteral("direction"), selector.direction);
+                control.insert(QStringLiteral("enabled"), selector.enabled);
+                control.insert(QStringLiteral("pressed"), selector.pressed);
+                levelSelectors.push_back(control);
+            }
+            entry.insert(QStringLiteral("levelSelectors"), levelSelectors);
             entry.insert(QStringLiteral("iconVisible"), row.iconVisible);
+            entry.insert(QStringLiteral("learned"), row.learned);
             entry.insert(QStringLiteral("selected"), row.selected);
             entry.insert(QStringLiteral("hovered"), row.hovered);
             entry.insert(QStringLiteral("upgradeVisible"), row.upgradeVisible);
@@ -2508,9 +2572,7 @@ void PopulateSkillListState(QtUiState* state)
             entry.insert(QStringLiteral("upgradeY"), row.upgradeY);
             entry.insert(QStringLiteral("upgradeWidth"), row.upgradeWidth);
             entry.insert(QStringLiteral("upgradeHeight"), row.upgradeHeight);
-            entry.insert(QStringLiteral("name"), ToQString(row.name));
             entry.insert(QStringLiteral("levelText"), ToQString(row.levelText));
-            entry.insert(QStringLiteral("rightText"), ToQString(row.rightText));
             rows.push_back(entry);
         }
         data.insert(QStringLiteral("rows"), rows);

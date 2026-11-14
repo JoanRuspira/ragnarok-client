@@ -488,27 +488,34 @@ std::string ResolveQtSkillIconPath(int skillId)
     return g_skillMgr.GetSkillIconPath(skillId);
 }
 
-bool TryBuildSkillIconImage(int skillId, QImage* outImage)
+bool TryBuildSkillIconImage(int skillId, bool treeIcon, bool grayscale, QImage* outImage)
 {
     if (!outImage || skillId == 0) {
         return false;
     }
 
+    grayscale = treeIcon && grayscale;
     static std::unordered_map<int, QImage> s_skillIconCache;
-    const auto cached = s_skillIconCache.find(skillId);
-    if (cached != s_skillIconCache.end()) {
+    static std::array<std::unordered_map<int, QImage>, 2> s_skillTreeIconCache;
+    auto& cache = treeIcon ? s_skillTreeIconCache[grayscale ? 1 : 0] : s_skillIconCache;
+    const auto cached = cache.find(skillId);
+    if (cached != cache.end()) {
         *outImage = cached->second;
         return !outImage->isNull();
     }
 
-    const std::string path = ResolveQtSkillIconPath(skillId);
+    g_skillMgr.EnsureLoaded();
+    const std::string path = treeIcon ? g_skillMgr.GetSkillTreeIconPath(skillId) : ResolveQtSkillIconPath(skillId);
     if (path.empty()) {
         return false;
     }
 
     shopui::BitmapPixels bitmap = shopui::LoadBitmapPixelsFromGameData(path, true);
-    if (!bitmap.IsValid()) {
+    if (!bitmap.IsValid() || (treeIcon && (bitmap.width < 64 || bitmap.height < 64))) {
         return false;
+    }
+    if (grayscale) {
+        shopui::ConvertBitmapPixelsToGrayscale(bitmap);
     }
 
     const QImage source(
@@ -517,9 +524,22 @@ bool TryBuildSkillIconImage(int skillId, QImage* outImage)
         bitmap.height,
         bitmap.width * static_cast<int>(sizeof(unsigned int)),
         QImage::Format_ARGB32);
-    *outImage = source.copy();
+    if (treeIcon && uitheme::kCornerRadius > 0) {
+        // Clip the original pixels into the same rounded 64px viewport used
+        // by the native renderer. Cropping also handles extra border pixels.
+        *outImage = QImage(64, 64, QImage::Format_ARGB32_Premultiplied);
+        outImage->fill(Qt::transparent);
+        QPainter painter(outImage);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QPainterPath clip;
+        clip.addRoundedRect(QRectF(outImage->rect()), uitheme::kCornerRadius, uitheme::kCornerRadius);
+        painter.setClipPath(clip);
+        painter.drawImage((64 - source.width()) / 2, (64 - source.height()) / 2, source);
+    } else {
+        *outImage = source.copy();
+    }
     if (!outImage->isNull()) {
-        s_skillIconCache[skillId] = *outImage;
+        cache[skillId] = *outImage;
     }
     return !outImage->isNull();
 }
@@ -803,7 +823,8 @@ public:
             bool ok = false;
             const int skillId = baseId.mid(QStringLiteral("skill/").size()).toInt(&ok);
             if (ok) {
-                TryBuildSkillIconImage(skillId, &image);
+                TryBuildSkillIconImage(skillId, id.contains(QStringLiteral("tree=1")),
+                    id.contains(QStringLiteral("grayscale=1")), &image);
             }
         } else if (baseId.startsWith(QStringLiteral("status/"))) {
             bool ok = false;
@@ -862,7 +883,8 @@ public:
             image = rounded;
         }
 
-        if (!image.isNull() && requestedSize.isValid() && requestedSize.width() > 0 && requestedSize.height() > 0) {
+        const bool nativeSkillTreeIcon = baseId.startsWith(QStringLiteral("skill/")) && id.contains(QStringLiteral("tree=1"));
+        if (!image.isNull() && !nativeSkillTreeIcon && requestedSize.isValid() && requestedSize.width() > 0 && requestedSize.height() > 0) {
             image = image.scaled(requestedSize, Qt::IgnoreAspectRatio, Qt::FastTransformation);
         }
 

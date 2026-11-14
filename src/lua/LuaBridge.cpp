@@ -1274,6 +1274,115 @@ bool CLuaBridge::GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo)
 	return true;
 }
 
+bool CLuaBridge::GetSkillTreeLayouts(std::vector<SkillTreeLayout>* outLayouts, std::unordered_map<int, int>* outInheritance)
+{
+	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
+	if (!outLayouts || !outInheritance || !Initialize()) {
+		return false;
+	}
+	outLayouts->clear();
+	outInheritance->clear();
+	const auto loadScript = [this](const char* name) {
+		const std::string path = std::string("lua files\\skillinfoz\\") + name;
+		return LoadRagnarokScriptOnce((path + ".lub").c_str())
+			|| LoadRagnarokScriptOnce((path + ".lua").c_str());
+	};
+	loadScript("skillid");
+	loadScript("jobinheritlist");
+	EnsureSkillIdTable(m_state);
+
+	// Layout scripts also contain stock tab-renaming calls. The window owns its
+	// two fixed job labels, so provide the optional client callback if absent.
+	lua_getglobal(m_state, "JobSkillTab");
+	if (!lua_istable(m_state, -1)) {
+		lua_pop(m_state, 1);
+		lua_newtable(m_state);
+	}
+	lua_getfield(m_state, -1, "ChangeSkillTabName");
+	const bool hasCallback = lua_isfunction(m_state, -1);
+	lua_pop(m_state, 1);
+	if (!hasCallback) {
+		lua_pushcfunction(m_state, [](lua_State*) -> int { return 0; });
+		lua_setfield(m_state, -2, "ChangeSkillTabName");
+	}
+	lua_setglobal(m_state, "JobSkillTab");
+	if (!loadScript("skilltreeview")) {
+		return false;
+	}
+
+	const int stackTop = lua_gettop(m_state);
+	lua_getglobal(m_state, "JOB_INHERIT_LIST");
+	if (lua_istable(m_state, -1)) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			if (lua_type(m_state, -2) == LUA_TNUMBER && lua_type(m_state, -1) == LUA_TNUMBER) {
+				(*outInheritance)[static_cast<int>(lua_tointeger(m_state, -2))] = static_cast<int>(lua_tointeger(m_state, -1));
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_pop(m_state, 1);
+
+	lua_getglobal(m_state, "SKILL_TREEVIEW_FOR_JOB");
+	if (lua_istable(m_state, -1)) {
+		lua_pushnil(m_state);
+		while (lua_next(m_state, -2) != 0) {
+			if (lua_type(m_state, -2) == LUA_TNUMBER && lua_istable(m_state, -1)) {
+				SkillTreeLayout layout;
+				layout.jobId = static_cast<int>(lua_tointeger(m_state, -2));
+				const int entryIndex = lua_gettop(m_state);
+				for (int row = 0; row < kSkillTreeRows; ++row) {
+					for (int column = 0; column < kSkillTreeColumns; ++column) {
+						// Source positions are zero-based in a 7-column grid;
+						// columns 0 and 6 are gutters, not skill trees.
+						lua_rawgeti(m_state, entryIndex, row * 7 + column + 1);
+						if (lua_type(m_state, -1) == LUA_TNUMBER) {
+							layout.skillIds[row * kSkillTreeColumns + column] = static_cast<int>(lua_tointeger(m_state, -1));
+						}
+						lua_pop(m_state, 1);
+					}
+				}
+				// Novice alone uses the old left gutter for its basic skills.
+				// Keep those accessible in the first tree of its first job tab.
+				if (layout.jobId == 0) {
+					for (int row = 0; row < kSkillTreeRows; ++row) {
+						lua_rawgeti(m_state, entryIndex, row * 7);
+						if (layout.skillIds[row * kSkillTreeColumns] == 0 && lua_type(m_state, -1) == LUA_TNUMBER) {
+							layout.skillIds[row * kSkillTreeColumns] = static_cast<int>(lua_tointeger(m_state, -1));
+						}
+						lua_pop(m_state, 1);
+					}
+				}
+				// Optional per-class column titles can live beside the layout.
+				lua_getglobal(m_state, "SKILL_TREE_TITLES_FOR_JOB");
+				if (lua_istable(m_state, -1)) {
+					lua_rawgeti(m_state, -1, layout.jobId);
+					if (lua_istable(m_state, -1)) {
+						for (int column = 0; column < kSkillTreeColumns; ++column) {
+							lua_rawgeti(m_state, -1, column + 1);
+							if (lua_type(m_state, -1) == LUA_TSTRING) {
+								layout.titles[column] = lua_tostring(m_state, -1);
+							}
+							lua_pop(m_state, 1);
+						}
+					}
+					lua_pop(m_state, 1);
+				}
+				lua_pop(m_state, 1);
+				for (int column = 0; column < kSkillTreeColumns; ++column) {
+					if (layout.titles[column].empty()) {
+						layout.titles[column] = "Tree " + std::to_string(column + 1);
+					}
+				}
+				outLayouts->push_back(std::move(layout));
+			}
+			lua_pop(m_state, 1);
+		}
+	}
+	lua_settop(m_state, stackTop);
+	return !outLayouts->empty();
+}
+
 bool CLuaBridge::GetSkillMetadata(std::vector<SkillMetadata>* outSkills)
 {
 	const std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -1321,6 +1430,7 @@ bool CLuaBridge::GetSkillMetadata(std::vector<SkillMetadata>* outSkills)
 					}
 					lua_pop(m_state, 1);
 					TryGetLuaTableIntegerField(m_state, entryIndex, "MaxLv", &metadata.maxLevel);
+					TryGetLuaTableBooleanField(m_state, entryIndex, "bSeperateLv", &metadata.separateLevels);
 					TryGetLuaTableIntegerArrayField(m_state, entryIndex, "SpAmount", &metadata.levelSpCosts);
 				}
 			}

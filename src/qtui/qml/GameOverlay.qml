@@ -3364,216 +3364,306 @@ Item {
         y: uiState.skillListY
         width: uiState.skillListWidth
         height: uiState.skillListHeight
-        color: "#ede9df"
+        color: root.uiTheme.panelBackground
         border.width: 1
-        border.color: "#6b675f"
+        border.color: root.uiTheme.frame
         visible: uiState.skillListVisible
 
-        UiRectangle {
-            x: 1
-            y: 1
-            width: parent.width - 2
-            height: 16
-            color: "#6e8194"
-            border.width: 1
-            border.color: "#4e5d6c"
-        }
-
         UiText {
-            x: 17
-            y: 3
-            text: uiState.skillListData.title || ""
-            color: "#ffffff"
+            x: 12
+            y: 2
+            text: uiState.skillListData.title || "Skill Tree"
+            color: root.uiTheme.uiText
             font.pixelSize: 12
             font.bold: true
         }
 
+        Rectangle {
+            x: 8
+            y: 19
+            width: parent.width - 16
+            height: 1
+            color: root.uiTheme.frame
+        }
+
         Repeater {
             model: uiState.skillListData.systemButtons || []
-
             delegate: UiRectangle {
-                required property var modelData
-                x: (modelData.x || 0) - uiState.skillListX
-                y: (modelData.y || 0) - uiState.skillListY
-                width: modelData.width || 0
-                height: modelData.height || 0
-                color: "#d7d2c5"
-                border.width: 1
-                border.color: "#7f7a70"
-                visible: modelData.visible || false
-
-                UiText {
-                    anchors.centerIn: parent
-                    text: modelData.label || ""
-                    color: "#000000"
-                    font.pixelSize: 8
-                    font.bold: true
-                }
-            }
-        }
-
-        UiRectangle {
-            x: 41
-            y: 17
-            width: parent.width - 41
-            height: parent.height - 67
-            color: "#ffffff"
-            border.width: 1
-            border.color: "#c4c0b5"
-        }
-
-        UiRectangle {
-            x: 0
-            y: 17
-            width: 41
-            height: parent.height - 67
-            color: "#ddd7ca"
-        }
-
-        Repeater {
-            model: uiState.skillListData.rows || []
-
-            delegate: Item {
                 required property var modelData
                 x: modelData.x - uiState.skillListX
                 y: modelData.y - uiState.skillListY
                 width: modelData.width
                 height: modelData.height
-
-                UiRectangle {
-                    anchors.fill: parent
-                    color: modelData.selected ? "#d7dff0" : (modelData.hovered ? "#ece8de" : "transparent")
-                    border.width: 1
-                    border.color: modelData.selected ? "#7e95bf" : (modelData.hovered ? "#b8b1a3" : "transparent")
+                color: root.uiTheme.panelBackground
+                border.width: 1
+                border.color: root.uiTheme.frame
+                visible: modelData.visible
+                UiText {
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: root.uiTheme.uiText
+                    font.pixelSize: 8
                 }
+            }
+        }
 
-                UiRectangle {
-                    x: 4
-                    y: 1
-                    width: 32
-                    height: 32
-                    color: "#f5f2ea"
-                    border.width: 1
-                    border.color: "#a69f91"
+        Repeater {
+            model: uiState.skillListData.tabs || []
+            delegate: UiRectangle {
+                required property var modelData
+                x: modelData.x - uiState.skillListX
+                y: modelData.y - uiState.skillListY
+                width: modelData.width
+                height: modelData.height
+                color: modelData.selected || modelData.hovered || modelData.pressed
+                    ? root.uiTheme.controlHover : root.uiTheme.panelBackground
+                border.width: 1
+                border.color: modelData.selected ? root.uiTheme.accent : root.uiTheme.frame
+                UiText {
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: modelData.selected ? root.uiTheme.accent : root.uiTheme.uiText
+                    font.pixelSize: 11
+                    font.bold: modelData.selected
+                }
+            }
+        }
+
+        Repeater {
+            model: uiState.skillListData.columns || []
+            delegate: UiText {
+                required property var modelData
+                x: modelData.x - uiState.skillListX
+                y: modelData.y - uiState.skillListY
+                width: modelData.width
+                height: modelData.height
+                text: modelData.title
+                color: root.uiTheme.accent
+                font.pixelSize: 12
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+        }
+
+        Item {
+            x: (uiState.skillListData.viewportX || 0) - uiState.skillListX
+            y: (uiState.skillListData.viewportY || 0) - uiState.skillListY
+            width: uiState.skillListData.viewportWidth || 0
+            height: uiState.skillListData.viewportHeight || 0
+            clip: true
+
+            Repeater {
+                model: uiState.skillListData.connections || []
+                delegate: Canvas {
+                    required property var modelData
+                    x: modelData.x - uiState.skillListData.viewportX
+                    y: modelData.y - uiState.skillListData.viewportY
+                    width: modelData.width
+                    height: modelData.height
+                    antialiasing: true
+                    onModelDataChanged: requestPaint()
+                    onWidthChanged: requestPaint()
+                    onHeightChanged: requestPaint()
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        var center = width / 2
+                        var bottom = height - 1
+                        var neck = bottom - modelData.headHeight
+                        var halfShaft = modelData.shaftWidth / 2
+                        ctx.fillStyle = modelData.active ? root.uiTheme.accent : "#808080"
+                        ctx.strokeStyle = modelData.active ? "#392608" : "#303030"
+                        ctx.lineWidth = 2
+                        ctx.lineJoin = "miter"
+                        ctx.beginPath()
+                        ctx.moveTo(center - halfShaft, 1)
+                        ctx.lineTo(center + halfShaft, 1)
+                        ctx.lineTo(center + halfShaft, neck)
+                        ctx.lineTo(width - 1, neck)
+                        ctx.lineTo(center, bottom)
+                        ctx.lineTo(1, neck)
+                        ctx.lineTo(center - halfShaft, neck)
+                        ctx.closePath()
+                        ctx.fill()
+                        ctx.stroke()
+                        ctx.fillStyle = modelData.active ? root.uiTheme.accentHover : "#b8b8b8"
+                        ctx.fillRect(center - 1, 3, 2, Math.max(0, neck - 4))
+                    }
+                }
+            }
+
+            Repeater {
+                model: uiState.skillListData.rows || []
+                delegate: Item {
+                    id: skillTreeCell
+                    required property var modelData
+                    x: modelData.x - uiState.skillListData.viewportX
+                    y: modelData.y - uiState.skillListData.viewportY
+                    width: modelData.width
+                    height: modelData.height
+
+                    Rectangle {
+                        x: modelData.iconX - modelData.x - modelData.iconFrameWidth
+                        y: modelData.iconY - modelData.y - modelData.iconFrameWidth
+                        width: (uiState.skillListData.iconSize || 64) + modelData.iconFrameWidth * 2
+                        height: (uiState.skillListData.iconSize || 64) + modelData.iconFrameWidth * 2
+                        radius: root.uiTheme.cornerRadius
+                        visible: modelData.skillId > 0
+                        color: modelData.selected || modelData.hovered ? root.uiTheme.controlHover : root.uiTheme.panelBackground
+                        border.width: modelData.iconFrameWidth
+                        border.color: modelData.selected || modelData.hovered ? root.uiTheme.accentHover : root.uiTheme.accent
+                    }
 
                     Image {
-                        anchors.fill: parent
-                        anchors.margins: 1
-                        fillMode: Image.PreserveAspectFit
+                        x: modelData.iconX - modelData.x
+                        y: modelData.iconY - modelData.y
+                        width: uiState.skillListData.iconSize || 64
+                        height: uiState.skillListData.iconSize || 64
+                        fillMode: Image.Pad
+                        clip: true
                         smooth: false
-                        source: root.skillIconSource(modelData.skillId || 0)
-                        visible: (modelData.iconVisible !== false) && source !== ""
+                        source: modelData.skillId > 0
+                            ? root.skillIconSource(modelData.skillId) + "?tree=1&grayscale=" + (modelData.learned ? "0" : "1")
+                            : ""
+                        visible: modelData.iconVisible && source !== ""
                     }
-                }
 
-                UiText {
-                    x: 48
-                    y: 3
-                    width: parent.width - 88
-                    text: modelData.name
-                    color: "#000000"
-                    font.pixelSize: 11
-                    elide: Text.ElideRight
-                }
-
-                UiText {
-                    x: 48
-                    y: 18
-                    width: 80
-                    text: modelData.levelText
-                    color: "#000000"
-                    font.pixelSize: 10
-                }
-
-                UiText {
-                    x: 165
-                    y: 18
-                    width: parent.width - 198
-                    text: modelData.rightText
-                    color: "#000000"
-                    font.pixelSize: 10
-                    elide: Text.ElideRight
-                }
-
-                UiRectangle {
-                    x: modelData.upgradeX - modelData.x
-                    y: modelData.upgradeY - modelData.y
-                    width: modelData.upgradeWidth
-                    height: modelData.upgradeHeight
-                    visible: modelData.upgradeVisible
-                    color: modelData.upgradePressed ? "#b9c7de" : "#d7dff0"
-                    border.width: 1
-                    border.color: "#7e95bf"
-
-                    UiText {
-                        anchors.centerIn: parent
-                        text: uiState.skillListData.upgradeLabel || ""
+                    Rectangle {
+                        x: modelData.levelX - modelData.x
+                        y: modelData.levelY - modelData.y
+                        width: modelData.levelSize
+                        height: modelData.levelSize
+                        radius: root.uiTheme.cornerRadius
+                        visible: modelData.skillId > 0
                         color: "#000000"
-                        font.pixelSize: 12
-                        font.bold: true
+                        border.width: 1
+                        border.color: root.uiTheme.accent
+
+                        UiText {
+                            anchors.centerIn: parent
+                            text: modelData.levelText
+                            color: root.uiTheme.accent
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                    }
+
+                    Repeater {
+                        model: skillTreeCell.modelData.levelSelectionVisible ? skillTreeCell.modelData.levelSelectors : []
+                        delegate: Rectangle {
+                            required property var modelData
+                            x: modelData.x - skillTreeCell.modelData.x
+                            y: modelData.y - skillTreeCell.modelData.y
+                            width: modelData.width
+                            height: modelData.height
+                            radius: Math.min(3, root.uiTheme.cornerRadius)
+                            color: modelData.enabled && modelData.pressed ? root.uiTheme.controlHover : "#000000"
+                            border.width: 1
+                            border.color: modelData.enabled ? root.uiTheme.accent : "#606060"
+
+                            Canvas {
+                                anchors.fill: parent
+                                readonly property int direction: parent.modelData.direction
+                                readonly property bool controlEnabled: parent.modelData.enabled
+                                onDirectionChanged: requestPaint()
+                                onControlEnabledChanged: requestPaint()
+
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.reset()
+                                    var centerX = width / 2
+                                    var centerY = height / 2
+                                    var baseX = centerX - direction * 2
+                                    ctx.fillStyle = controlEnabled ? root.uiTheme.accent : "#606060"
+                                    ctx.beginPath()
+                                    ctx.moveTo(baseX, centerY - 4)
+                                    ctx.lineTo(centerX + direction * 3, centerY)
+                                    ctx.lineTo(baseX, centerY + 4)
+                                    ctx.closePath()
+                                    ctx.fill()
+                                }
+                            }
+                        }
+                    }
+
+                    UiRectangle {
+                        x: modelData.upgradeX - modelData.x
+                        y: modelData.upgradeY - modelData.y
+                        width: modelData.upgradeWidth
+                        height: modelData.upgradeHeight
+                        visible: modelData.upgradeVisible
+                        color: modelData.upgradePressed || modelData.hovered
+                            ? root.uiTheme.controlHover : root.uiTheme.panelBackground
+                        border.width: 1
+                        border.color: root.uiTheme.frame
+                        UiText {
+                            anchors.centerIn: parent
+                            text: uiState.skillListData.upgradeLabel || "+"
+                            color: root.uiTheme.accent
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
                     }
                 }
             }
         }
 
         UiRectangle {
-            x: (uiState.skillListData.scrollTrackX || 0) - uiState.skillListX
-            y: (uiState.skillListData.scrollTrackY || 0) - uiState.skillListY
-            width: uiState.skillListData.scrollTrackWidth || 0
-            height: uiState.skillListData.scrollTrackHeight || 0
-            visible: uiState.skillListData.scrollBarVisible || false
-            color: "#e3e7ee"
+            readonly property var scrollData: uiState.skillListData.scrollBar || ({})
+            x: (scrollData.x || 0) - uiState.skillListX
+            y: (scrollData.y || 0) - uiState.skillListY
+            width: scrollData.width || 0
+            height: scrollData.height || 0
+            visible: scrollData.visible || false
+            color: root.uiTheme.shadow
             border.width: 1
-            border.color: "#a4adbd"
+            border.color: root.uiTheme.frame
 
             UiRectangle {
-                x: (uiState.skillListData.scrollThumbX || 0) - (uiState.skillListData.scrollTrackX || 0)
-                y: (uiState.skillListData.scrollThumbY || 0) - (uiState.skillListData.scrollTrackY || 0)
-                width: uiState.skillListData.scrollThumbWidth || 0
-                height: uiState.skillListData.scrollThumbHeight || 0
-                color: "#b4bccd"
-                border.width: 1
-                border.color: "#788296"
+                x: 1
+                y: (parent.scrollData.thumbY || 0) - (parent.scrollData.y || 0)
+                width: Math.max(0, parent.width - 2)
+                height: parent.scrollData.thumbHeight || 0
+                color: parent.scrollData.dragging ? root.uiTheme.accentHover : root.uiTheme.accent
             }
         }
 
-        UiRectangle {
-            x: 0
-            y: parent.height - 50
-            width: parent.width
-            height: 50
-            color: "#ddd7ca"
-            border.width: 1
-            border.color: "#bcb4a7"
+        Rectangle {
+            x: 8
+            y: parent.height - 40
+            width: parent.width - 16
+            height: 1
+            color: root.uiTheme.frame
         }
 
         UiText {
-            x: 13
-            y: parent.height - 18
+            x: 16
+            y: parent.height - 26
             text: uiState.skillListData.skillPointText || ""
-            color: "#b09130"
+            color: root.uiTheme.accent
             font.pixelSize: 11
             font.bold: true
         }
 
         Repeater {
             model: uiState.skillListData.bottomButtons || []
-
             delegate: UiRectangle {
                 required property var modelData
                 x: modelData.x - uiState.skillListX
                 y: modelData.y - uiState.skillListY
                 width: modelData.width
                 height: modelData.height
-                color: modelData.pressed ? "#b9c7de" : (modelData.hovered ? "#d7dff0" : "#e9e4d8")
+                color: modelData.pressed || modelData.hovered ? root.uiTheme.controlHover : root.uiTheme.panelBackground
                 border.width: 1
-                border.color: "#8c8578"
-
+                border.color: root.uiTheme.frame
                 UiText {
                     anchors.centerIn: parent
                     text: modelData.label
-                    color: "#000000"
-                    font.pixelSize: 10
+                    color: root.uiTheme.uiText
+                    font.pixelSize: 11
                 }
             }
         }

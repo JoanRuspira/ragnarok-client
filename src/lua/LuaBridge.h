@@ -9,6 +9,7 @@
 struct lua_State;
 struct ItemMetadata;
 struct SkillMetadata;
+struct SkillTreeLayout;
 
 struct LuaStatusIconInfo {
     std::string displayName;
@@ -54,6 +55,7 @@ public:
     bool GetGlobalTableStringByStringKey(const char* tableName, const char* stringKey, std::string* outValue);
     bool GetItemInfoByItemId(unsigned int itemId, ItemMetadata* outInfo);
     bool GetSkillMetadata(std::vector<SkillMetadata>* outSkills);
+    bool GetSkillTreeLayouts(std::vector<SkillTreeLayout>* outLayouts, std::unordered_map<int, int>* outInheritance);
     bool GetSkillEffectInfoBySkillId(int skillId, LuaSkillEffectInfo* outInfo);
     bool GetStatusIconInfoByStatusType(int statusType, LuaStatusIconInfo* outInfo);
 

@@ -303,4 +303,4 @@ public:
     std::vector<CGameActor*> m_deferredActorDeletes;
 };
 
-bool ArmPendingSkillUseFromSkillList(int skillId);
+bool ArmPendingSkillUseFromSkillList(int skillId, int selectedLevel = 0);

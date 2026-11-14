@@ -48,6 +48,17 @@ struct BitmapPixels {
     }
 };
 
+inline void ConvertBitmapPixelsToGrayscale(BitmapPixels& bitmap)
+{
+    for (unsigned int& pixel : bitmap.pixels) {
+        const unsigned int red = (pixel >> 16) & 0xFFu;
+        const unsigned int green = (pixel >> 8) & 0xFFu;
+        const unsigned int blue = pixel & 0xFFu;
+        const unsigned int gray = (77u * red + 150u * green + 29u * blue) >> 8;
+        pixel = (pixel & 0xFF000000u) | (gray << 16) | (gray << 8) | gray;
+    }
+}
+
 struct ItemHoverInfo {
     RECT anchorRect{ 0, 0, 0, 0 };
     std::string text;

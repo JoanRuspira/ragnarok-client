@@ -2,13 +2,13 @@
 
 #include "UIFrameWnd.h"
 #include "UIShopCommon.h"
+#include "skill/Skill.h"
 
 #include <array>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-class UIBitmapButton;
 struct PLAYER_SKILL_INFO;
 
 class UISkillListWnd : public UIFrameWnd {
@@ -23,13 +23,32 @@ public:
         bool visible = true;
     };
 
+    struct DisplayLevelSelector {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        int direction = 0;
+        bool enabled = false;
+        bool pressed = false;
+    };
+
     struct DisplayRow {
         int skillId = 0;
         int x = 0;
         int y = 0;
         int width = 0;
         int height = 0;
+        int iconX = 0;
+        int iconY = 0;
+        int iconFrameWidth = 1;
+        int levelX = 0;
+        int levelY = 0;
+        int levelSize = 22;
+        bool levelSelectionVisible = false;
+        std::array<DisplayLevelSelector, 2> levelSelectors{};
         bool iconVisible = true;
+        bool learned = false;
         bool selected = false;
         bool hovered = false;
         bool upgradeVisible = false;
@@ -38,9 +57,7 @@ public:
         int upgradeY = 0;
         int upgradeWidth = 0;
         int upgradeHeight = 0;
-        std::string name;
         std::string levelText;
-        std::string rightText;
     };
 
     struct DisplayButton {
@@ -50,22 +67,51 @@ public:
         int height = 0;
         bool hovered = false;
         bool pressed = false;
+        bool selected = false;
         std::string label;
+    };
+
+    struct DisplayColumn {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        std::string title;
+    };
+
+    struct DisplayConnection {
+        int x = 0;
+        int y = 0;
+        int width = 22;
+        int height = 0;
+        int shaftWidth = 8;
+        int headHeight = 10;
+        bool active = false;
+    };
+
+    struct DisplayScrollBar {
+        bool visible = false;
+        bool dragging = false;
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        int thumbY = 0;
+        int thumbHeight = 0;
     };
 
     struct DisplayData {
         int skillPointCount = 0;
-        int viewOffset = 0;
-        int maxViewOffset = 0;
-        bool scrollBarVisible = false;
-        int scrollTrackX = 0;
-        int scrollTrackY = 0;
-        int scrollTrackWidth = 0;
-        int scrollTrackHeight = 0;
-        int scrollThumbX = 0;
-        int scrollThumbY = 0;
-        int scrollThumbWidth = 0;
-        int scrollThumbHeight = 0;
+        int activeTab = 0;
+        int iconSize = 64;
+        int viewportX = 0;
+        int viewportY = 0;
+        int viewportWidth = 0;
+        int viewportHeight = 0;
+        DisplayScrollBar scrollBar;
+        std::vector<DisplayButton> tabs;
+        std::vector<DisplayColumn> columns;
+        std::vector<DisplayConnection> connections;
         std::vector<DisplayRow> rows;
         std::vector<DisplayButton> bottomButtons;
     };
@@ -86,7 +132,7 @@ public:
     void OnMouseMove(int x, int y) override;
     void OnWheel(int delta) override;
     void StoreInfo() override;
-    bool GetDisplayDataForQt(DisplayData* outData) const;
+    bool GetDisplayDataForQt(DisplayData* outData);
     int GetQtSystemButtonCount() const;
     bool GetQtSystemButtonDisplayForQt(int index, QtButtonDisplay* outData) const;
 
@@ -99,63 +145,57 @@ private:
     };
 
     struct VisibleSkill {
+        int skillId = 0;
         const PLAYER_SKILL_INFO* skill = nullptr;
         RECT rowRect{};
         RECT upgradeRect{};
+        std::array<RECT, 2> levelRects{};
     };
 
     void EnsureCreated();
     void LayoutChildren();
-    void LoadAssets();
-    void ReleaseAssets();
     void RefreshVisibleSkillsForInteractionState();
     void UpdateHover(int globalX, int globalY);
-    void DrawWindowChrome(HDC hdc) const;
-    void DrawBottomButton(HDC hdc, const TextButton& button) const;
-    int HitTestBottomButton(int globalX, int globalY) const;
+    void SelectTab(int index);
+    bool CanSelectSkillLevel(int skillId) const;
+    int GetSelectedSkillLevel(int skillId) const;
+    void AdjustSelectedSkillLevel(int skillId, int direction);
+    RECT GetSkillViewportRect() const;
     RECT GetScrollTrackRect() const;
-    RECT GetScrollThumbRect(int skillCount) const;
-    bool IsScrollBarVisible(int skillCount) const;
-    void UpdateScrollFromThumbPosition(int globalY, int skillCount);
-    std::vector<const PLAYER_SKILL_INFO*> GetSortedSkills() const;
-    int GetMaxViewOffset(int skillCount) const;
-    const shopui::BitmapPixels* GetSkillIcon(int skillId);
-    const PLAYER_SKILL_INFO* GetSelectedSkill() const;
+    RECT GetScrollThumbRect() const;
+    int GetMaxScrollOffset() const;
+    void SetScrollOffset(int offset);
+    void UpdateScrollFromThumbPosition(int globalY);
+    void DrawWindowChrome(HDC hdc) const;
+    void DrawButton(HDC hdc, const DisplayButton& button) const;
+    int HitTestBottomButton(int globalX, int globalY) const;
+    const shopui::BitmapPixels* GetSkillIcon(int skillId, bool grayscale);
     unsigned long long BuildVisualStateToken() const;
 
-    bool m_controlsCreated;
-    int m_hoveredRow;
-    int m_viewOffset;
-    int m_selectedSkillId;
-    int m_pressedUpgradeSkillId;
-    int m_dragSkillId;
-    int m_dragSkillLevel;
-    bool m_dragArmed;
-    POINT m_dragStartPoint;
-    int m_isDraggingScrollThumb;
-    int m_scrollDragOffsetY;
-    std::array<UIBitmapButton*, 3> m_systemButtons;
-    std::array<TextButton, 2> m_bottomButtons;
-    shopui::BitmapPixels m_titleBarBitmap;
-    shopui::BitmapPixels m_titleBarLeftBitmap;
-    shopui::BitmapPixels m_titleBarMidBitmap;
-    shopui::BitmapPixels m_titleBarRightBitmap;
-    shopui::BitmapPixels m_btnBarLeftBitmap;
-    shopui::BitmapPixels m_btnBarMidBitmap;
-    shopui::BitmapPixels m_btnBarRightBitmap;
-    shopui::BitmapPixels m_btnBarLeft2Bitmap;
-    shopui::BitmapPixels m_btnBarMid2Bitmap;
-    shopui::BitmapPixels m_btnBarRight2Bitmap;
-    shopui::BitmapPixels m_itemRowBitmap;
-    shopui::BitmapPixels m_itemInvertBitmap;
-    shopui::BitmapPixels m_upgradeNormalBitmap;
-    shopui::BitmapPixels m_upgradeHoverBitmap;
-    shopui::BitmapPixels m_upgradePressedBitmap;
-    shopui::BitmapPixels m_mesBtnLeftBitmap;
-    shopui::BitmapPixels m_mesBtnMidBitmap;
-    shopui::BitmapPixels m_mesBtnRightBitmap;
-    std::unordered_map<int, shopui::BitmapPixels> m_iconCache;
+    bool m_controlsCreated = false;
+    int m_hoveredRow = -1;
+    int m_activeTab = 0;
+    int m_scrollOffset = 0;
+    bool m_draggingScrollThumb = false;
+    int m_scrollDragOffsetY = 0;
+    int m_layoutJobId = -1;
+    int m_pressedTab = -1;
+    int m_pressedSystemButton = -1;
+    int m_selectedSkillId = 0;
+    int m_pressedUpgradeSkillId = 0;
+    int m_pressedLevelSkillId = 0;
+    int m_pressedLevelDirection = 0;
+    unsigned int m_levelSelectionCharacterId = 0;
+    std::unordered_map<int, int> m_selectedSkillLevels;
+    int m_dragSkillId = 0;
+    int m_dragSkillLevel = 0;
+    bool m_dragArmed = false;
+    POINT m_dragStartPoint{};
+    std::array<SkillTreeLayout, kSkillTreeJobTabs> m_jobTrees{};
+    std::array<TextButton, kSkillTreeJobTabs> m_tabs{};
+    std::array<TextButton, 2> m_bottomButtons{};
+    std::unordered_map<unsigned long long, shopui::BitmapPixels> m_iconCache;
     std::vector<VisibleSkill> m_visibleSkills;
-    unsigned long long m_lastVisualStateToken;
-    bool m_hasVisualStateToken;
+    unsigned long long m_lastVisualStateToken = 0;
+    bool m_hasVisualStateToken = false;
 };

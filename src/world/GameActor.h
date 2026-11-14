@@ -32,6 +32,10 @@ constexpr int kStatusTypeBloodsport = 103;
 constexpr int kStatusTypeEnergyCoat = 31;
 // STATUS_MILLENIUMSHIELDS uses EFST_KINGS_GRACE on the wire.
 constexpr int kStatusTypeMilleniumShields = 723;
+constexpr int kStatusTypeSphere1 = 363; // EFST_SUMMON1
+constexpr int kStatusTypeSphere2 = 364; // EFST_SUMMON2
+constexpr int kStatusTypeSphere3 = 365; // EFST_SUMMON3
+constexpr int kStatusTypeSphere4 = 366; // EFST_SUMMON4
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -327,6 +331,7 @@ public:
     bool m_milleniumShieldsStatusActive = false;
     u32 m_milleniumShieldsStatusStartTick = 0;
     u32 m_milleniumShieldsStatusDurationMs = 0;
+    std::array<bool, 4> m_sphereStatusActive{};
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -353,6 +358,8 @@ public:
     bool IsEnergyCoatStatusActive(u32 now) const;
     void SetMilleniumShieldsStatus(bool active, u32 remainingMs);
     bool IsMilleniumShieldsStatusActive(u32 now) const;
+    void SetSphereStatus(int sphereIndex, bool active);
+    bool IsSphereStatusActive(int sphereIndex) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
     // Returns the display delay after applying per-actor white-number spacing.
     u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);

@@ -173,7 +173,7 @@ public:
     // Apply a bottom effect's offset and actor layer, restoring both on exit.
     class BottomEffectScope {
     public:
-        BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors = false);
+        BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors = false, int order = 0);
         ~BottomEffectScope();
         BottomEffectScope(const BottomEffectScope&) = delete;
         BottomEffectScope& operator=(const BottomEffectScope&) = delete;
@@ -183,6 +183,7 @@ public:
         bool m_previousActive;
         float m_previousOffsetPx;
         bool m_previousDrawOverActors;
+        int m_previousOrder;
     };
     void AddLmRP(RPLmFace* face, int renderFlag);
     void AddRawRP(RPRaw* face, int renderFlag);
@@ -254,6 +255,7 @@ public:
         D3DBLEND srcBlend;
         D3DBLEND destBlend;
         bool colorKey;
+        int order;
     };
     std::vector<BottomEffectFaceEntry> m_rpBottomEffectList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaNoDepthList;
@@ -283,6 +285,7 @@ private:
     bool m_bottomEffectActive = false;
     float m_bottomEffectOffsetPx = 0.0f;
     bool m_bottomEffectDrawOverActors = false;
+    int m_bottomEffectOrder = 0;
     CRainEffect m_rainEffect;
     CFireflyEffect m_fireflyEffect;
     CModernFireWater m_modernFireWater;

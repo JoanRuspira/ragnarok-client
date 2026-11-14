@@ -1058,17 +1058,19 @@ void CRenderer::Flip(bool vertSync) {
     GetRenderDevice().Present(vertSync);
 }
 
-CRenderer::BottomEffectScope::BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors)
+CRenderer::BottomEffectScope::BottomEffectScope(CRenderer& renderer, bool enabled, float offsetPx, bool drawOverActors, int order)
     : m_renderer(renderer)
     , m_previousActive(renderer.m_bottomEffectActive)
     , m_previousOffsetPx(renderer.m_bottomEffectOffsetPx)
     , m_previousDrawOverActors(renderer.m_bottomEffectDrawOverActors)
+    , m_previousOrder(renderer.m_bottomEffectOrder)
 {
     // Unconfigured nested components inherit the containing effect's layer.
     if (enabled) {
         renderer.m_bottomEffectActive = true;
         renderer.m_bottomEffectOffsetPx = offsetPx;
         renderer.m_bottomEffectDrawOverActors = drawOverActors;
+        renderer.m_bottomEffectOrder = order;
     }
 }
 
@@ -1077,6 +1079,7 @@ CRenderer::BottomEffectScope::~BottomEffectScope()
     m_renderer.m_bottomEffectActive = m_previousActive;
     m_renderer.m_bottomEffectOffsetPx = m_previousOffsetPx;
     m_renderer.m_bottomEffectDrawOverActors = m_previousDrawOverActors;
+    m_renderer.m_bottomEffectOrder = m_previousOrder;
 }
 
 void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
@@ -1102,7 +1105,7 @@ void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
                 m_rpBottomEffectList.push_back({ sortKey, face,
                     faceBlend ? face->srcAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA),
                     faceBlend ? face->destAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA),
-                    (renderFlag & 4) != 0 });
+                    (renderFlag & 4) != 0, m_bottomEffectOrder });
                 return;
             }
             // Keep the pixel offset, but let an opted-in STR use its usual
@@ -1428,6 +1431,7 @@ void CRenderer::FlushRenderList() {
     if (!m_rpBottomEffectList.empty()) {
         std::stable_sort(m_rpBottomEffectList.begin(), m_rpBottomEffectList.end(),
             [](const BottomEffectFaceEntry& a, const BottomEffectFaceEntry& b) {
+                if (a.order != b.order) return a.order < b.order;
                 return a.sortKey < b.sortKey;
             });
         for (const auto& entry : m_rpBottomEffectList) {

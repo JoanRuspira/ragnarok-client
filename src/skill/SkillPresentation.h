@@ -79,6 +79,7 @@ struct SkillEffectPresentation {
     enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, GroundCircle };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
+    std::vector<std::string> additionalStrPaths; // Simultaneous STR layers sharing this effect's lifetime.
     SkillDirectionalStrPresentation directionalStr;
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
@@ -86,6 +87,7 @@ struct SkillEffectPresentation {
     SkillGroundCirclePresentation groundCircle;
     std::string loopWavPath; // Plays while this effect is looping, independently of visual cadence.
     bool bottomEffect = false;
+    int bottomOrder = 0; // Lower orders draw beneath other bottom effects.
     bool drawOverActors = false;
     float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
@@ -95,6 +97,8 @@ struct SkillEffectPresentation {
     float rotationSpeed = 0.0f; // Additional STR rotation, in radians per second.
     bool loop = false;
     int playCount = 1; // Total STR playbacks, including the first.
+    bool replayWav = false; // Replay the WAV when a finite STR playback restarts.
+    bool ignoreServerWav = false; // Locally owned WAVs ignore matching server sound packets.
     bool oncePerHit = false;
     int delayMs = 0;
 };
@@ -117,6 +121,7 @@ struct SkillPresentation {
     int skillMotionType = -1;
     std::vector<int> castingEffects;
     std::vector<int> castingGroundEffects;
+    std::vector<int> castingTargetEffects;
     std::vector<int> sourceEffects;
     std::vector<int> targetEffects;
     std::vector<int> groundEffects;
@@ -124,12 +129,17 @@ struct SkillPresentation {
 
 // Audio can be configured without taking ownership of a skill's existing visuals.
 struct SkillSoundPresentation {
-    enum class Trigger { NoDamage, Damage, Ground };
+    enum class Trigger { NoDamage, Damage, Ground, GroundCast };
     std::string wavPath;
     Trigger trigger = Trigger::NoDamage;
+    int playCount = 1;
+    int intervalMs = 0; // Time between sound starts; required for repeated audio.
+    int delayMs = 0;
+    bool ignoreServerWav = false;
 };
 
 // Returned definitions remain valid for the lifetime of the process.
 const SkillPresentation* FindSkillPresentation(int skillId);
 const SkillEffectPresentation* FindSkillEffectPresentation(int effectId);
 const SkillSoundPresentation* FindSkillSoundPresentation(int skillId);
+bool IsServerSkillWaveIgnored(const std::string& wavPath);

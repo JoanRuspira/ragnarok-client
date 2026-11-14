@@ -7145,6 +7145,9 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
             if (status.statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(true, remainingMs);
             if (status.statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(true, remainingMs);
             if (status.statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(true, remainingMs);
+            if (status.statusType >= kStatusTypeSphere1 && status.statusType <= kStatusTypeSphere4) {
+                actor->SetSphereStatus(status.statusType - kStatusTypeSphere1, true);
+            }
         }
     }
 

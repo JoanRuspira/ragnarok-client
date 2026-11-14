@@ -5,8 +5,7 @@
 -- Hit audio follows WhiteDamageNumbers.DelayBetweenNumbersMs in open-midgard.ini.
 -- A skills entry can set hit_wav to replace its default per-hit audio.
 -- Completion WAVs play alongside hit audio, once even for per-hit visuals.
--- In a skills entry, silence_hit_sound = false disables only its per-hit audio.
--- Omit silence_hit_sound or set it to true to keep hit audio enabled.
+-- Keep per-hit audio enabled for every skill, including those with completion WAVs.
 -- Casting WAVs belong to the casting stage; omit wav and loop_wav for a silent effect.
 -- loop_wav repeats independently of visual timing while the effect is looping.
 -- source/target/ground select the attachment. server_notified means the server
@@ -31,6 +30,9 @@
 -- saturation_percent = 100 (default) keeps STR colors; 0 gives a white/gray glow.
 -- ground_plane = true lays an STR flat on the ground; rotation_speed is radians per second.
 -- play_count = 1 (default) sets total STR playbacks; use 2 to play twice, then stop.
+-- replay_wav = true repeats an STR's WAV on each additional play_count playback.
+-- ignore_server_wav = true ignores server sound packets for that effect's WAV.
+-- additional_strs adds simultaneous STR layers with the same attachment, styling, and lifetime.
 
 -- Ground casting circles share their geometry and timing; color is an optional 0xRRGGBB tint.
 local function ground_casting_circle(color)
@@ -48,8 +50,54 @@ end
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
-    -- trigger selects "no_damage" (default), "damage", or "ground" notifications.
+    -- trigger selects "no_damage" (default), "damage", "ground", or "ground_cast".
+    -- ground_cast plays only on cast completion, without restarting on damage ticks.
+    -- play_count (default 1), interval_ms, and delay_ms control sound-only playback.
+    -- ignore_server_wav = true prevents matching server sound packets from adding copies.
     sounds = {
+        [2449] = { -- SK_WZ_PSYCHICWAVE: five sound plays without repeating the visuals.
+            wav = [[data\wav\effect\sage_spell breake.wav]],
+            trigger = "ground_cast",
+            play_count = 5,
+            interval_ms = 750, -- The WAV lasts about 1407 ms; keep each playback distinct.
+            ignore_server_wav = true,
+        },
+        [2211] = { -- SK_WZ_CRIMSONROCK
+            wav = [[data\wav\crimson_r.wav]],
+            trigger = "damage",
+        },
+        [884] = { -- SK_WZ_THUNDERSTORM
+            wav = [[data\wav\effect\ef_thunderstorm.wav]],
+            trigger = "damage",
+        },
+        [85] = { -- SK_WZ_LORDOFVERMILION
+            wav = [[data\wav\effect\ag_tornado_storm.wav]],
+            trigger = "ground",
+        },
+        [2446] = { -- SK_WZ_EARTHSTRAIN
+            wav = [[data\wav\effect\em_terra_drive.wav]],
+            trigger = "ground",
+        },
+        [366] = { -- SK_SO_MYSTICALAMPLIFICATION
+            wav = [[data\wav\effect\lg_prestige.wav]],
+            trigger = "no_damage",
+        },
+        [5012] = { -- SK_SO_VOIDMAGEPRODIGY
+            wav = [[data\wav\effect\dk_dragonic_aura2.wav]],
+            trigger = "no_damage",
+        },
+        [2206] = { -- SK_SO_HINDSIGHT
+            wav = [[data\wav\effect\cd_argutus_vita.wav]],
+            trigger = "no_damage",
+        },
+        [403] = { -- SK_WZ_FORESIGHT
+            wav = [[data\wav\effect\bo_fairy_dusty.wav]],
+            trigger = "no_damage",
+        },
+        [933] = { -- SK_SO_CLIMAX
+            wav = [[data\wav\effect\bo_advance_protection.wav]],
+            trigger = "no_damage",
+        },
         [6] = { -- SK_SM_PROVOKE
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
@@ -138,7 +186,6 @@ return {
         },
         [14] = { -- SK_MG_COLDBOLT
             name = "Cold Bolt",
-            silence_hit_sound = false, -- Disable generic hit audio; sounds[14] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -171,7 +218,6 @@ return {
         },
         [15] = { -- SK_MG_FROSTDIVER
             name = "Frost Diver",
-            silence_hit_sound = false, -- Disable generic hit audio; sounds[15] supplies the impact WAV.
             source = {
                 {
                     effect_id = 50023,
@@ -197,7 +243,6 @@ return {
         },
         [2204] = { -- SK_MG_ICEWALL
             name = "Jack Frost",
-            silence_hit_sound = false, -- Disable generic hit audio; the caster effect supplies the WAV.
             source = { -- Caster presentation is deduplicated across area-damage targets.
                 {
                     effect_id = 50030, -- Separate from Frost Diver's silent shared effect 50023.
@@ -243,7 +288,6 @@ return {
         },
         [19] = { -- SK_MG_FIREBOLT
             name = "Fire Bolt",
-            silence_hit_sound = false, -- Disable generic hit audio; sounds[19] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -277,7 +321,6 @@ return {
         },
         [20] = { -- SK_MG_LIGHTNINGBOLT
             name = "Lightning Bolt",
-            silence_hit_sound = false, -- Disable generic hit audio; sounds[20] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -318,7 +361,6 @@ return {
         },
         [839] = { -- SK_MG_EARTHBOLT
             name = "Earth Bolt",
-            silence_hit_sound = false, -- Disable generic hit audio; sounds[839] supplies the impact WAV.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
@@ -358,6 +400,7 @@ return {
                 {
                     effect_id = 50041,
                     str = [[data\texture\effect\tetravortex\tetra_01_fire_ground\tetra_01_fire_grd.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                     bottom_effect = true,
                 },
             },
@@ -402,6 +445,7 @@ return {
                 {
                     effect_id = 50038,
                     str = [[data\texture\effect\tetravortex\tetra_02_wind_ground\tetra_02_wind_grd.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                     bottom_effect = true,
                 },
             },
@@ -419,6 +463,16 @@ return {
                     str = [[data\texture\effect\new_tornadostorm\new_tornadostorm_bottom\new_tornadostorm_bottom.str]],
                     bottom_effect = true,
                     play_count = 8,
+                },
+                {
+                    effect_id = 50082,
+                    str = [[data\texture\effect\conflagration\conflagration\conflagration.str]],
+                    play_count = 4,
+                },
+                {
+                    effect_id = 50083,
+                    str = [[data\texture\effect\astralstrike\astralstrike_cast\astralstrike_cast.str]],
+                    play_count = 2,
                 },
             },
         },
@@ -444,6 +498,7 @@ return {
                 {
                     effect_id = 50039,
                     str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                     bottom_effect = true,
                 },
             },
@@ -459,10 +514,11 @@ return {
         },
         [845] = { -- SK_WZ_EXTREMEVACUUM
             name = "Extreme Vacuum",
+            ground_server_notified = false, -- Local playback owns the fixed two-pass presentation.
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
-                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
             },
             casting_ground = {
                 { effect_id = 50048 }, -- Original untinted ground casting circle.
@@ -471,15 +527,21 @@ return {
                 {
                     effect_id = 50055,
                     str = [[data\texture\effect\new_tigercannon\new_tigercannon.str]],
+                    wav = [[data\wav\extremevcm.wav]],
+                    play_count = 2,
+                    replay_wav = true,
+                    ignore_server_wav = true,
                 },
                 {
                     effect_id = 50056,
                     str = [[data\texture\effect\destructive_hurricane\destructive_hurricane_bottom\destructive_hurricane_bottom.str]],
+                    play_count = 2,
                     bottom_effect = true,
                 },
                 {
                     effect_id = 50061,
                     str = [[data\texture\effect\diluvio\diluvio_ice_bottom\diluvio_ice_bottom.str]],
+                    play_count = 2,
                     bottom_effect = true,
                 },
             },
@@ -498,8 +560,14 @@ return {
                 {
                     effect_id = 50057,
                     str = [[data\texture\effect\4abc_abyss_slayer\abyss_slayer\abyss_slayer.str]],
+                    play_count = 2,
                 },
-                { effect_id = 50059 }, -- Shared Abyss Strike ground clip.
+                {
+                    effect_id = 50074,
+                    str = [[data\texture\effect\abyss_strike\abyss_strike_ground\abyss_strike_ground.str]],
+                    bottom_effect = true,
+                    play_count = 2,
+                },
             },
         },
         [838] = { -- SK_WZ_ICEBERG
@@ -513,7 +581,7 @@ return {
                 {
                     effect_id = 636, -- EF_HYOUSYOURAKU / Falling Ice Pillar.
                     str = [[data\texture\effect\icy.str]],
-                    wav = [[data\wav\effect\]] .. "\186\249\193\164\182\244.wav", -- CP949 native effect sound.
+                    wav = [[data\wav\effect\wl_jackfrost.wav]],
                 },
             },
         },
@@ -551,6 +619,7 @@ return {
         },
         [365] = { -- SK_WZ_MAGICCRASHER
             name = "Magic Crasher",
+            hit_wav = [[data\wav\effect\bo_acidified_zone_water.wav]],
             cast_motion_type = 1,
             skill_motion_type = 2,
             target = {
@@ -584,6 +653,7 @@ return {
                 {
                     effect_id = 50033,
                     str = [[data\texture\effect\tetravortex\tetra_03_earth_ground\tetra_03_earth_grd.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                     bottom_effect = true,
                 },
             },
@@ -609,7 +679,7 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
-                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
             },
             casting_ground = {
                 {
@@ -626,6 +696,9 @@ return {
             name = "Psychic Wave",
             cast_motion_type = 1,
             skill_motion_type = 2,
+            casting = {
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
+            },
             casting_ground = {
                 {
                     effect_id = 50049,
@@ -641,6 +714,7 @@ return {
                 {
                     effect_id = 50060,
                     str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
                     bottom_effect = true,
                     hue_shift_degrees = 80, -- Water blue/cyan to purple.
                 },
@@ -649,6 +723,7 @@ return {
                 {
                     effect_id = 50058,
                     str = [[data\texture\effect\abyss_strike\abyss_strike\abyss_strike.str]],
+                    wav = [[data\wav\effect\ag_crimson_arrow1.wav]],
                 },
                 {
                     effect_id = 50059,
@@ -662,24 +737,127 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 2,
             casting = {
-                { effect_id = 50063 }, -- Shared white Storm Gust bottom casting clip on the caster.
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
             },
             target = {
                 {
                     effect_id = 50062,
                     str = [[data\texture\effect\new_varetyrspear\new_varetyrspear_bottom\new_varetyrspear_bottom.str]],
+                    wav = [[data\wav\effect\ag_crystal_impact.wav]],
                     bottom_effect = true,
+                },
+            },
+        },
+        [885] = { -- SK_SO_DOOM
+            name = "Doom",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50081 }, -- Purple casting clip with begin-spell sound.
+            },
+            casting_ground = {
+                { effect_id = 50054 }, -- Purple.
+            },
+            ground = {
+                {
+                    effect_id = 565,
+                    str = [[data\texture\effect\moonlight_1.str]],
+                    play_count = 2,
+                    bottom_effect = true,
+                    bottom_order = -1,
+                },
+                {
+                    effect_id = 50072,
+                    str = [[data\texture\effect\abyss_strike\abyss_strike_ground\abyss_strike_ground.str]],
+                    play_count = 2,
+                },
+                {
+                    effect_id = 50073,
+                    str = [[data\texture\effect\lightning_land\lightning_land_bottom\lightning_land_bottom.str]],
+                    play_count = 2,
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 1352,
+                    str = [[data\texture\effect\new_armscannon\new_armscannon_07_clock_down\new_armscannon_07_clock_down.str]],
+                    play_count = 2,
+                },
+            },
+        },
+        [887] = { -- SK_SO_DIAMONDDUST
+            name = "Diamond Dust",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
+            },
+            casting_target = {
+                {
+                    effect_id = 50070,
+                    str = [[data\texture\effect\new_diamonddust\new_diamonddust_cast\new_diamonddust_cast.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50068,
+                    str = [[data\texture\effect\new_diamonddust\new_diamonddust\new_diamonddust.str]],
+                },
+                {
+                    effect_id = 50069,
+                    str = [[data\texture\effect\new_diamonddust\new_diamonddust_bottom\new_diamonddust_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [888] = { -- SK_SO_ASTRALSTRIKE
+            name = "Astral Strike",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            casting = {
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
+            },
+            target = {
+                {
+                    effect_id = 1373,
+                    str = [[data\texture\effect\new_banishingpoint\new_banishingpoint_01\new_banishingpoint_01.str]],
+                },
+                {
+                    effect_id = 1374,
+                    str = [[data\texture\effect\new_banishingpoint\new_banishingpoint_05\new_banishingpoint_05.str]],
                 },
             },
         },
         [2206] = { -- SK_SO_HINDSIGHT
             name = "Hindsight",
+            casting = {
+                { effect_id = 50080 }, -- White casting clip with begin-spell sound.
+            },
+            cast_motion_type = 1,
+            skill_motion_type = 2,
             source = {
                 {
                     effect_id = 50067,
                     str = [[data\texture\effect\4ig_firstfaithpower\firstfaithpower\firstfaithpower.str]],
                 },
                 { effect_id = 1983 }, -- Shared thirdexorflame_cast.str.
+            },
+        },
+        [933] = { -- SK_SO_CLIMAX
+            name = "Climax",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+        },
+        [5012] = { -- SK_SO_VOIDMAGEPRODIGY
+            name = "Voidmage Prodigy",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            source = {
+                {
+                    effect_id = 50075,
+                    str = [[data\texture\effect\destructive_hurricane\destructive_hurricane\destructive_hurricane.str]],
+                    hue_shift_degrees = 80,
+                },
             },
         },
         [2202] = { -- SK_MG_VOIDEXPANSION
@@ -1611,6 +1789,9 @@ return {
     effects = {
         [95] = { -- SK_MG_QUAGMIRE: only the center ground unit controls this loop.
             str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],
+            additional_strs = {
+                [[data\texture\effect\violentquake\violentquake_bottom\violentquake_bottom.str]],
+            },
             loop_wav = [[data\wav\effect\wizard_quagmire.wav]],
             bottom_effect = true,
         },
@@ -1619,6 +1800,12 @@ return {
         },
         [313] = { -- EF_HEAL2: shared by every skill that selects this Heal effect.
             str = [[data\texture\effect\argutustelum\argutustelum_cast\argutustelum_cast.str]],
+        },
+        [1260] = {
+            str = [[data\texture\effect\tetravortex\tetra_cast\tetra_cast.str]],
+        },
+        [1277] = {
+            str = [[data\texture\effect\4abc_abyss_slayer\abyss_slayer_cast\abyss_slayer_cast.str]],
         },
         [2045] = { -- Swords to Plowshares: referenced by its casting array.
             str = [[data\texture\effect\increasing_activity\increasing_activity_cast\increasing_activity_cast.str]],
@@ -1650,10 +1837,41 @@ return {
             wav = [[data\wav\effect\ab_offertorium.wav]],
             loop = true,
         },
+        [50071] = {
+            str = [[data\texture\effect\frostbite\frostbite\frostbite.str]],
+        },
+        [50076] = { -- STATUS_SPHERE_1
+            str = [[data\texture\effect\tetravortex\tetra_ball_03_earth\tetra_03_earth.str]],
+            loop = true,
+        },
+        [50077] = { -- STATUS_SPHERE_2
+            str = [[data\texture\effect\tetravortex\tetra_ball_02_wind\tetra_02_wind.str]],
+            loop = true,
+        },
+        [50078] = { -- STATUS_SPHERE_3
+            str = [[data\texture\effect\tetravortex\tetra_ball_01_fire\tetra_01_fire.str]],
+            loop = true,
+        },
+        [50079] = { -- STATUS_SPHERE_4
+            str = [[data\texture\effect\tetravortex\tetra_ball_04_water\tetra_04_water.str]],
+            loop = true,
+        },
         [50063] = { -- White variant shared by Extreme Vacuum, Phantom Spear, and Comet while casting.
             str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
             bottom_effect = true,
             saturation_percent = 0,
+        },
+        [50080] = {
+            str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            bottom_effect = true,
+            saturation_percent = 0,
+        },
+        [50081] = {
+            str = [[data\texture\effect\tetravortex\tetra_04_water_ground\tetra_04_water_grd.str]],
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            bottom_effect = true,
+            hue_shift_degrees = 80,
         },
         -- Reuse these IDs in a skill's casting_ground array, or add another color here.
         [50048] = ground_casting_circle(),           -- Extreme Vacuum: original texture colors.

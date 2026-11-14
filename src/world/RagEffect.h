@@ -101,6 +101,11 @@ constexpr int kRagEffectEnergyCoatAura = 50020; // Status-owned dark blue smoke.
 // Shared with Frost Diver's target effects in skill_presentation.lua.
 constexpr int kRagEffectFrozenWater = 50025;
 constexpr int kRagEffectFrozenCast = 50026;
+constexpr int kRagEffectFrostbite = 50071;
+constexpr int kRagEffectSphereEarth = 50076;
+constexpr int kRagEffectSphereWind = 50077;
+constexpr int kRagEffectSphereFire = 50078;
+constexpr int kRagEffectSphereWater = 50079;
 
 class CRagEffect;
 
@@ -208,9 +213,12 @@ public:
     void SetLooping(bool looping);
     void SetFreezeStatusLoop();
     bool IsFreezeStatusLoop() const { return m_freezeStatusOwned; }
+    bool IsSphereStatusEffect() const { return m_type >= kRagEffectSphereEarth && m_type <= kRagEffectSphereWater; }
     void SetCastDurationMs(int milliseconds);
     // Keep the caster as lifetime owner while anchoring a cast marker to its cell.
     void FixWorldPosition(const vector3d& position) { m_fixedWorldPosition = position; }
+    // The caster owns cleanup while the visual follows another actor.
+    void FollowCastingTarget(u32 targetGid) { m_castingTargetGid = targetGid; }
     // Scheduling offset, added to this effect's configured delay_ms.
     void SetStartDelayMs(u32 milliseconds);
     void SuppressPresentationSound();
@@ -235,6 +243,7 @@ private:
     bool m_freezeStatusOwned = false;
     u32 m_startDelayMs = 0;
     u32 m_castEndTick = 0;
+    u32 m_castingTargetGid = 0;
     std::optional<vector3d> m_fixedWorldPosition;
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
@@ -243,9 +252,11 @@ private:
     float m_presentationRotationSpeed = 0.0f;
     int m_strPlaysRemaining = 1;
     bool m_presentationBottomEffect = false;
+    int m_presentationBottomOrder = 0;
     bool m_presentationDrawOverActors = false;
     float m_presentationBottomOffsetPx = 4.0f;
     std::string m_pendingPresentationSound;
+    std::string m_replayPresentationSound;
     std::string m_loopedPresentationSound;
     void StopPresentationSoundLoop();
     const SkillEffectPresentation* m_proceduralPresentation = nullptr;
@@ -359,6 +370,7 @@ private:
     void RenderDevotionLink(const matrix& viewMatrix);
     const CGameActor* ResolveDevotionTarget() const;
     CRenderObject* ResolveCurrentMaster() const;
+    CRenderObject* ResolveActorByGid(u32 actorGid) const;
     CAbleToMakeEffect* ResolveCurrentEffectOwner() const;
 
     void SpawnEntry2();

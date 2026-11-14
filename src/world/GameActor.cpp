@@ -4566,9 +4566,11 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
         }
     }
     const auto* actor = dynamic_cast<const CGameActor*>(this);
-    const bool freezeStatusEffect = (effectId == kRagEffectFrozenWater || effectId == kRagEffectFrozenCast)
+    const bool freezeStatusEffect = (effectId == kRagEffectFrozenWater || effectId == kRagEffectFrozenCast
+        || effectId == kRagEffectFrostbite)
         && actor && actor->IsFreezeStatusActive();
     if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura
+        || (effectId >= kRagEffectSphereEarth && effectId <= kRagEffectSphereWater)
         || freezeStatusEffect) {
         // Status refreshes and frame updates keep one continuous aura.
         for (CRagEffect* effect : m_effectList) {
@@ -4987,12 +4989,42 @@ bool CGameActor::IsEnergyCoatStatusActive(u32 now) const
             || now - m_energyCoatStatusStartTick < m_energyCoatStatusDurationMs);
 }
 
+void CGameActor::SetSphereStatus(int sphereIndex, bool active)
+{
+    if (sphereIndex < 0 || sphereIndex >= static_cast<int>(m_sphereStatusActive.size())) return;
+    m_sphereStatusActive[sphereIndex] = active && m_stateId != kDeathStateId;
+    const int effectId = kRagEffectSphereEarth + sphereIndex;
+    if (IsSphereStatusActive(sphereIndex)) {
+        LaunchEffect(effectId);
+    } else {
+        RemoveEffectById(effectId);
+    }
+}
+
+bool CGameActor::IsSphereStatusActive(int sphereIndex) const
+{
+    return sphereIndex >= 0 && sphereIndex < static_cast<int>(m_sphereStatusActive.size())
+        && m_sphereStatusActive[sphereIndex] && m_stateId != kDeathStateId;
+}
+
 void CGameActor::ProcessStatusEffects()
 {
+    for (int sphereIndex = 0; sphereIndex < static_cast<int>(m_sphereStatusActive.size()); ++sphereIndex) {
+        if (!m_sphereStatusActive[sphereIndex]) continue;
+        if (!IsSphereStatusActive(sphereIndex)) {
+            SetSphereStatus(sphereIndex, false);
+        } else if (g_session.m_isEffectOn) {
+            LaunchEffect(kRagEffectSphereEarth + sphereIndex);
+        } else {
+            RemoveEffectById(kRagEffectSphereEarth + sphereIndex);
+        }
+    }
+
     if (IsFreezeStatusActive() && g_session.m_isEffectOn) {
         // Adopt existing Frost Diver impacts as loops without restarting them.
         LaunchEffect(kRagEffectFrozenWater);
         LaunchEffect(kRagEffectFrozenCast);
+        LaunchEffect(kRagEffectFrostbite);
     } else {
         // End only the status loops; ordinary skill impacts still finish once.
         for (auto it = m_effectList.begin(); it != m_effectList.end();) {
@@ -5552,6 +5584,9 @@ void CGameActor::SetState(int state) {
         SetBloodsportStatus(false, 0);
         SetMilleniumShieldsStatus(false, 0);
         SetEnergyCoatStatus(false, 0);
+        for (int sphereIndex = 0; sphereIndex < static_cast<int>(m_sphereStatusActive.size()); ++sphereIndex) {
+            SetSphereStatus(sphereIndex, false);
+        }
         m_path.Reset();
         m_moveStartPos = m_pos;
         m_moveEndPos = m_pos;

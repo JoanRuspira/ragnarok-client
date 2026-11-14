@@ -855,10 +855,12 @@ CGameActor* EnsureRuntimeActor(CGameMode& mode, u32 gid, bool preferPc);
 
 void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool active, u32 remainingMs)
 {
+    const bool sphereStatus = statusType >= kStatusTypeSphere1 && statusType <= kStatusTypeSphere4;
     // Status visuals belong to the affected actor; only the local player's
     // status icons belong in the UI.
     if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport
-            || statusType == kStatusTypeMilleniumShields || statusType == kStatusTypeEnergyCoat) && actorId != 0) {
+            || statusType == kStatusTypeMilleniumShields || statusType == kStatusTypeEnergyCoat
+            || sphereStatus) && actorId != 0) {
         CGameActor* actor = ResolveNotifyEffectActor(mode, actorId);
         // The local bootstrap creates a CPlayer; do not replace it with a generic
         // placeholder if the status arrives first. Its icon retains the status.
@@ -867,7 +869,8 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
             if (statusType == kStatusTypeFrenzy) actor->SetFrenzyStatus(active, remainingMs);
             else if (statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(active, remainingMs);
             else if (statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(active, remainingMs);
-            else actor->SetMilleniumShieldsStatus(active, remainingMs);
+            else if (statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(active, remainingMs);
+            else actor->SetSphereStatus(statusType - kStatusTypeSphere1, active);
             DbgLog("[GameMode] actor status type=%d actor=%u active=%d remainingMs=%u\n",
                 statusType, actorId, active ? 1 : 0, remainingMs);
         }
@@ -4986,8 +4989,9 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
         g_skillMgr.EnsureLoaded();
         const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillId);
         const PLAYER_SKILL_INFO* learned = g_session.GetSkillItemBySkillId(skillId);
-        const std::string name = metadata && !metadata->displayName.empty()
-            ? metadata->displayName : (learned ? learned->skillName : std::string());
+        const std::string name = presentation && !presentation->name.empty()
+            ? presentation->name : (metadata && !metadata->displayName.empty()
+                ? metadata->displayName : (learned ? learned->skillName : std::string()));
         if (!actor->BeginSkillPresentation(skillId, name, timeGetTime(),
                 presentation && presentation->sourceOncePerCast)) {
             return;
@@ -5273,7 +5277,7 @@ void HandleSoundEffectNotify(CGameMode& mode, const PacketView& packet)
     const std::string waveName(nameBegin, nameEnd);
     const u8 action = packet.data[26];
     const u32 actorId = ReadLE32(packet.data + 31);
-    if (waveName.empty() || action != 0) {
+    if (waveName.empty() || action != 0 || IsServerSkillWaveIgnored(waveName)) {
         DbgLog("[GameMode] sound notify ignored actor=%u action=%u wav='%s'\n",
             actorId, static_cast<unsigned int>(action), waveName.c_str());
         return;
@@ -5285,35 +5289,23 @@ void HandleSoundEffectNotify(CGameMode& mode, const PacketView& packet)
         actorId, static_cast<unsigned int>(action), waveName.c_str(), actor != nullptr, played);
 }
 
-static bool PlayConfiguredSkillSound(u16 skillId, SkillSoundPresentation::Trigger trigger,
-    const vector3d& position)
-{
-    const SkillSoundPresentation* sound = FindSkillSoundPresentation(skillId);
-    if (!sound || sound->trigger != trigger) {
-        return false;
-    }
-    TryPlayEffectWaveAtPosition(position, sound->wavPath);
-    // A matching definition owns the sound even when muted, out of range, or missing.
-    return true;
-}
-
-// Keep hit audio independent of repeated visuals and the effects visibility setting.
-class CSkillHitSounds : public CGameObject {
+// Schedule skill audio independently of visuals and the effects visibility setting.
+class CScheduledSkillSounds : public CGameObject {
 public:
-    CSkillHitSounds(CGameActor* target, const vector3d& position, std::string wavPath,
-        std::vector<u32> hitDelays)
+    CScheduledSkillSounds(CGameActor* target, const vector3d& position, std::string wavPath,
+        std::vector<u32> playDelays)
         : m_target(target), m_position(position), m_wavPath(std::move(wavPath)),
-          m_hitDelays(std::move(hitDelays)), m_startTick(timeGetTime()) {}
+          m_playDelays(std::move(playDelays)), m_startTick(timeGetTime()) {}
 
     u8 OnProcess() override
     {
         if (m_target) m_position = m_target->m_pos;
         const u32 elapsedMs = timeGetTime() - m_startTick;
-        while (m_nextHit < m_hitDelays.size() && elapsedMs >= m_hitDelays[m_nextHit]) {
+        while (m_nextPlay < m_playDelays.size() && elapsedMs >= m_playDelays[m_nextPlay]) {
             TryPlayEffectWaveAtPosition(m_position, m_wavPath);
-            ++m_nextHit;
+            ++m_nextPlay;
         }
-        return m_nextHit < m_hitDelays.size() ? 1 : 0;
+        return m_nextPlay < m_playDelays.size() ? 1 : 0;
     }
 
     void OnActorDeleted(const CGameActor* actor) override
@@ -5328,10 +5320,33 @@ private:
     CGameActor* m_target;
     vector3d m_position;
     std::string m_wavPath;
-    std::vector<u32> m_hitDelays;
+    std::vector<u32> m_playDelays;
     u32 m_startTick;
-    size_t m_nextHit = 0;
+    size_t m_nextPlay = 0;
 };
+
+static bool PlayConfiguredSkillSound(u16 skillId, SkillSoundPresentation::Trigger trigger,
+    const vector3d& position)
+{
+    const SkillSoundPresentation* sound = FindSkillSoundPresentation(skillId);
+    if (!sound || sound->trigger != trigger) {
+        return false;
+    }
+    if (sound->playCount == 1 && sound->delayMs == 0) {
+        TryPlayEffectWaveAtPosition(position, sound->wavPath);
+    } else if (CGameMode* mode = g_modeMgr.GetCurrentGameMode(); mode && mode->m_world) {
+        std::vector<u32> playDelays;
+        playDelays.reserve(sound->playCount);
+        for (int index = 0; index < sound->playCount; ++index) {
+            playDelays.push_back(static_cast<u32>(sound->delayMs)
+                + static_cast<u32>(index) * static_cast<u32>(sound->intervalMs));
+        }
+        mode->m_world->m_gameObjectList.push_back(
+            new CScheduledSkillSounds(nullptr, position, sound->wavPath, std::move(playDelays)));
+    }
+    // A matching definition owns the sound even when muted, out of range, or missing.
+    return true;
+}
 
 static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sourceActor,
     CGameActor* targetActor, const vector3d& position, int damage, u8 actionType,
@@ -5372,7 +5387,7 @@ static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sour
         hitDelays[hitIndex] = delayMs;
         previousDelayMs = delayMs;
     }
-    mode.m_world->m_gameObjectList.push_back(new CSkillHitSounds(positionDamage ? nullptr : targetActor,
+    mode.m_world->m_gameObjectList.push_back(new CScheduledSkillSounds(positionDamage ? nullptr : targetActor,
         position, std::move(wavPath), std::move(hitDelays)));
 }
 
@@ -5384,7 +5399,8 @@ static void PlayGroundSkillImpactSound(u16 skillId, const vector3d& worldPos)
         return;
     }
 
-    if (PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Ground, worldPos)) {
+    if (PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::GroundCast, worldPos)
+        || PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Ground, worldPos)) {
         return;
     }
 
@@ -5629,7 +5645,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
             sourceActor->SetState(motionToApply);
         }
         if (beginEffectId >= 0 && (!presentation
-                || (presentation->castingEffects.empty() && presentation->castingGroundEffects.empty()))) {
+                || (presentation->castingEffects.empty() && presentation->castingGroundEffects.empty()
+                    && presentation->castingTargetEffects.empty()))) {
             sourceActor->SendMsg(sourceActor, 85, beginEffectId, 0, 0);
             if (sourceActor->m_beginSpellEffect) sourceActor->m_beginSpellEffect->SetCastDurationMs(castTimeMs);
         }
@@ -5646,6 +5663,13 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         for (int effectId : presentation->castingGroundEffects) {
             if (CRagEffect* effect = sourceActor->LaunchCastingEffect(effectId, castTimeMs)) {
                 effect->FixWorldPosition(groundPos);
+            }
+        }
+        if (targetActor) {
+            for (int effectId : presentation->castingTargetEffects) {
+                if (CRagEffect* effect = sourceActor->LaunchCastingEffect(effectId, castTimeMs)) {
+                    effect->FollowCastingTarget(targetActor->m_gid);
+                }
             }
         }
     }

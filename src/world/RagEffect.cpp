@@ -4151,6 +4151,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_cancelled = false;
     m_startDelayMs = 0;
     m_castEndTick = 0;
+    m_castingTargetGid = 0;
     m_fixedWorldPosition.reset();
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
@@ -4159,9 +4160,11 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationRotationSpeed = 0.0f;
     m_strPlaysRemaining = 1;
     m_presentationBottomEffect = false;
+    m_presentationBottomOrder = 0;
     m_presentationDrawOverActors = false;
     m_presentationBottomOffsetPx = 4.0f;
     m_pendingPresentationSound.clear();
+    m_replayPresentationSound.clear();
     m_proceduralPresentation = nullptr;
     m_directionalPresentation = nullptr;
     m_directionalVariant = 0;
@@ -4215,6 +4218,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_strPlaysRemaining = presentation->playCount;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
+        m_presentationBottomOrder = presentation->bottomOrder;
         m_presentationDrawOverActors = presentation->drawOverActors;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
         if (presentation->renderer == SkillEffectPresentation::Renderer::GroundCircle) {
@@ -4279,6 +4283,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
                 m_duration = m_aniClips->cFrame + 1;
                 m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
                 m_pendingPresentationSound = presentation->directionalStr.wavPath;
+                if (presentation->replayWav) m_replayPresentationSound = m_pendingPresentationSound;
                 SetLooping(presentation->loop);
             }
             return;
@@ -4292,7 +4297,34 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             m_duration = m_aniClips->cFrame + 1;
             m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
             m_pendingPresentationSound = variant.wavPath;
+            if (presentation->replayWav) m_replayPresentationSound = m_pendingPresentationSound;
             SetLooping(presentation->loop);
+        }
+        for (const std::string& strPath : presentation->additionalStrPaths) {
+            auto component = std::make_unique<CRagEffect>();
+            component->Init(master, -1, deltaPos);
+            component->LoadEzEffect(strPath.c_str());
+            if (!component->m_aniClips || component->m_aniClips->cFrame <= 0 || component->m_aniClips->nFPS <= 0) {
+                DbgLog("[SkillPresentation] missing additional STR '%s'\n", strPath.c_str());
+                continue;
+            }
+            component->InitEZ2STRFrame();
+            component->m_handler = Handler::EzStr;
+            component->m_duration = component->m_aniClips->cFrame + 1;
+            component->m_tickCarryMs = 1000.0f / static_cast<float>(component->m_aniClips->nFPS);
+            component->m_strPlaysRemaining = presentation->playCount;
+            component->m_startDelayMs = m_startDelayMs;
+            component->m_presentationOffsetY = m_presentationOffsetY;
+            component->m_presentationHueShiftDegrees = m_presentationHueShiftDegrees;
+            component->m_presentationSaturationPercent = m_presentationSaturationPercent;
+            component->m_presentationGroundPlane = m_presentationGroundPlane;
+            component->m_presentationRotationSpeed = m_presentationRotationSpeed;
+            component->m_presentationBottomEffect = m_presentationBottomEffect;
+            component->m_presentationBottomOrder = m_presentationBottomOrder;
+            component->m_presentationDrawOverActors = m_presentationDrawOverActors;
+            component->m_presentationBottomOffsetPx = m_presentationBottomOffsetPx;
+            component->SetLooping(m_loop);
+            m_componentEffects.push_back(std::move(component));
         }
         // Configured effects own their visual and audio, including intentional silence.
         return;
@@ -4777,6 +4809,7 @@ void CRagEffect::SetStartDelayMs(u32 milliseconds)
 void CRagEffect::SuppressPresentationSound()
 {
     m_pendingPresentationSound.clear();
+    m_replayPresentationSound.clear();
     StopPresentationSoundLoop();
     m_loopedPresentationSound.clear();
     for (const auto& component : m_componentEffects) component->SuppressPresentationSound();
@@ -4864,7 +4897,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
     if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink || m_type == kRagEffectEnergyCoatAura
-        || IsFreezeStatusLoop()) Cancel();
+        || IsFreezeStatusLoop() || IsSphereStatusEffect()) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
     }
@@ -4915,6 +4948,8 @@ void CRagEffect::OnActorDeleted(const CGameActor* actor)
         return;
     }
 
+    if (m_castingTargetGid != 0 && actor->m_gid == m_castingTargetGid) Cancel();
+
     if (m_type == kRagEffectDevotionLink
         && (actor->m_gid == m_devotionTargetGid || actor == ResolveDevotionTarget())) Cancel();
 
@@ -4934,19 +4969,25 @@ CRenderObject* CRagEffect::ResolveCurrentMaster() const
         return IsLikelyLiveRenderObject(m_master) ? m_master : nullptr;
     }
 
-    if (g_world.m_player && g_world.m_player->m_gid == m_masterActorGid) {
+    return ResolveActorByGid(m_masterActorGid);
+}
+
+CRenderObject* CRagEffect::ResolveActorByGid(u32 actorGid) const
+{
+    if (actorGid == 0) return nullptr;
+    if (g_world.m_player && g_world.m_player->m_gid == actorGid) {
         return IsLikelyLiveRenderObject(g_world.m_player) ? g_world.m_player : nullptr;
     }
 
     if (const CGameMode* gameMode = g_modeMgr.GetCurrentGameMode()) {
-        const auto it = gameMode->m_runtimeActors.find(m_masterActorGid);
+        const auto it = gameMode->m_runtimeActors.find(actorGid);
         if (it != gameMode->m_runtimeActors.end() && it->second) {
             return IsLikelyLiveRenderObject(it->second) ? it->second : nullptr;
         }
     }
 
     for (CGameActor* actor : g_world.m_actorList) {
-        if (actor && actor->m_gid == m_masterActorGid) {
+        if (actor && actor->m_gid == actorGid) {
             return IsLikelyLiveRenderObject(actor) ? actor : nullptr;
         }
     }
@@ -4961,6 +5002,11 @@ CAbleToMakeEffect* CRagEffect::ResolveCurrentEffectOwner() const
 
 vector3d CRagEffect::ResolveBasePosition() const
 {
+    if (m_castingTargetGid != 0) {
+        if (CRenderObject* target = ResolveActorByGid(m_castingTargetGid)) {
+            return AddVec3(target->m_pos, m_deltaPos);
+        }
+    }
     if (m_fixedWorldPosition) return *m_fixedWorldPosition;
     // The completed cross stays where it was cast, even after movement/removal.
     if (m_handler == Handler::GrandCross) return m_grandCrossOrigin;
@@ -6966,6 +7012,12 @@ u8 CRagEffect::OnProcess()
     if (m_cancelled || (m_handler == Handler::None && m_componentEffects.empty() && m_primList.empty())) {
         return 0;
     }
+    if (m_castingTargetGid != 0 && !ResolveActorByGid(m_castingTargetGid)) return 0;
+    if (IsSphereStatusEffect()) {
+        const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+        if (!g_session.m_isEffectOn || !actor
+            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereEarth)) return 0;
+    }
     if (IsFreezeStatusLoop()) {
         const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
         if (!g_session.m_isEffectOn || !actor || !actor->IsFreezeStatusActive()) return 0;
@@ -7051,6 +7103,8 @@ u8 CRagEffect::OnProcess()
         m_pendingPresentationSound.clear();
     }
     for (auto it = m_componentEffects.begin(); it != m_componentEffects.end();) {
+        (*it)->m_fixedWorldPosition = m_fixedWorldPosition;
+        (*it)->m_castingTargetGid = m_castingTargetGid;
         if (!(*it)->OnProcess()) {
             it = m_componentEffects.erase(it);
         } else {
@@ -7164,6 +7218,9 @@ u8 CRagEffect::OnProcess()
             && m_aniClips && m_stateCnt >= m_aniClips->cFrame) {
             if (!m_loop) --m_strPlaysRemaining;
             InitEZ2STRFrame();
+            if (!m_loop && !m_replayPresentationSound.empty()) {
+                TryPlaySingleEffectWave(ResolveBasePosition(), m_replayPresentationSound);
+            }
         }
         const bool dispatchHandler = m_loop || frameDrivenStrHandler || m_stateCnt < m_duration;
         if (dispatchHandler) {
@@ -8063,6 +8120,12 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (!viewMatrix || m_cancelled || m_startDelayMs > 0) {
         return;
     }
+    if (IsSphereStatusEffect()) {
+        const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+        if (!g_session.m_isEffectOn || !actor
+            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereEarth)
+            || !actor->m_isVisible || !actor->m_isVisibleBody) return;
+    }
     if (IsFreezeStatusLoop()) {
         const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
         if (!g_session.m_isEffectOn || !actor || !actor->IsFreezeStatusActive()
@@ -8071,7 +8134,8 @@ void CRagEffect::Render(matrix* viewMatrix)
     // Apply the layer and screen-pixel shift to every face submitted by this
     // effect, including procedural renderers and nested components.
     const CRenderer::BottomEffectScope bottomScope(g_renderer,
-        m_presentationBottomEffect, m_presentationBottomOffsetPx, m_presentationDrawOverActors);
+        m_presentationBottomEffect, m_presentationBottomOffsetPx, m_presentationDrawOverActors,
+        m_presentationBottomOrder);
     if (m_directionalPresentation) {
         RenderDirectionalStr(viewMatrix);
         return;

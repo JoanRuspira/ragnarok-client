@@ -245,14 +245,29 @@ and audio paths so both use the same random variant. `offset_y` sets the vertica
 attachment offset, and `loop` controls repetition; STR playback uses the
 animation's authored FPS.
 
+STR effects can set `additional_strs = { [[data\texture\effect\path\layer.str]] }`
+to add up to 16 simultaneous visual layers. These share the main effect's
+attachment, positioning, styling, delays, finite playback count, and loop state.
+Each STR runs at its own authored FPS. The parent owns cleanup, so cancellation
+or ground-unit removal stops all layers together. Additional layers have no
+separate audio; the parent's WAVs continue to play once for the combined effect.
+
 STR effects accept `play_count`, a positive integer counting the initial playback
 and any replays. It defaults to `1`; `play_count = 2` plays the full clip twice
-at its authored FPS and then stops. The configured WAV still plays only once.
+at its authored FPS and then stops. The configured WAV plays only once unless
+`replay_wav = true` repeats it at the start of each additional playback.
 This supports both `str` and `directional_str` and cannot be combined with
 `loop = true` when greater than `1`. Casting and status loops retain their
 existing lifetimes. Earth Strain (`2446`, `SK_WZ_EARTHSTRAIN`) sets `play_count = 2`
 on both Strantum Tremor ground effects; its caster effect and ground targeting
 circle last only during casting.
+Extreme Vacuum (`845`) uses this fixed two-playback presentation for its ground
+effects. Its main clip sets `wav = [[data\wav\extremevcm.wav]]` and
+`replay_wav = true`, so the WAV plays twice, independently of the server's hit
+count. `ground_server_notified = false` keeps playback local, and
+`ignore_server_wav = true` ignores matching server sound packets to avoid extra
+copies. Matching accepts paths relative to `data\wav`, optional `wav\` or
+`data\wav\` prefixes, either slash direction, and ASCII case differences.
 Lord of Vermilion (`85`, `SK_WZ_LORDOFVERMILION`) replaces `lord.str` with the
 main and bottom `new_tornadostorm` ground clips. Each uses `play_count = 8` to
 play its 30 frames eight times, for 240 frames total, at the selected ground cell.
@@ -532,6 +547,30 @@ sounds = {
 },
 ```
 
+Repeated audio can also be configured entirely in `sounds`, independently of
+visuals and hit counts. Psychic Wave uses:
+
+```lua
+[2449] = { -- In the top-level sounds table.
+    wav = [[data\wav\effect\sage_spell breake.wav]],
+    trigger = "ground_cast",
+    play_count = 5,
+    interval_ms = 1408,
+    ignore_server_wav = true,
+},
+```
+
+`play_count` counts all sound starts, including the first, and defaults to `1`.
+It accepts `1..1024`. `interval_ms` is the time between starts and must be
+positive for repeats. `delay_ms` delays the first start and defaults to `0`;
+the five plays above start at `0`, `1408`, `2816`, `4224`, and `5632` ms after
+cast completion. Timing must be nonnegative integers, with the last start no
+later than `2147483647` ms. `ignore_server_wav = true` prevents matching
+server sound packets from adding copies. Sound settings and distance attenuation
+apply to every playback, and leaving the map clears pending audio.
+Future changes to the WAV, count, spacing, delay, or trigger need only an edit
+to `skill_presentation.lua`.
+
 Damage skills automatically play one hit WAV per reported hit, alongside any
 completion sound configured in this file. Player casters use the same sound
 selection as normal attacks, including equipped weapons and the normal
@@ -550,9 +589,11 @@ The existing `silence_hit_sound` switch also controls this replacement.
 
 A `sounds` entry or a WAV in the skill's `source`, `target`, or `ground` effects
 plays alongside the per-hit audio. This includes shared effect references,
-variants, and procedural renderers. Each configured WAV plays once per skill
-notification, even if its effect has `once_per_hit = true`; later visual copies
-are silent.
+variants, and procedural renderers. By default, each configured WAV starts once
+per matching skill notification. A `sounds` entry can schedule additional plays
+with its own `play_count` and `interval_ms`. For effects, `once_per_hit = true`
+keeps later hit copies silent; an STR with `replay_wav = true` repeats its WAV
+for its own additional `play_count` playbacks.
 Server-notified effects supply the first WAV themselves. Casting WAVs are a
 separate stage and do not suppress completion hit sounds.
 
@@ -568,8 +609,9 @@ silence_hit_sound = false, -- Disable per-hit audio; keep configured WAVs.
 
 `wav` must be a full GRF path. `trigger` selects `"no_damage"` (the default,
 successful buff/debuff and other non-damaging skill notifications), `"damage"`
-(actor or position damage notifications), or `"ground"` (ground notifications,
-including position damage notifications). This selects one packet path when a
+(actor or position damage notifications), `"ground"` (ground notifications,
+including position damage notifications), or `"ground_cast"` (ground cast
+completion only, excluding later damage ticks). This selects one packet path when a
 skill sends several notification types. No-damage failures do not play audio.
 Sounds play at the target or ground position, falling back to the caster for a
 no-damage notification without a resolved target, with the usual sound settings
@@ -777,7 +819,9 @@ effects remain configured alongside it.
 
 Quagmire (`92`, `SK_MG_QUAGMIRE`) replaces effect `95` through the shared `effects`
 table with `terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str`,
-drawn once as a bottom effect at the cast's center cell. The cast notification
+plus `violentquake\violentquake_bottom\violentquake_bottom.str` in
+`additional_strs`. Both draw as bottom effects at the cast's center cell and
+loop together for that ground unit's lifetime. The cast notification
 supplies that exact position; its matching ground unit `142` enables looping and
 owns removal, including early removal. Surrounding cells do not launch copies.
 Updates preserve the existing loop, and overlapping casts retain separate center
@@ -1174,6 +1218,8 @@ in a running updated client. Compare these cases against the official client:
 | Skill entry with `silence_hit_sound` omitted, `true`, or `false` | Omitted and `true` enable per-hit audio; `false` disables only per-hit audio and keeps configured WAVs |
 | Mixed per-hit and single-playback effects, with server notification enabled/disabled | Only `once_per_hit = true` visuals repeat; locally played effects include hit one, server-notified effects add only hits two onward, and only the first playback emits its configured WAV |
 | Effect with `delay_ms = 250`, single playback and per-hit replay, with server notification enabled/disabled | Visual and first WAV start 250 ms later; per-hit visuals start at 250, 660, and 1070 ms with later copies silent, and omitting the delay or setting it to zero preserves the original visual timing |
+| Extreme Vacuum (845), varied server hit counts and repeated server `extremevcm.wav` sound notifications | The local ground presentation plays `data\wav\extremevcm.wav` twice, once per visual playback; matching server sounds add no copies, and normal per-hit audio remains enabled |
+| Psychic Wave (2449), casting, cancellation, ground completion, later damage ticks, and map changes | Successful ground cast completion schedules five `sage_spell breake.wav` plays 1408 ms apart; damage ticks and matching server sound packets add no sequences, cancellation launches none, leaving the map clears pending plays, and visuals and per-hit sounds retain their previous behavior |
 | White damage numbers, with varied camera angles and attacker positions | Numbers start `RightDisplacement` pixels right of the actor, rise at most `MaxTravelHeight` pixels, and travel an additional `MaxTravelWidth` pixels right; zero values disable the corresponding motion, and spacing is tracked separately for each target |
 | Yellow totals, with varied delays and heights | Totals fade in after the configured delay, start `StartingHeightDisplacement` pixels above the target, and rise an additional `MaxTravelHeight` pixels while fading out; zero delay starts with the last hit, and zero travel holds the starting height |
 | Adrenaline Rush (835) | One concentration burst and concentration WAV on the caster, with no duplicate burst from the skill response |
@@ -1186,6 +1232,7 @@ in a running updated client. Compare these cases against the official client:
 | Stoneskin (2015) | Brief attack motion and flying-kick WAV for server effect `457`; no duplicate motion restart |
 | Arcane Strike (399) | Three minimal Comet components and one `WindHit` animation on the target, with one corresponding `_hit_fist` sound |
 | Hindsight (2206), successful use and cancellation | `firstfaithpower.str` and the shared `thirdexorflame_cast.str` play once together on the caster after successful use; cancelled casts launch neither effect |
+| Diamond Dust (887), successful use, multiple hits, and cancellation | `new_diamonddust.str` and `new_diamonddust_bottom.str` play once together on each notified target; the bottom clip draws beneath actors, and cancelled casts launch neither target effect |
 | Actor skill outside range | Click and release; walk into range, then cast once |
 | Ground skill outside range | Walk into range and cast at the chosen cell |
 | Comet (2213), Doom, and other ground skills using invisible effect actors | Impact effects play at their selected cells without white hiding flashes or briefly visible carrier sprites; actors that spawn hidden stay hidden, while visible actors entering hiding still play their normal fade and flash |
@@ -1207,7 +1254,7 @@ in a running updated client. Compare these cases against the official client:
 | Pharmacy / forging / arrow creation | Select items and successive materials; compare cancellation |
 | Repair Weapon / Sense | Repair an offered item; display the returned monster information |
 | Sanctuary / Magnus / Epiclesis / Psychic Wave | Ground effect persists and disappears with the server unit |
-| Quagmire (92), varied levels, overlapping/same-position casts, unit updates, early removal, effects visibility, sound mute/volume, distance, rain, and map changes | `wooden_cast_bottom.str` plays once on the caster as a bottom effect; one `terremotus_earth_care_bottom.str` visual and one `wizard_quagmire.wav` loop belong to each cast's center; surrounding cells launch no copies and updates preserve playback; audio follows sound volume and listener distance, continues with effects hidden, and coexists with rain; removing the center unit or leaving the map stops that cast's audio and visual |
+| Quagmire (92), varied levels, overlapping/same-position casts, unit updates, early removal, effects visibility, sound mute/volume, distance, rain, and map changes | `wooden_cast_bottom.str` plays once on the caster as a bottom effect; one `terremotus_earth_care_bottom.str` layer, one `violentquake_bottom.str` layer, and one `wizard_quagmire.wav` loop belong to each cast's center; surrounding cells launch no copies and updates preserve playback; audio follows sound volume and listener distance, continues with effects hidden, and coexists with rain; removing the center unit or leaving the map stops that cast's audio and both visual layers |
 | Gospel (369 / custom 951), activation beside walls/props and map edges, walking, camera rotation/zoom, slopes, repeated activation, and expiry | Both skill IDs use motion 1 to hold the caster's invocation pose; one complete area of upright glowing crosses follows the caster at the caster's floor height, including blocked cells omitted by the server (custom 951: 5x5; native 369: 33-cell cross); crosses stay visible over walls/props and sort in front of or behind actors by depth; unit updates do not duplicate or restart the aura, and removal of its last server unit removes the entire visual |
 | Hold the Line (950), activation, walking, walls/map edges, repeated activation, toggle-off, expiry, and actor removal | The existing cast effects still play; dense fog consistently covers every cell of the full 5x5 square around the caster, including cells omitted by server path checks; overlapping fog textures drift gently at steady opacity; moving unit updates do not duplicate or restart the fog, and removal of its last server unit or the caster removes the visual |
 | Bolts / small Heal / buff while another actor casts | Show hit/heal/buff effects without disturbing that cast |

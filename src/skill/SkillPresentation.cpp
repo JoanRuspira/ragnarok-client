@@ -123,6 +123,17 @@ bool ReadVariant(lua_State* state, int table, SkillEffectVariant& variant, std::
         && (variant.wavPath.empty() || ValidateResourcePath(variant.wavPath, "data\\wav\\", ".wav", error));
 }
 
+std::string NormalizeWavePath(std::string path)
+{
+    for (char& character : path) {
+        if (character == '/') character = '\\';
+        else if (character >= 'A' && character <= 'Z') character += 'a' - 'A';
+    }
+    if (path.rfind("data\\wav\\", 0) == 0) path.erase(0, 9);
+    else if (path.rfind("wav\\", 0) == 0) path.erase(0, 4);
+    return path;
+}
+
 bool ReadNumber(lua_State* state, int table, const char* key, float& value,
     float minimum, float maximum, std::string& error)
 {
@@ -264,12 +275,44 @@ bool ReadDirectionalStr(lua_State* state, int table, SkillDirectionalStrPresenta
     return true;
 }
 
+bool ReadAdditionalStrs(lua_State* state, int table, std::vector<std::string>& paths, std::string& error)
+{
+    lua_getfield(state, table, "additional_strs");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        return true;
+    }
+    if (!lua_istable(state, -1) || lua_objlen(state, -1) > 16) {
+        error = "expected an additional_strs array with at most 16 STR paths";
+        return false;
+    }
+    const int entries = lua_gettop(state);
+    const size_t count = lua_objlen(state, entries);
+    for (size_t index = 1; index <= count; ++index) {
+        lua_rawgeti(state, entries, static_cast<int>(index));
+        if (lua_type(state, -1) != LUA_TSTRING) {
+            error = "expected a string path in additional_strs";
+            return false;
+        }
+        size_t size = 0;
+        const char* bytes = lua_tolstring(state, -1, &size);
+        std::string path(bytes, size);
+        lua_pop(state, 1);
+        if (!ValidateResourcePath(path, "data\\texture\\effect\\", ".str", error)) return false;
+        paths.push_back(std::move(path));
+    }
+    lua_pop(state, 1);
+    return true;
+}
+
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
     if (!lua_istable(state, table)
         || !ReadBoolean(state, table, "loop", effect.loop, error)
         || !ReadInteger(state, table, "play_count", effect.playCount, error)
+        || !ReadBoolean(state, table, "replay_wav", effect.replayWav, error)
+        || !ReadBoolean(state, table, "ignore_server_wav", effect.ignoreServerWav, error)
         || !ReadString(state, table, "loop_wav", effect.loopWavPath, false, error)
         || (!effect.loopWavPath.empty()
             && !ValidateResourcePath(effect.loopWavPath, "data\\wav\\", ".wav", error))
@@ -279,13 +322,22 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadInteger(state, table, "saturation_percent", effect.saturationPercent, error)
         || !ReadBoolean(state, table, "ground_plane", effect.groundPlane, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
+        || !ReadInteger(state, table, "bottom_order", effect.bottomOrder, error)
         || !ReadBoolean(state, table, "draw_over_actors", effect.drawOverActors, error)) return false;
+    if (effect.bottomOrder != 0 && (!effect.bottomEffect || effect.drawOverActors)) {
+        error = "bottom_order requires a bottom effect beneath actors";
+        return false;
+    }
     if (effect.drawOverActors && !effect.bottomEffect) {
         error = "draw_over_actors requires bottom_effect = true";
         return false;
     }
     if (effect.playCount < 1 || (effect.loop && effect.playCount > 1)) {
         error = "play_count must be positive and cannot exceed 1 with loop = true";
+        return false;
+    }
+    if (effect.replayWav && effect.playCount <= 1) {
+        error = "replay_wav requires play_count > 1";
         return false;
     }
     if (effect.delayMs < 0) {
@@ -312,6 +364,11 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    if (!ReadAdditionalStrs(state, table, effect.additionalStrPaths, error)) return false;
+    if (!effect.additionalStrPaths.empty() && !renderer.empty() && renderer != "str") {
+        error = "additional_strs requires an STR renderer";
+        return false;
+    }
     if (effect.groundPlane && !renderer.empty() && renderer != "str") {
         error = "ground_plane requires an STR renderer";
         return false;
@@ -419,6 +476,38 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     return true;
 }
 
+bool ReadSkillSound(lua_State* state, int table, SkillSoundPresentation& sound, std::string& error)
+{
+    table = AbsoluteIndex(state, table);
+    std::string trigger;
+    if (!ReadString(state, table, "wav", sound.wavPath, true, error)
+        || !ValidateResourcePath(sound.wavPath, "data\\wav\\", ".wav", error)
+        || !ReadString(state, table, "trigger", trigger, false, error)
+        || !ReadInteger(state, table, "play_count", sound.playCount, error)
+        || !ReadInteger(state, table, "interval_ms", sound.intervalMs, error)
+        || !ReadInteger(state, table, "delay_ms", sound.delayMs, error)
+        || !ReadBoolean(state, table, "ignore_server_wav", sound.ignoreServerWav, error)) return false;
+    const long long lastStartMs = static_cast<long long>(sound.delayMs)
+        + (sound.playCount - 1LL) * sound.intervalMs;
+    if (sound.playCount < 1 || sound.playCount > 1024 || sound.intervalMs < 0 || sound.delayMs < 0
+        || (sound.playCount > 1 && sound.intervalMs == 0)) {
+        error = "sound requires play_count 1..1024, nonnegative timing, and a positive interval_ms for repeats";
+        return false;
+    }
+    if (lastStartMs > (std::numeric_limits<int>::max)()) {
+        error = "sound's final playback delay must not exceed INT_MAX milliseconds";
+        return false;
+    }
+    if (trigger == "damage") sound.trigger = SkillSoundPresentation::Trigger::Damage;
+    else if (trigger == "ground") sound.trigger = SkillSoundPresentation::Trigger::Ground;
+    else if (trigger == "ground_cast") sound.trigger = SkillSoundPresentation::Trigger::GroundCast;
+    else if (!trigger.empty() && trigger != "no_damage") {
+        error = "unknown skill sound trigger: " + trigger;
+        return false;
+    }
+    return true;
+}
+
 struct PresentationCatalog {
     std::map<int, SkillPresentation> skills;
     std::map<int, SkillEffectPresentation> effects;
@@ -493,20 +582,9 @@ struct PresentationCatalog {
             while (lua_next(state, entries)) {
                 int id = 0;
                 SkillSoundPresentation sound;
-                std::string trigger;
                 const int entry = lua_gettop(state);
                 if (!ReadIdKey(state, id, error) || id > 65535 || !lua_istable(state, entry)
-                    || !ReadString(state, entry, "wav", sound.wavPath, true, error)
-                    || !ValidateResourcePath(sound.wavPath, "data\\wav\\", ".wav", error)
-                    || !ReadString(state, entry, "trigger", trigger, false, error)) return false;
-                if (trigger == "damage") {
-                    sound.trigger = SkillSoundPresentation::Trigger::Damage;
-                } else if (trigger == "ground") {
-                    sound.trigger = SkillSoundPresentation::Trigger::Ground;
-                } else if (!trigger.empty() && trigger != "no_damage") {
-                    error = "unknown skill sound trigger: " + trigger;
-                    return false;
-                }
+                    || !ReadSkillSound(state, entry, sound, error)) return false;
                 sounds.emplace(id, std::move(sound));
                 lua_pop(state, 1);
             }
@@ -556,6 +634,7 @@ struct PresentationCatalog {
                 || !ReadSkillMotionType(state, entry, "skill_motion_type", skill.skillMotionType, error)
                 || !ReadSkillEffects(state, entry, "casting", skill.castingEffects, error)
                 || !ReadSkillEffects(state, entry, "casting_ground", skill.castingGroundEffects, error)
+                || !ReadSkillEffects(state, entry, "casting_target", skill.castingTargetEffects, error)
                 || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
                 || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)) return false;
@@ -580,7 +659,7 @@ struct PresentationCatalog {
                 return false;
             }
             for (const auto* ids : { &skill.castingEffects, &skill.castingGroundEffects,
-                    &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
+                    &skill.castingTargetEffects, &skill.sourceEffects, &skill.targetEffects, &skill.groundEffects }) {
                 for (int effectId : *ids) {
                     if (!effects.count(effectId)) {
                         error = "undefined effect reference: " + std::to_string(effectId);
@@ -671,4 +750,26 @@ const SkillSoundPresentation* FindSkillSoundPresentation(int skillId)
     const auto& sounds = Catalog().sounds;
     const auto found = sounds.find(skillId);
     return found == sounds.end() ? nullptr : &found->second;
+}
+
+bool IsServerSkillWaveIgnored(const std::string& wavPath)
+{
+    const std::string normalizedPath = NormalizeWavePath(wavPath);
+    if (normalizedPath.empty()) return false;
+    const auto matches = [&normalizedPath](const std::string& configuredPath) {
+        return !configuredPath.empty() && NormalizeWavePath(configuredPath) == normalizedPath;
+    };
+    for (const auto& entry : Catalog().sounds) {
+        if (entry.second.ignoreServerWav && matches(entry.second.wavPath)) return true;
+    }
+    for (const auto& entry : Catalog().effects) {
+        const SkillEffectPresentation& effect = entry.second;
+        if (!effect.ignoreServerWav) continue;
+        if (matches(effect.directionalStr.wavPath) || matches(effect.bodyBurst.wavPath)
+            || matches(effect.guardSphere.wavPath) || matches(effect.sonicWave.wavPath)) return true;
+        for (const SkillEffectVariant& variant : effect.variants) {
+            if (matches(variant.wavPath)) return true;
+        }
+    }
+    return false;
 }

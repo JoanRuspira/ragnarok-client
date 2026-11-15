@@ -501,6 +501,7 @@ constexpr u16 kSkillIdShieldSlam = 947;
 constexpr u16 kSkillIdRapidSmiting = 480;
 constexpr u16 kSkillIdAutoGuard = 249;
 constexpr u16 kSkillIdParry = 356;
+constexpr u16 kSkillIdSoulBurn = 375;
 constexpr u16 kSkillIdStasis = 894;
 constexpr u16 kSkillIdTetraVortexFire = 895;
 constexpr u16 kSkillIdTetraVortexEarth = 927;
@@ -6038,7 +6039,10 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && FindSkillPresentation(skillId)) {
-        EmitSkillImpactEffects(targetActor, skillId, 1);
+        // Soul Burn's following damage packet supplies its target effects.
+        if (skillId != kSkillIdSoulBurn) {
+            EmitSkillImpactEffects(targetActor, skillId, 1);
+        }
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
         if (!packetInfo.impactEffectIds.empty()) {
             for (int effectId : packetInfo.impactEffectIds) {

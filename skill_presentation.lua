@@ -139,6 +139,14 @@ return {
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
         },
+        [375] = { -- SK_SA_SOULBURN
+            wav = [[data\wav\effect\lg_rayofgenesis.wav]],
+            trigger = "damage",
+        },
+        [2210] = { -- SK_SA_DRAINLIFE
+            wav = [[data\wav\effect\em_summon_elemental_serpens_1.wav]],
+            trigger = "damage",
+        },
         [402] = { -- SK_SA_MINDGAMES
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
@@ -404,17 +412,76 @@ return {
                 },
             },
         },
+        [375] = { -- SK_SA_SOULBURN
+            name = "Soul Burn",
+            source_once_per_cast = true,
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            target = {
+                {
+                    effect_id = 50109,
+                    str = [[data\texture\effect\4ig_thirdexorflame\thirdexorflame_cast\thirdexorflame_cast.str]],
+                    hue_shift_degrees = 180,
+                },
+                {
+                    effect_id = 50111,
+                    str = [[data\texture\effect\4iq_massivefblaster\massivefblaster_hit\massivefblaster_hit.str]],
+                    hue_shift_degrees = 200,
+                },
+                {
+                    effect_id = 50112,
+                    str = [[data\texture\effect\4iq_secondflame\secondflame_bottom\secondflame_bottom.str]],
+                    hue_shift_degrees = 200,
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+        },
+        [2210] = { -- SK_SA_DRAINLIFE
+            name = "Drain Life",
+            source = {
+                {
+                    effect_id = 50113,
+                    str = [[data\texture\effect\acidified_zone_wind\acidified_zone_wind_cast\acidified_zone_wind_cast.str]],
+                    hue_shift_degrees = 40,
+                },
+
+                {
+                    effect_id = 50115,
+                    str = [[data\texture\effect\new_battle_w\new_battle_w_bottom\new_battle_w_bottom.str]],
+                    hue_shift_degrees = 270,
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50114,
+                    str = [[data\texture\effect\4ig_thirdexorflame\thirdexorflame_cast\thirdexorflame_cast.str]],
+                    hue_shift_degrees = 80,
+                },
+                {
+                    effect_id = 50116,
+                    str = [[data\texture\effect\allbloom\allbloom_bomb\allbloom_bomb02_bottom.str]],
+                    hue_shift_degrees = 90,
+                    bottom_effect = true,
+                    bottom_offset_px = 100,
+                },
+            },
+        },
         [402] = { -- SK_SA_MINDGAMES
             name = "Mind Games",
             source = {
                 { effect_id = 2023 },
                 { effect_id = 50104 },
             },
-            target_server_notified = true,
             target = {
                 {
-                    effect_id = 507,
-                    str = [[data\texture\effect\mapae.str]],
+                    effect_id = 50110,
+                    str = [[data\texture\effect\acidified_zone_wind\acidified_zone_wind_water\acidified_zone_wind_water.str]],
+                    hue_shift_degrees = 90,
                 },
             },
         },
@@ -1954,6 +2021,9 @@ return {
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [507] = { -- Mind Games: the server launches this visual; keep it silent.
+            str = [[data\texture\effect\mapae.str]],
+        },
         [50088] = { -- Water Tetra Vortex: the server's water-form completion selects this.
             str = [[data\texture\effect\tetravortex\tetra_04_water_explosion\tetra_04_water_expn.str]],
         },
@@ -2017,6 +2087,9 @@ return {
             },
             loop_wav = [[data\wav\effect\wizard_quagmire.wav]],
             bottom_effect = true,
+        },
+        [7] = { -- Small Heal: amounts below 200.
+            str = [[data\texture\effect\acidified_zone_wind\acidified_zone_wind_cast\acidified_zone_wind_cast.str]],
         },
         [312] = { -- EF_HEAL: shared by every skill that selects this Heal effect.
             str = [[data\texture\effect\argutustelum\argutustelum_cast\argutustelum_cast.str]],

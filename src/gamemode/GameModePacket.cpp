@@ -501,6 +501,7 @@ constexpr u16 kSkillIdShieldSlam = 947;
 constexpr u16 kSkillIdRapidSmiting = 480;
 constexpr u16 kSkillIdAutoGuard = 249;
 constexpr u16 kSkillIdParry = 356;
+constexpr u16 kSkillIdStasis = 894;
 constexpr u16 kSkillIdTetraVortexFire = 895;
 constexpr u16 kSkillIdTetraVortexEarth = 927;
 constexpr u16 kSkillIdTetraVortexWind = 928;
@@ -5610,6 +5611,8 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         return;
     }
 
+    PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Casting, sourceActor->m_pos);
+
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
     const SkillPresentation* presentation = FindSkillPresentation(skillId);
@@ -5992,6 +5995,10 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     if ((result != 0 || sphereSummonCompleted) && (targetActor || sourceActor)) {
         PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::NoDamage,
             targetActor ? targetActor->m_pos : sourceActor->m_pos);
+    }
+
+    if (sourceActor && sourceActor == targetActor && result != 0 && skillId == kSkillIdStasis) {
+        EmitGroundSkillEffects(mode, skillId, levelOrAmount, sourceActor->m_pos);
     }
 
     if (targetActor && result != 0 && skillId == kSkillIdHeal) {

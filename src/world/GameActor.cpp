@@ -4570,6 +4570,7 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
         || effectId == kRagEffectFrostbite)
         && actor && actor->IsFreezeStatusActive();
     if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura
+        || effectId == kRagEffectMagicCell
         || (effectId >= kRagEffectSphereSlotFirst && effectId <= kRagEffectSphereSlotLast)
         || freezeStatusEffect) {
         // Status refreshes and frame updates keep one continuous aura.
@@ -4865,6 +4866,11 @@ bool CGameActor::IsFreezeStatusActive() const
     return m_bodyState == kActorBodyStateFreeze && m_stateId != kDeathStateId;
 }
 
+bool CGameActor::IsMagicCellStatusActive() const
+{
+    return m_bodyState == kActorBodyStateImprison && m_stateId != kDeathStateId;
+}
+
 bool CGameActor::IsStatusAnimationFrozen() const
 {
     return m_stateId != kDeathStateId
@@ -5039,6 +5045,12 @@ int CGameActor::GetSpherePresentationEffectId(int sphereIndex) const
 
 void CGameActor::ProcessStatusEffects()
 {
+    if (IsMagicCellStatusActive() && g_session.m_isEffectOn) {
+        LaunchEffect(kRagEffectMagicCell);
+    } else {
+        RemoveEffectById(kRagEffectMagicCell);
+    }
+
     for (int sphereIndex = 0; sphereIndex < static_cast<int>(m_sphereStatusActive.size()); ++sphereIndex) {
         if (!m_sphereStatusActive[sphereIndex]) continue;
         if (!IsSphereStatusActive(sphereIndex)) {

@@ -109,6 +109,7 @@ constexpr int kRagEffectSphereWater = 50079;
 // Four independent status-owned instances; their artwork is chosen by cast level.
 constexpr int kRagEffectSphereSlotFirst = 50084;
 constexpr int kRagEffectSphereSlotLast = 50087;
+constexpr int kRagEffectMagicCell = 50106;
 
 class CRagEffect;
 
@@ -303,6 +304,7 @@ private:
         DanceRays,
         BloodsportMist,
         EnergyCoatAura,
+        MagicCell,
         StealthFieldFog,
         JumpKick,
         GroundSurface,
@@ -368,6 +370,7 @@ private:
     void RenderCastCone(const matrix& viewMatrix);
     void RenderDanceRays(const matrix& viewMatrix);
     void RenderStatusMist(const matrix& viewMatrix);
+    void RenderMagicCell(const matrix& viewMatrix);
     void RenderStealthFieldFog(const matrix& viewMatrix);
     void RenderRecoverySparkles(const matrix& viewMatrix);
     void RenderDevotionLink(const matrix& viewMatrix);

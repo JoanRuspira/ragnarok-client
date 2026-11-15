@@ -501,6 +501,7 @@ bool ReadSkillSound(lua_State* state, int table, SkillSoundPresentation& sound, 
     if (trigger == "damage") sound.trigger = SkillSoundPresentation::Trigger::Damage;
     else if (trigger == "ground") sound.trigger = SkillSoundPresentation::Trigger::Ground;
     else if (trigger == "ground_cast") sound.trigger = SkillSoundPresentation::Trigger::GroundCast;
+    else if (trigger == "casting") sound.trigger = SkillSoundPresentation::Trigger::Casting;
     else if (!trigger.empty() && trigger != "no_damage") {
         error = "unknown skill sound trigger: " + trigger;
         return false;

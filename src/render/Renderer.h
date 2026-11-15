@@ -170,6 +170,7 @@ public:
     // useFaceBlend keeps explicit blend modes in the depth-sorted alpha queue.
     void AddRP(RPFace* face, int renderFlag, bool useFaceBlend = false);
     void AddGroundShadowRP(RPFace* face);
+    static constexpr int kBaseGroundEffectOrder = -2;
     // Apply a bottom effect's offset and actor layer, restoring both on exit.
     class BottomEffectScope {
     public:
@@ -257,6 +258,7 @@ public:
         bool colorKey;
         int order;
     };
+    std::vector<BottomEffectFaceEntry> m_rpBaseGroundEffectList;
     std::vector<BottomEffectFaceEntry> m_rpBottomEffectList;
     std::vector<std::pair<float, RPFace*>> m_rpAlphaNoDepthList;
     std::vector<std::pair<float, RPFace*>> m_rpEmissiveDepthList;

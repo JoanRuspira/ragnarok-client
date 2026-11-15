@@ -41,6 +41,9 @@ constexpr u32 kSpriteFlashDurationMs = 240;
 constexpr u32 kGrandCrossDurationMs = 1000;
 constexpr u32 kBloodsportMistNotifyDurationMs = 5000;
 constexpr u32 kStatusMistCycleMs = 2400;
+constexpr float kMagicCellHeightInCells = 3.0f;
+constexpr float kMagicCellWidthInCells = 2.0f;
+constexpr u32 kMagicCellRotationPeriodMs = 8000;
 constexpr float kWeatherCloudDurationFrames = 960.0f;
 constexpr float kMapPillarDurationFrames = 960.0f;
 constexpr float kWaterfallSegmentHeight = 40.0f;
@@ -4366,6 +4369,13 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     }
 
     switch (effectId) {
+    case kRagEffectMagicCell:
+        m_handler = Handler::MagicCell;
+        m_presentationTexture = GetSoftDiscTexture();
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+        SetLooping(true);
+        break;
     case 226: // EF_GRANDCROSS: native ground geometry; the GRF has no matching STR.
         m_grandCrossOrigin = ResolveBasePosition();
         m_handler = Handler::GrandCross;
@@ -4463,6 +4473,11 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     case kRagEffectGospelArea:
         m_handler = Handler::GroundSurface;
         m_duration = 80;
+        if (effectId == 242) { // Land Protector's server ground-unit tiles.
+            m_presentationBottomEffect = true;
+            m_presentationBottomOrder = CRenderer::kBaseGroundEffectOrder;
+            m_presentationBottomOffsetPx = 0.0f;
+        }
         break;
     case 158:
         m_handler = Handler::Entry2;
@@ -4932,6 +4947,7 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
     if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink || m_type == kRagEffectEnergyCoatAura
+        || m_type == kRagEffectMagicCell
         || IsFreezeStatusLoop() || IsSphereStatusEffect()) Cancel();
     for (auto& component : m_componentEffects) {
         component->DetachFromMaster(knownMaster);
@@ -5069,6 +5085,12 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
     vector3d center = base;
     float radius = 96.0f;
     switch (m_handler) {
+    case Handler::MagicCell: {
+        const float cellSize = static_cast<float>(g_world.m_attr ? g_world.m_attr->m_zoom : 5);
+        center.y -= cellSize * kMagicCellHeightInCells * 0.5f;
+        radius = cellSize * (kMagicCellHeightInCells * 0.5f + kMagicCellWidthInCells);
+        break;
+    }
     case Handler::GroundCircle:
         center.y += m_presentationOffsetY;
         radius = m_proceduralPresentation->groundCircle.radiusCells
@@ -7058,6 +7080,10 @@ u8 CRagEffect::OnProcess()
         if (!g_session.m_isEffectOn || !actor || !actor->IsFreezeStatusActive()) return 0;
     }
     if (IsSkillUnitArea() && !ResolveCurrentMaster()) return 0;
+    if (m_handler == Handler::MagicCell) {
+        const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+        return g_session.m_isEffectOn && actor && actor->IsMagicCellStatusActive() ? 1 : 0;
+    }
     if (m_handler == Handler::DevotionLink) return ResolveCurrentMaster() ? 1 : 0;
     if (m_castEndTick != 0 && static_cast<s32>(timeGetTime() - m_castEndTick) >= 0) return 0;
     if (m_startDelayMs > 0) {
@@ -7777,6 +7803,93 @@ void CRagEffect::RenderBodyBurst(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderMagicCell(const matrix& viewMatrix)
+{
+    const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
+    const C3dAttr* attr = g_world.m_attr;
+    if (!g_session.m_isEffectOn || !actor || !actor->IsMagicCellStatusActive()
+        || !actor->m_isVisible || !actor->m_isVisibleBody || !m_presentationTexture
+        || !attr || attr->m_zoom <= 0) return;
+
+    const float cellSize = static_cast<float>(attr->m_zoom);
+    const vector3d base = ResolveBasePosition();
+    const float centerX = (std::floor(base.x / cellSize + attr->m_width * 0.5f)
+        - attr->m_width * 0.5f + 0.5f) * cellSize;
+    const float centerZ = (std::floor(base.z / cellSize + attr->m_height * 0.5f)
+        - attr->m_height * 0.5f + 0.5f) * cellSize;
+    const float halfWidth = cellSize * kMagicCellWidthInCells * 0.5f;
+    const float height = cellSize * kMagicCellHeightInCells;
+    vector3d corners[4] = { { centerX - halfWidth, 0.0f, centerZ - halfWidth },
+        { centerX + halfWidth, 0.0f, centerZ - halfWidth },
+        { centerX + halfWidth, 0.0f, centerZ + halfWidth },
+        { centerX - halfWidth, 0.0f, centerZ + halfWidth } };
+    for (vector3d& corner : corners) {
+        // Keep the expanded box anchored to terrain inside the target's cell.
+        const float sampleScale = 0.999f / kMagicCellWidthInCells;
+        const float x = centerX + (corner.x - centerX) * sampleScale;
+        const float z = centerZ + (corner.z - centerZ) * sampleScale;
+        corner.y = attr->GetHeight(x, z) - 0.1f;
+    }
+
+    const u32 now = timeGetTime();
+    const u32 elapsedMs = now - m_presentationStartTick;
+    const float visibility = (std::min)(1.0f, elapsedMs / 160.0f)
+        * static_cast<float>(actor->GetHideFadeAlpha(now)) / 255.0f;
+    const float phase = static_cast<float>(elapsedMs % 2400u) / 2400.0f * kPi * 2.0f;
+    const float rotation = static_cast<float>(elapsedMs % kMagicCellRotationPeriodMs)
+        / kMagicCellRotationPeriodMs * kPi * 2.0f;
+    const float rotationCos = std::cos(rotation);
+    const float rotationSin = std::sin(rotation);
+    const float solidUvs[4][2] = { { 0.5f, 0.5f }, { 0.5f, 0.5f }, { 0.5f, 0.5f }, { 0.5f, 0.5f } };
+    const float glowUvs[4][2] = { { 0.0f, 0.5f }, { 1.0f, 0.5f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
+    const auto paneColor = [&](float rise) {
+        const float pulse = 0.8f + 0.2f * std::sin(phase - rise * kPi * 2.0f);
+        return PackColor(static_cast<unsigned int>(visibility * pulse * 55.0f * (1.0f - rise * 0.6f)),
+            RGB(static_cast<int>(48.0f + rise * 40.0f), static_cast<int>(120.0f + rise * 40.0f), 255));
+    };
+    for (int edge = 0; edge < 4; ++edge) {
+        const vector3d a = corners[edge];
+        const vector3d b = corners[(edge + 1) % 4];
+        const auto point = [&](float along, float rise) {
+            const float x = a.x + (b.x - a.x) * along - centerX;
+            const float z = a.z + (b.z - a.z) * along - centerZ;
+            return vector3d{ centerX + x * rotationCos - z * rotationSin,
+                a.y + (b.y - a.y) * along - height * rise,
+                centerZ + x * rotationSin + z * rotationCos };
+        };
+        // Translucent sheets join all four walls; narrow streams flow upward.
+        for (int row = 0; row < 6; ++row) {
+            const float v0 = row / 6.0f;
+            const float v1 = (row + 1) / 6.0f;
+            const unsigned int lower = paneColor(v0);
+            const unsigned int upper = paneColor(v1);
+            const unsigned int colors[4] = { lower, lower, upper, upper };
+            const vector3d pane[4] = { point(0.0f, v0), point(1.0f, v0), point(0.0f, v1), point(1.0f, v1) };
+            SubmitWorldQuad(pane, viewMatrix, m_presentationTexture, colors, solidUvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+            for (int stream = 0; stream < 6; ++stream) {
+                const float along = (stream + 0.5f) / 6.0f;
+                const auto streamColor = [&](float rise) {
+                    const float shimmer = 0.55f + 0.45f * std::sin(phase + stream * 1.7f + edge - rise * kPi * 2.0f);
+                    return PackColor(static_cast<unsigned int>(visibility * shimmer * 180.0f * (1.0f - rise * 0.65f)), RGB(64, 144, 255));
+                };
+                const unsigned int streamColors[4] = { streamColor(v0), streamColor(v0), streamColor(v1), streamColor(v1) };
+                const vector3d strip[4] = { point(along - 0.075f, v0), point(along + 0.075f, v0),
+                    point(along - 0.075f, v1), point(along + 0.075f, v1) };
+                SubmitWorldQuad(strip, viewMatrix, m_presentationTexture, streamColors, glowUvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+            }
+        }
+        // Bright blue rims keep the cell's square silhouette visible.
+        for (int rim = 0; rim < 2; ++rim) {
+            const float rise = rim == 0 ? 0.0f : 0.975f;
+            const vector3d quad[4] = { point(0.0f, rise), point(1.0f, rise),
+                point(0.0f, rise + 0.025f), point(1.0f, rise + 0.025f) };
+            const unsigned int color = PackColor(static_cast<unsigned int>(visibility * 210.0f), RGB(88, 168, 255));
+            const unsigned int colors[4] = { color, color, color, color };
+            SubmitWorldQuad(quad, viewMatrix, m_presentationTexture, colors, solidUvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+        }
+    }
+}
+
 void CRagEffect::RenderGrandCross(const matrix& viewMatrix)
 {
     if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
@@ -8182,6 +8295,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::BodyBurst) RenderBodyBurst(*viewMatrix);
     if (m_handler == Handler::GuardSphere) RenderGuardSphere(*viewMatrix);
     if (m_handler == Handler::GrandCross) RenderGrandCross(*viewMatrix);
+    if (m_handler == Handler::MagicCell) RenderMagicCell(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
     if (m_handler == Handler::GroundCircle) RenderGroundCircle(*viewMatrix);
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);

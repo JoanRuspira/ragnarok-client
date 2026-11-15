@@ -129,7 +129,7 @@ struct SkillPresentation {
 
 // Audio can be configured without taking ownership of a skill's existing visuals.
 struct SkillSoundPresentation {
-    enum class Trigger { NoDamage, Damage, Ground, GroundCast };
+    enum class Trigger { NoDamage, Damage, Ground, GroundCast, Casting };
     std::string wavPath;
     Trigger trigger = Trigger::NoDamage;
     int playCount = 1;

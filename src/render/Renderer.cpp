@@ -1102,7 +1102,9 @@ void CRenderer::AddRP(RPFace* face, int renderFlag, bool useFaceBlend) {
             if (!m_bottomEffectDrawOverActors) {
                 const bool faceBlend = (renderFlag & 4) || useFaceBlend;
                 const bool emissive = (renderFlag & 2) != 0;
-                m_rpBottomEffectList.push_back({ sortKey, face,
+                auto& effects = m_bottomEffectOrder == kBaseGroundEffectOrder
+                    ? m_rpBaseGroundEffectList : m_rpBottomEffectList;
+                effects.push_back({ sortKey, face,
                     faceBlend ? face->srcAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA),
                     faceBlend ? face->destAlphaMode : (emissive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA),
                     (renderFlag & 4) != 0, m_bottomEffectOrder });
@@ -1410,6 +1412,31 @@ void CRenderer::FlushRenderList() {
     m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
     m_renderDevice->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, FALSE);
 
+    const auto drawBottomEffects = [&](std::vector<BottomEffectFaceEntry>& effects) {
+        if (effects.empty()) return;
+        std::stable_sort(effects.begin(), effects.end(),
+            [](const BottomEffectFaceEntry& a, const BottomEffectFaceEntry& b) {
+                if (a.order != b.order) return a.order < b.order;
+                return a.sortKey < b.sortKey;
+            });
+        for (const auto& entry : effects) {
+            SetMultiTextureMode(entry.face->mtPreset);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, entry.colorKey ? TRUE : FALSE);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, entry.srcBlend);
+            m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, entry.destBlend);
+            SetTexture(entry.face->tex);
+            RPFace::DrawPri(entry.face, *m_renderDevice);
+        }
+        SetMultiTextureMode(0);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
+        m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    };
+
+    // Land Protector covers terrain beneath shadows and every other effect.
+    m_renderDevice->SetRenderState(D3DRENDERSTATE_ZENABLE, D3DZB_TRUE);
+    drawBottomEffects(m_rpBaseGroundEffectList);
+
     // Contact shadows cover terrain but always remain beneath actor sprites
     // and effects. Keep depth testing so walls and props still occlude them.
     SetMultiTextureMode(0);
@@ -1428,25 +1455,7 @@ void CRenderer::FlushRenderList() {
 
     // Bottom effects cover the terrain and contact shadows, then actors cover
     // them. Preserve STR overlay depth, procedural world depth, and authored blends.
-    if (!m_rpBottomEffectList.empty()) {
-        std::stable_sort(m_rpBottomEffectList.begin(), m_rpBottomEffectList.end(),
-            [](const BottomEffectFaceEntry& a, const BottomEffectFaceEntry& b) {
-                if (a.order != b.order) return a.order < b.order;
-                return a.sortKey < b.sortKey;
-            });
-        for (const auto& entry : m_rpBottomEffectList) {
-            SetMultiTextureMode(entry.face->mtPreset);
-            m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, entry.colorKey ? TRUE : FALSE);
-            m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, entry.srcBlend);
-            m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, entry.destBlend);
-            SetTexture(entry.face->tex);
-            RPFace::DrawPri(entry.face, *m_renderDevice);
-        }
-        SetMultiTextureMode(0);
-        m_renderDevice->SetRenderState(D3DRENDERSTATE_COLORKEYENABLE, FALSE);
-        m_renderDevice->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
-        m_renderDevice->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    }
+    drawBottomEffects(m_rpBottomEffectList);
     
     struct BlendedFaceEntry {
         float sortKey;
@@ -1560,6 +1569,7 @@ void CRenderer::FlushRenderList() {
         m_rpRawList.clear();
         m_rpAlphaList.clear();
         m_rpGroundShadowList.clear();
+        m_rpBaseGroundEffectList.clear();
         m_rpBottomEffectList.clear();
         m_rpAlphaNoDepthList.clear();
         m_rpEmissiveList.clear();
@@ -1672,6 +1682,7 @@ void CRenderer::FlushRenderList() {
     m_rpRawList.clear();
     m_rpAlphaList.clear();
     m_rpGroundShadowList.clear();
+    m_rpBaseGroundEffectList.clear();
     m_rpBottomEffectList.clear();
     m_rpAlphaNoDepthList.clear();
     m_rpEmissiveList.clear();

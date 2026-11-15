@@ -541,7 +541,7 @@ bool IsMapLoadingActive(const CGameMode& mode);
 void ApplyEnemyCursorMagnet(CGameMode& mode, POINT* cursorPos);
 bool IsMonsterLikeHoverActor(const CGameActor* actor);
 bool IsWalkableAttrCell(const CGameMode& mode, int tileX, int tileY);
-bool IsAttackTargetWithinRange(CGameMode& mode, const CGameActor& target, int attackRange);
+bool IsActorTargetWithinRange(CGameMode& mode, const CGameActor& target, int range, bool skillCast = false);
 bool SendUseSkillToIdPacket(u16 skillId, u16 skillLevel, u32 targetGid);
 void ClearAttackChaseHint(CGameMode& mode);
 void ClearSkillChase(CGameMode& mode);
@@ -2937,6 +2937,7 @@ int ResolveSkillUseRange(u16 skillId)
         return 1;
     }
 
+    // The server already includes applicable range bonuses in the skill packets.
     return (std::max)(1, skillInfo->attackRange);
 }
 
@@ -3010,7 +3011,7 @@ bool TryUseSelectedPcTargetSkill(CGameMode& mode, u16 skillId, u16 skillLevel)
     mode.m_lastMonGid = 0;
     mode.m_lastLockOnMonGid = 0;
 
-    if (IsAttackTargetWithinRange(mode, *targetActor, skillRange)) {
+    if (IsActorTargetWithinRange(mode, *targetActor, skillRange, true)) {
         if (SendUseSkillToIdPacket(skillId, skillLevel, targetGid)) {
             ClearSkillChase(mode);
             return true;
@@ -4851,6 +4852,15 @@ bool IsTargetWithinAttackRange(int sourceTileX, int sourceTileY, int targetTileX
     return (std::max)(std::abs(sourceTileX - targetTileX), std::abs(sourceTileY - targetTileY)) <= clampedRange;
 }
 
+bool IsTargetWithinSkillRange(int sourceTileX, int sourceTileY, int targetTileX, int targetTileY, int skillRange)
+{
+    const double dx = static_cast<double>(sourceTileX) - targetTileX;
+    const double dy = static_cast<double>(sourceTileY) - targetTileY;
+    // Match the server's distance_client rounding, including its boundary tolerance.
+    const int distance = static_cast<int>((std::max)(0.0, std::sqrt(dx * dx + dy * dy) - 0.0625));
+    return distance <= (std::max)(1, skillRange);
+}
+
 int ApproachSign(int delta)
 {
     if (delta > 0) {
@@ -4948,14 +4958,17 @@ bool ResolveAttackChaseCell(CGameMode& mode,
     int attackRange,
     u32 targetGid,
     int* outTileX,
-    int* outTileY)
+    int* outTileY,
+    bool skillCast = false)
 {
     if (!outTileX || !outTileY || !mode.m_world || !mode.m_world->m_attr) {
         return false;
     }
 
     const int clampedRange = (std::max)(1, attackRange);
-    if (IsTargetWithinAttackRange(sourceTileX, sourceTileY, targetTileX, targetTileY, clampedRange)) {
+    if (skillCast
+        ? IsTargetWithinSkillRange(sourceTileX, sourceTileY, targetTileX, targetTileY, clampedRange)
+        : IsTargetWithinAttackRange(sourceTileX, sourceTileY, targetTileX, targetTileY, clampedRange)) {
         return false;
     }
 
@@ -4982,12 +4995,14 @@ bool ResolveAttackChaseCell(CGameMode& mode,
         int preferredDistance;
     };
 
+    const int candidateRange = clampedRange + (skillCast ? 1 : 0);
     std::vector<ChaseCandidate> candidates;
-    candidates.reserve(static_cast<size_t>((clampedRange * 2 + 1) * (clampedRange * 2 + 1)));
-    for (int dy = -clampedRange; dy <= clampedRange; ++dy) {
-        for (int dx = -clampedRange; dx <= clampedRange; ++dx) {
+    candidates.reserve(static_cast<size_t>((candidateRange * 2 + 1) * (candidateRange * 2 + 1)));
+    for (int dy = -candidateRange; dy <= candidateRange; ++dy) {
+        for (int dx = -candidateRange; dx <= candidateRange; ++dx) {
             const int ringDistance = (std::max)(std::abs(dx), std::abs(dy));
-            if (ringDistance == 0 || ringDistance > clampedRange) {
+            if (ringDistance == 0 || ringDistance > candidateRange
+                || (skillCast && !IsTargetWithinSkillRange(0, 0, dx, dy, clampedRange))) {
                 continue;
             }
 
@@ -5093,7 +5108,7 @@ bool ResolveGroundItemPickupCell(CGameMode& mode,
         outTileY);
 }
 
-bool IsAttackTargetWithinRange(CGameMode& mode, const CGameActor& target, int attackRange)
+bool IsActorTargetWithinRange(CGameMode& mode, const CGameActor& target, int range, bool skillCast)
 {
     int playerTileX = -1;
     int playerTileY = -1;
@@ -5107,7 +5122,9 @@ bool IsAttackTargetWithinRange(CGameMode& mode, const CGameActor& target, int at
         return false;
     }
 
-    return IsTargetWithinAttackRange(playerTileX, playerTileY, targetTileX, targetTileY, attackRange);
+    return skillCast
+        ? IsTargetWithinSkillRange(playerTileX, playerTileY, targetTileX, targetTileY, range)
+        : IsTargetWithinAttackRange(playerTileX, playerTileY, targetTileX, targetTileY, range);
 }
 
 bool IsCurrentMoveDestinationWithinRange(CGameMode& mode, const CGameActor& target, int attackRange)
@@ -5688,7 +5705,7 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
             mode.m_lastMonGid = 0;
             mode.m_lastLockOnMonGid = 0;
 
-            if (IsAttackTargetWithinRange(mode, *hoveredActor, skillRange)) {
+            if (IsActorTargetWithinRange(mode, *hoveredActor, skillRange, true)) {
                 if (SendUseSkillToIdPacket(skillId, skillLevel, targetGid)) {
                     ClearSkillChase(mode);
                     ClearPendingSkillUse(mode);
@@ -5718,7 +5735,7 @@ bool TryRequestPendingSkillFromScreenPoint(CGameMode& mode, int screenX, int scr
         int sourceY = -1;
         const int range = ResolveSkillUseRange(skillId);
         if (ResolveAttackChaseSourceTile(mode, &sourceX, &sourceY)
-            && !IsTargetWithinAttackRange(sourceX, sourceY, attrX, attrY, range)) {
+            && !IsTargetWithinSkillRange(sourceX, sourceY, attrX, attrY, range)) {
             BeginSkillChase(mode, 0, skillId, skillLevel, range);
             mode.m_skillChaseTargetCellX = attrX;
             mode.m_skillChaseTargetCellY = attrY;
@@ -6746,7 +6763,8 @@ void PumpSkillChaseRequest(CGameMode& mode)
 
     const u16 skillId = static_cast<u16>(mode.m_skillChaseSkillId & 0xFFFF);
     const u16 skillLevel = static_cast<u16>(mode.m_skillChaseSkillLevel & 0xFFFF);
-    const int skillRange = (std::max)(1, mode.m_skillChaseRange);
+    const int skillRange = ResolveSkillUseRange(skillId);
+    mode.m_skillChaseRange = skillRange;
     if (skillId == 0 || skillLevel == 0) {
         ClearSkillChase(mode);
         return;
@@ -6758,7 +6776,7 @@ void PumpSkillChaseRequest(CGameMode& mode)
     if (!ResolveAttackChaseSourceTile(mode, &sourceTileX, &sourceTileY)) {
         return;
     }
-    if (IsTargetWithinAttackRange(sourceTileX, sourceTileY, targetTileX, targetTileY, skillRange)) {
+    if (IsTargetWithinSkillRange(sourceTileX, sourceTileY, targetTileX, targetTileY, skillRange)) {
         if (mode.m_lastSkillChaseRequestTick != 0
             && now - mode.m_lastSkillChaseRequestTick < kAttackRetryIntervalMs) {
             return;
@@ -6775,7 +6793,7 @@ void PumpSkillChaseRequest(CGameMode& mode)
     }
 
     const CPlayer* player = mode.m_world->m_player;
-    if (player->m_isMoving && IsTargetWithinAttackRange(player->m_moveDestX, player->m_moveDestY,
+    if (player->m_isMoving && IsTargetWithinSkillRange(player->m_moveDestX, player->m_moveDestY,
             targetTileX, targetTileY, skillRange)) {
         return;
     }
@@ -6790,7 +6808,8 @@ void PumpSkillChaseRequest(CGameMode& mode)
         skillRange,
         mode.m_skillChaseTargetGid,
         &chaseTileX,
-        &chaseTileY)) {
+        &chaseTileY,
+        true)) {
         return;
     }
 
@@ -6855,7 +6874,7 @@ void PumpAttackChaseRequest(CGameMode& mode)
     }
 
     const int attackRange = (std::max)(1, mode.m_attackChaseRange);
-    if (IsAttackTargetWithinRange(mode, *target, attackRange)) {
+    if (IsActorTargetWithinRange(mode, *target, attackRange)) {
         if (!attackRequestReady) {
             return;
         }

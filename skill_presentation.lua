@@ -139,6 +139,22 @@ return {
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
         },
+        [402] = { -- SK_SA_MINDGAMES
+            wav = [[data\wav\effect\swordman_provoke.wav]],
+            trigger = "no_damage",
+        },
+        [2201] = { -- SK_SA_WHITEIMPRISON
+            wav = [[data\wav\effect\wl_whiteimprison.wav]],
+            trigger = "no_damage",
+        },
+        [288] = { -- SK_PF_LANDPROTECTOR
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            trigger = "casting",
+        },
+        [894] = { -- SK_PF_STASIS
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            trigger = "casting",
+        },
         [59] = { -- SK_KN_SPEARCANNON / Spear Boomerang impact
             wav = [[data\wav\effect\ef_fireball.wav]],
             trigger = "damage",
@@ -314,6 +330,104 @@ return {
                     effect_id = 2088,
                     str = [[data\texture\effect\terremotus\terremotus\terremotus.str]],
                     once_per_hit = false,
+                },
+            },
+        },
+        [76] = { -- SK_SA_SILENCE
+            name = "Silence",
+            source = {
+                { effect_id = 2023 },
+                {
+                    effect_id = 50104,
+                    str = [[data\texture\effect\new_fatal_menace\new_fatal_menace_cast\new_fatal_menace_cast.str]],
+                    hue_shift_degrees = 300,
+                },
+            },
+            target = {
+                {
+                    effect_id = 193,
+                    str = [[data\texture\effect\silence.str]],
+                    wav = [[data\wav\_silence.wav]],
+                },
+                { effect_id = 50024 },
+            },
+        },
+        [288] = { -- SK_PF_LANDPROTECTOR
+            name = "Land Protector",
+            casting = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+        },
+        [894] = { -- SK_PF_STASIS
+            name = "Stasis",
+            casting = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            ground = {
+                {
+                    effect_id = 50107,
+                    str = [[data\texture\effect\ardor\ardor_cast_bottom\ardor_cast_bottom.str]],
+                    hue_shift_degrees = 210,
+                    bottom_effect = true,
+                    bottom_offset_px = 0,
+                    play_count = 15, -- Forty frames at 60 FPS, repeated for ten seconds.
+                },
+                {
+                    effect_id = 50108,
+                    str = [[data\texture\effect\absolute_zephyr\absolute_zephyr\absolute_zephyr.str]],
+                    hue_shift_degrees = 250,
+                    play_count = 20, -- Thirty frames at 60 FPS, repeated for ten seconds.
+                },
+            },
+        },
+        [289] = { -- SK_SA_DISPELL
+            name = "Dispel",
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            target = {
+                {
+                    effect_id = 50105,
+                    str = [[data\texture\effect\]] .. "\184\197\193\247\183\206\181\229.str",
+                    wav = [[data\wav\effect\sage_magic rod.wav]],
+                },
+            },
+        },
+        [402] = { -- SK_SA_MINDGAMES
+            name = "Mind Games",
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            target_server_notified = true,
+            target = {
+                {
+                    effect_id = 507,
+                    str = [[data\texture\effect\mapae.str]],
+                },
+            },
+        },
+        [2201] = { -- SK_SA_WHITEIMPRISON
+            name = "Magic Cell",
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+            },
+            target = {
+                {
+                    effect_id = 234,
+                    str = [[data\texture\effect\spell.str]],
                 },
             },
         },

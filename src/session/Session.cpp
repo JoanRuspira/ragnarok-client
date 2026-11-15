@@ -1458,6 +1458,10 @@ void CSession::SetPlayerPosDir(int x, int y, int dir)
 
 void CSession::SetSelectedCharacterAppearance(const CHARACTER_INFO& info)
 {
+    if (!m_hasSelectedCharacterInfo || m_selectedCharacterInfo.GID != info.GID) {
+        m_elementalSphereCastLevel = 5;
+    }
+    CancelElementalSphereSkillRequest();
     m_selectedCharacterInfo = info;
     m_hasSelectedCharacterInfo = true;
     m_skillItems.clear();
@@ -1669,7 +1673,32 @@ void CSession::ClearActiveStatusIcons()
     m_activeStatusIcons.clear();
 }
 
-void CSession::SetActiveStatusIcon(int statusType, bool active, u32 remainingMs)
+void CSession::NoteElementalSphereSkillRequest(int level)
+{
+    if (level < 1 || level > 5) return;
+    m_pendingElementalSphereCastLevel = level;
+    m_pendingElementalSphereCastTick = timeGetTime();
+}
+
+void CSession::CancelElementalSphereSkillRequest()
+{
+    m_pendingElementalSphereCastLevel = 0;
+    m_pendingElementalSphereCastTick = 0;
+}
+
+int CSession::ConfirmElementalSphereSkillLevel()
+{
+    // Commit only when the server activates a sphere status, so rejected casts
+    // cannot recolor an existing set. Expire requests that never get a response.
+    if (m_pendingElementalSphereCastLevel != 0
+        && timeGetTime() - m_pendingElementalSphereCastTick < 10000u) {
+        m_elementalSphereCastLevel = m_pendingElementalSphereCastLevel;
+    }
+    CancelElementalSphereSkillRequest();
+    return m_elementalSphereCastLevel;
+}
+
+void CSession::SetActiveStatusIcon(int statusType, bool active, u32 remainingMs, int value1)
 {
     // EFST_PROVOKE is a valid status with ID zero.
     // After-cast delay is not a buff. Legacy 0x0196 carries no duration or expiry
@@ -1691,6 +1720,7 @@ void CSession::SetActiveStatusIcon(int statusType, bool active, u32 remainingMs)
 
     ACTIVE_STATUS_ICON icon;
     icon.statusType = statusType;
+    icon.value1 = value1;
     icon.hasTimer = remainingMs > 0;
     icon.expireServerTime = icon.hasTimer ? (GetServerTime() + remainingMs) : 0;
 

@@ -77,6 +77,7 @@ struct SHORTCUT_SLOT {
 
 struct ACTIVE_STATUS_ICON {
     int statusType = 0;
+    int value1 = 0;
     bool hasTimer = false;
     u32 expireServerTime = 0;
 };
@@ -261,7 +262,11 @@ public:
     const std::list<FRIEND_INFO>& GetFriendList() const;
     void ClearShortcutSlots();
     void ClearActiveStatusIcons();
-    void SetActiveStatusIcon(int statusType, bool active, u32 remainingMs);
+    void SetActiveStatusIcon(int statusType, bool active, u32 remainingMs, int value1 = 0);
+    void NoteElementalSphereSkillRequest(int level);
+    void CancelElementalSphereSkillRequest();
+    int ConfirmElementalSphereSkillLevel();
+    int GetElementalSphereCastLevel() const { return m_elementalSphereCastLevel; }
     void PruneExpiredStatusIcons(u32 serverTime);
     int GetShortcutPage() const;
     void SetShortcutPage(int page);
@@ -337,6 +342,9 @@ private:
     mutable std::mutex m_nonPcSpriteNameMutex;
     mutable std::unordered_map<int, std::string> m_nonPcSpriteNameCache;
     std::vector<ACTIVE_STATUS_ICON> m_activeStatusIcons;
+    int m_elementalSphereCastLevel = 5;
+    int m_pendingElementalSphereCastLevel = 0;
+    u32 m_pendingElementalSphereCastTick = 0;
     bool m_fogParameterTableLoaded;
     std::unordered_map<std::string, SessionFogParameter> m_fogParameterTable;
     bool m_accessoryNameTableLoaded;

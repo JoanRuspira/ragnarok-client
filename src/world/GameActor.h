@@ -36,6 +36,7 @@ constexpr int kStatusTypeSphere1 = 363; // EFST_SUMMON1
 constexpr int kStatusTypeSphere2 = 364; // EFST_SUMMON2
 constexpr int kStatusTypeSphere3 = 365; // EFST_SUMMON3
 constexpr int kStatusTypeSphere4 = 366; // EFST_SUMMON4
+constexpr int kSkillIdSummonElementalSpheres = 2222;
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -332,6 +333,8 @@ public:
     u32 m_milleniumShieldsStatusStartTick = 0;
     u32 m_milleniumShieldsStatusDurationMs = 0;
     std::array<bool, 4> m_sphereStatusActive{};
+    std::array<int, 4> m_sphereStatusElements{};
+    int m_elementalSphereCastLevel = 5;
     u32 m_lastSkillPresentationTick = 0;
     u32 m_skillNameUntilTick = 0;
 
@@ -358,8 +361,10 @@ public:
     bool IsEnergyCoatStatusActive(u32 now) const;
     void SetMilleniumShieldsStatus(bool active, u32 remainingMs);
     bool IsMilleniumShieldsStatusActive(u32 now) const;
-    void SetSphereStatus(int sphereIndex, bool active);
+    void SetElementalSphereCastLevel(int level);
+    void SetSphereStatus(int sphereIndex, bool active, int element = 0);
     bool IsSphereStatusActive(int sphereIndex) const;
+    int GetSpherePresentationEffectId(int sphereIndex) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
     // Returns the display delay after applying per-actor white-number spacing.
     u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);

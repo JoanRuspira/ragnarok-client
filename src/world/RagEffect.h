@@ -106,6 +106,9 @@ constexpr int kRagEffectSphereEarth = 50076;
 constexpr int kRagEffectSphereWind = 50077;
 constexpr int kRagEffectSphereFire = 50078;
 constexpr int kRagEffectSphereWater = 50079;
+// Four independent status-owned instances; their artwork is chosen by cast level.
+constexpr int kRagEffectSphereSlotFirst = 50084;
+constexpr int kRagEffectSphereSlotLast = 50087;
 
 class CRagEffect;
 
@@ -213,7 +216,7 @@ public:
     void SetLooping(bool looping);
     void SetFreezeStatusLoop();
     bool IsFreezeStatusLoop() const { return m_freezeStatusOwned; }
-    bool IsSphereStatusEffect() const { return m_type >= kRagEffectSphereEarth && m_type <= kRagEffectSphereWater; }
+    bool IsSphereStatusEffect() const { return m_type >= kRagEffectSphereSlotFirst && m_type <= kRagEffectSphereSlotLast; }
     void SetCastDurationMs(int milliseconds);
     // Keep the caster as lifetime owner while anchoring a cast marker to its cell.
     void FixWorldPosition(const vector3d& position) { m_fixedWorldPosition = position; }

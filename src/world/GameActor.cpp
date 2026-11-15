@@ -4570,7 +4570,7 @@ CRagEffect* CAbleToMakeEffect::LaunchEffect(int effectId, vector3d deltaPos, flo
         || effectId == kRagEffectFrostbite)
         && actor && actor->IsFreezeStatusActive();
     if (effectId == kRagEffectMilleniumShields || effectId == kRagEffectEnergyCoatAura
-        || (effectId >= kRagEffectSphereEarth && effectId <= kRagEffectSphereWater)
+        || (effectId >= kRagEffectSphereSlotFirst && effectId <= kRagEffectSphereSlotLast)
         || freezeStatusEffect) {
         // Status refreshes and frame updates keep one continuous aura.
         for (CRagEffect* effect : m_effectList) {
@@ -4989,11 +4989,24 @@ bool CGameActor::IsEnergyCoatStatusActive(u32 now) const
             || now - m_energyCoatStatusStartTick < m_energyCoatStatusDurationMs);
 }
 
-void CGameActor::SetSphereStatus(int sphereIndex, bool active)
+void CGameActor::SetElementalSphereCastLevel(int level)
+{
+    if (level < 1 || level > 5 || level == m_elementalSphereCastLevel) return;
+    m_elementalSphereCastLevel = level;
+    for (int index = 0; index < static_cast<int>(m_sphereStatusActive.size()); ++index) {
+        RemoveEffectById(kRagEffectSphereSlotFirst + index);
+        if (IsSphereStatusActive(index)) LaunchEffect(kRagEffectSphereSlotFirst + index);
+    }
+}
+
+void CGameActor::SetSphereStatus(int sphereIndex, bool active, int element)
 {
     if (sphereIndex < 0 || sphereIndex >= static_cast<int>(m_sphereStatusActive.size())) return;
+    const int effectId = kRagEffectSphereSlotFirst + sphereIndex;
+    const int nextElement = active && element >= 0x44 && element <= 0x47 ? element : 0;
+    if (m_sphereStatusElements[sphereIndex] != nextElement) RemoveEffectById(effectId);
+    m_sphereStatusElements[sphereIndex] = nextElement;
     m_sphereStatusActive[sphereIndex] = active && m_stateId != kDeathStateId;
-    const int effectId = kRagEffectSphereEarth + sphereIndex;
     if (IsSphereStatusActive(sphereIndex)) {
         LaunchEffect(effectId);
     } else {
@@ -5007,6 +5020,23 @@ bool CGameActor::IsSphereStatusActive(int sphereIndex) const
         && m_sphereStatusActive[sphereIndex] && m_stateId != kDeathStateId;
 }
 
+int CGameActor::GetSpherePresentationEffectId(int sphereIndex) const
+{
+    if (sphereIndex < 0 || sphereIndex >= static_cast<int>(m_sphereStatusActive.size())) return 0;
+    // Extended status packets can specify an element for any slot. The legacy
+    // packet has no element, so use the level captured from the actual cast.
+    switch (m_sphereStatusElements[sphereIndex]) {
+    case 0x44: return kRagEffectSphereFire;
+    case 0x45: return kRagEffectSphereWind;
+    case 0x46: return kRagEffectSphereWater;
+    case 0x47: return kRagEffectSphereEarth;
+    }
+    static constexpr std::array<int, 4> elements{
+        kRagEffectSphereEarth, kRagEffectSphereWind, kRagEffectSphereWater, kRagEffectSphereFire
+    };
+    return elements[m_elementalSphereCastLevel == 5 ? sphereIndex : m_elementalSphereCastLevel - 1];
+}
+
 void CGameActor::ProcessStatusEffects()
 {
     for (int sphereIndex = 0; sphereIndex < static_cast<int>(m_sphereStatusActive.size()); ++sphereIndex) {
@@ -5014,9 +5044,9 @@ void CGameActor::ProcessStatusEffects()
         if (!IsSphereStatusActive(sphereIndex)) {
             SetSphereStatus(sphereIndex, false);
         } else if (g_session.m_isEffectOn) {
-            LaunchEffect(kRagEffectSphereEarth + sphereIndex);
+            LaunchEffect(kRagEffectSphereSlotFirst + sphereIndex);
         } else {
-            RemoveEffectById(kRagEffectSphereEarth + sphereIndex);
+            RemoveEffectById(kRagEffectSphereSlotFirst + sphereIndex);
         }
     }
 

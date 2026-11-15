@@ -136,6 +136,36 @@ uses the saved level, capped at the current learned level. The window's **Use**
 button also uses the selected level. Icon colors, frame thickness, and tree
 arrow colors always use the actual learned level.
 
+Summon Elemental Spheres (`2222`) uses all four `STATUS_SPHERE_1` through
+`STATUS_SPHERE_4` slots at every casting level. The slots control lifetime and
+removal; they do not identify an element. Casting level 1 displays four earth
+spheres, level 2 four wind spheres, level 3 four water spheres, and level 4 four
+fire spheres. Level 5 displays earth, wind, water, and fire once each.
+Its presentation entry sets both `cast_motion_type` and `skill_motion_type` to
+`1` and displays the skill name above the caster once per cast. The server's
+zero-result summon completion still triggers this motion and name display.
+
+For legacy status packets, the client captures the level of the actual outgoing
+cast, including the saved shortcut level, and commits it when a sphere status
+activates. A failed cast leaves the existing artwork unchanged. The confirmed
+level survives actor recreation and map changes for the current character.
+Extended status packets can supply each slot's `WLS_*` element directly.
+Legacy packets do not report another character's cast level; without a known
+element, those actors use the mixed set until element data is available.
+
+Sphere instance IDs `50084` through `50087` are independent of their artwork
+IDs: `50076` earth, `50077` wind, `50079` water, and `50078` fire. The artwork
+remains configurable in `skill_presentation.lua`. All four animations share
+the caster's origin and follow the same authored circular path, with phases
+spaced a quarter cycle (90 degrees) apart. The installed 72-frame, 60-FPS clips
+use offsets of 0, 18, 36, and 54 frames, equivalent to 0, 0.3, 0.6, and 0.9 seconds.
+A shared clock preserves their separation across loops and effect recreation;
+there are no additional horizontal position offsets.
+The sphere animations are shifted down by 90 authored STR pixels, scaled with
+the artwork at the current zoom, to center their orbit around the caster's torso.
+Layers above the orbit's center render behind actor sprites; layers below it
+render in front. The glow at the orbit center stays behind the caster.
+
 `SKILL_TREEVIEW_FOR_JOB` uses zero-based positions in a seven-column grid.
 The window removes the two gutter columns (source columns 0 and 6). A skill
 at position `row * 7 + column + 1` appears in visible column `column` and row

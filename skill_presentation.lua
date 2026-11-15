@@ -47,6 +47,15 @@ local function ground_casting_circle(color)
     }
 end
 
+local tetra_vortex_presentation = {
+    name = "Tetra Vortex",
+    cast_motion_type = 1,
+    skill_motion_type = 2,
+    casting = {
+        { effect_id = 50080 }, -- White casting clip with begin-spell sound.
+    },
+}
+
 return {
     version = 1,
     -- Skill IDs here add audio while preserving the skill's existing visuals.
@@ -55,6 +64,34 @@ return {
     -- play_count (default 1), interval_ms, and delay_ms control sound-only playback.
     -- ignore_server_wav = true prevents matching server sound packets from adding copies.
     sounds = {
+        [2222] = { -- SK_SO_SUMMONELEMENTALSPHERES
+            wav = [[data\wav\effect\ef_napalmbeat.wav]],
+            trigger = "no_damage",
+        },
+        [90] = { -- SK_WZ_STALAGMITE
+            wav = [[data\wav\effect\lg_earthdrive.wav]],
+            trigger = "damage",
+        },
+        [927] = { -- Tetra Vortex: four earth spheres.
+            wav = [[data\wav\effect\lg_earthdrive.wav]],
+            trigger = "no_damage",
+        },
+        [928] = { -- Tetra Vortex: four wind spheres.
+            wav = [[data\wav\effect\poemofnetherworld.wav]],
+            trigger = "no_damage",
+        },
+        [929] = { -- Tetra Vortex: four water spheres.
+            wav = [[data\wav\effect\iq_first_faith_power.wav]],
+            trigger = "no_damage",
+        },
+        [895] = { -- Tetra Vortex: four fire spheres.
+            wav = [[data\wav\effect\sr_raisingdragon.wav]],
+            trigger = "no_damage",
+        },
+        [930] = { -- Tetra Vortex: one sphere of each element.
+            wav = [[data\wav\effect\lg_kings_grace.wav]],
+            trigger = "no_damage",
+        },
         [2449] = { -- SK_WZ_PSYCHICWAVE: five sound plays without repeating the visuals.
             wav = [[data\wav\effect\sage_spell breake.wav]],
             trigger = "ground_cast",
@@ -672,6 +709,22 @@ return {
                     str = [[data\texture\effect\strantumtremor\strantumtremor\strantumtremor.str]],
                     play_count = 2,
                 },
+            },
+        },
+        -- Cast starts use 2217; completion packets use the elemental subskill IDs.
+        [2217] = tetra_vortex_presentation, -- SK_SO_TETRAVORTEX
+        [895] = tetra_vortex_presentation,  -- SK_SO_TETRAVORTEX_FIRE
+        [927] = tetra_vortex_presentation,  -- SK_SO_TETRAVORTEX_GROUND
+        [928] = tetra_vortex_presentation,  -- SK_SO_TETRAVORTEX_WIND
+        [929] = tetra_vortex_presentation,  -- SK_SO_TETRAVORTEX_WATER
+        [930] = tetra_vortex_presentation,  -- SK_SO_TETRAVORTEX_NEUTRAL
+        [2222] = { -- SK_SO_SUMMONELEMENTALSPHERES
+            name = "Summon Elemental Spheres",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
+            source_once_per_cast = true,
+            source = {
+                { effect_id = 2069 }, -- Guardian Shield bottom animation on the caster.
             },
         },
         [2213] = { -- SK_SO_COMET
@@ -1787,6 +1840,62 @@ return {
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [50088] = { -- Water Tetra Vortex: the server's water-form completion selects this.
+            str = [[data\texture\effect\tetravortex\tetra_04_water_explosion\tetra_04_water_expn.str]],
+        },
+        [50089] = {
+            str = [[data\texture\effect\diluvio\diluvio_cold_force\diluvio_cold_force.str]],
+        },
+        [50090] = {
+            str = [[data\texture\effect\diluvio\diluvio_ice_bottom\diluvio_ice_bottom.str]],
+            bottom_effect = true,
+        },
+        [50091] = { -- Wind Tetra Vortex: selected by the server's wind-form completion.
+            str = [[data\texture\effect\tetravortex\tetra_02_wind_explosion\tetra_02_wind_expn.str]],
+        },
+        [50092] = {
+            str = [[data\texture\effect\destructive_hurricane\destructive_hurricane\destructive_hurricane.str]],
+        },
+        [50093] = {
+            str = [[data\texture\effect\destructive_hurricane\destructive_hurricane_bottom\destructive_hurricane_bottom.str]],
+            bottom_effect = true,
+        },
+        [50094] = { -- Fire Tetra Vortex: selected by the server's fire-form completion.
+            str = [[data\texture\effect\tetravortex\tetra_01_fire_explosion\tetra_01_fire_expn.str]],
+        },
+        [50095] = {
+            str = [[data\texture\effect\ardor\ardor\ardor.str]],
+        },
+        [50096] = {
+            str = [[data\texture\effect\ardor\ardor_flametechnic_bottom\ardor_flametechnic_bottom.str]],
+            bottom_effect = true,
+        },
+        [50097] = { -- Earth Tetra Vortex: selected by the server's earth-form completion.
+            str = [[data\texture\effect\tetravortex\tetra_03_earth_explosion\tetra_03_earth_expn.str]],
+        },
+        [50098] = {
+            str = [[data\texture\effect\elemental_buster\elemental_buster\elemental_buster_land\elemental_buster_land.str]],
+        },
+        [50099] = {
+            str = [[data\texture\effect\effligo\effligo_bottom\effligo_bottom.str]],
+            bottom_effect = true,
+        },
+        [50100] = { -- Mixed Tetra Vortex: selected by the server's neutral-form completion.
+            str = [[data\texture\effect\tetravortex\tetra_01_fire_explosion\tetra_01_fire_expn.str]],
+            hue_shift_degrees = 280, -- Red/orange to purple.
+        },
+        [50101] = {
+            str = [[data\texture\effect\chainlight.str]],
+        },
+        [50102] = {
+            str = [[data\texture\effect\conflagration\conflagration\conflagration.str]],
+            hue_shift_degrees = 210, -- Orange/red to blue.
+            bottom_effect = true,
+        },
+        [50103] = {
+            str = [[data\texture\effect\new_psychicwave\new_psychicwave\new_psychicwave.str]],
+            bottom_effect = true,
+        },
         [95] = { -- SK_MG_QUAGMIRE: only the center ground unit controls this loop.
             str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],
             additional_strs = {
@@ -1840,19 +1949,19 @@ return {
         [50071] = {
             str = [[data\texture\effect\frostbite\frostbite\frostbite.str]],
         },
-        [50076] = { -- STATUS_SPHERE_1
+        [50076] = { -- Earth sphere artwork, selected by cast level or status element.
             str = [[data\texture\effect\tetravortex\tetra_ball_03_earth\tetra_03_earth.str]],
             loop = true,
         },
-        [50077] = { -- STATUS_SPHERE_2
+        [50077] = { -- Wind sphere artwork.
             str = [[data\texture\effect\tetravortex\tetra_ball_02_wind\tetra_02_wind.str]],
             loop = true,
         },
-        [50078] = { -- STATUS_SPHERE_3
+        [50078] = { -- Fire sphere artwork.
             str = [[data\texture\effect\tetravortex\tetra_ball_01_fire\tetra_01_fire.str]],
             loop = true,
         },
-        [50079] = { -- STATUS_SPHERE_4
+        [50079] = { -- Water sphere artwork.
             str = [[data\texture\effect\tetravortex\tetra_ball_04_water\tetra_04_water.str]],
             loop = true,
         },

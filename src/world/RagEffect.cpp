@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -3964,7 +3965,19 @@ void CRagEffect::InitEZ2STRFrame()
 bool CRagEffect::ProcessEZ2STR()
 {
     m_isLayerDrawn.fill(0);
-    if (!m_aniClips || m_stateCnt >= m_aniClips->cFrame) return false;
+    if (!m_aniClips || m_aniClips->cFrame <= 0) return false;
+
+    int animationFrame = m_stateCnt;
+    if (IsSphereStatusEffect() && m_aniClips->nFPS > 0) {
+        // Share one timeline and one origin. Quarter-cycle phases keep the
+        // authored orbiting spheres apart even after effects are recreated.
+        const int slot = m_type - kRagEffectSphereSlotFirst;
+        const int slotCount = kRagEffectSphereSlotLast - kRagEffectSphereSlotFirst + 1;
+        const auto sharedFrame = static_cast<std::uint64_t>(timeGetTime()) * m_aniClips->nFPS / 1000u;
+        const int phaseFrames = slot * m_aniClips->cFrame / slotCount;
+        animationFrame = static_cast<int>((sharedFrame + phaseFrames) % m_aniClips->cFrame);
+    }
+    if (animationFrame >= m_aniClips->cFrame) return false;
 
     for (int layerIndex = 0; layerIndex < m_aniClips->cLayer; ++layerIndex) {
         const KAC_LAYER& layer = m_aniClips->aLayer[static_cast<size_t>(layerIndex)];
@@ -3975,7 +3988,7 @@ bool CRagEffect::ProcessEZ2STR()
         int source = -1;
         for (int i = 0; i < layer.cAniKey; ++i) {
             const KAC_KEYFRAME& key = layer.aAniKey[i];
-            if (key.dwType == 0 && key.iFrame <= m_stateCnt
+            if (key.dwType == 0 && key.iFrame <= animationFrame
                 && (source < 0 || key.iFrame >= layer.aAniKey[source].iFrame)) source = i;
         }
         if (source < 0) continue;
@@ -3989,7 +4002,7 @@ bool CRagEffect::ProcessEZ2STR()
         KAC_XFORMDATA& xform = m_actXformData[static_cast<size_t>(layerIndex)];
         xform = absolute.XformData;
         if (delta) {
-            const float frames = static_cast<float>(m_stateCnt - absolute.iFrame);
+            const float frames = static_cast<float>(animationFrame - absolute.iFrame);
             const KAC_XFORMDATA& velocity = delta->XformData;
             AddXformDelta(&xform, velocity, frames);
             const float textures = static_cast<float>(layer.cTex);
@@ -4050,6 +4063,12 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     m_tlvertX = anchor.x;
     m_tlvertY = anchor.y;
     m_tlvertZ = anchor.z;
+
+    if (IsSphereStatusEffect()) {
+        // The STR orbit is centered 150 authored pixels above the feet.
+        // Lower the entire animation toward the torso, including its glow.
+        m_tlvertY += 90.0f * pixelRatio;
+    }
 
     RPFace* face = g_renderer.BorrowNullRP();
     if (!face) {
@@ -4136,6 +4155,14 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
         vert.tv = vs[index] * vScale;
     }
 
+    // The authored sphere orbit is centered at Y=170. Its upper half passes
+    // behind actor sprites; its lower half uses the normal foreground pass.
+    // Use the transformed quad's center so every STR layer follows its position.
+    const float clipCenterY = xform.y
+        + (ys[0] + ys[1] + ys[2] + ys[3]) * c * 0.25f
+        + (xs[0] + xs[1] + xs[2] + xs[3]) * s * 0.25f;
+    const CRenderer::BottomEffectScope sphereDepthScope(g_renderer,
+        IsSphereStatusEffect(), 0.0f, clipCenterY > 170.0f, m_presentationBottomOrder);
     g_renderer.AddRP(face, 1 | 4);
 }
 
@@ -4209,7 +4236,15 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_grimToothStep = vector3d{};
     m_grimToothRemaining = vector3d{};
 
-    if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(effectId)) {
+    int presentationEffectId = effectId;
+    if (IsSphereStatusEffect()) {
+        if (const auto* actor = dynamic_cast<const CGameActor*>(master)) {
+            presentationEffectId = actor->GetSpherePresentationEffectId(effectId - kRagEffectSphereSlotFirst);
+        }
+    }
+    // Keep the instance ID tied to its slot so four identical elements retain
+    // independent lifetimes and are not merged by status-effect deduplication.
+    if (const SkillEffectPresentation* presentation = FindSkillEffectPresentation(presentationEffectId)) {
         m_loopedPresentationSound = presentation->loopWavPath;
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
         m_presentationSaturationPercent = presentation->saturationPercent;
@@ -7016,7 +7051,7 @@ u8 CRagEffect::OnProcess()
     if (IsSphereStatusEffect()) {
         const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
         if (!g_session.m_isEffectOn || !actor
-            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereEarth)) return 0;
+            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereSlotFirst)) return 0;
     }
     if (IsFreezeStatusLoop()) {
         const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
@@ -8123,7 +8158,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (IsSphereStatusEffect()) {
         const auto* actor = dynamic_cast<const CGameActor*>(ResolveCurrentMaster());
         if (!g_session.m_isEffectOn || !actor
-            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereEarth)
+            || !actor->IsSphereStatusActive(m_type - kRagEffectSphereSlotFirst)
             || !actor->m_isVisible || !actor->m_isVisibleBody) return;
     }
     if (IsFreezeStatusLoop()) {

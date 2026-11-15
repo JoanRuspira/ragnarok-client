@@ -501,9 +501,30 @@ constexpr u16 kSkillIdShieldSlam = 947;
 constexpr u16 kSkillIdRapidSmiting = 480;
 constexpr u16 kSkillIdAutoGuard = 249;
 constexpr u16 kSkillIdParry = 356;
+constexpr u16 kSkillIdTetraVortexFire = 895;
+constexpr u16 kSkillIdTetraVortexEarth = 927;
+constexpr u16 kSkillIdTetraVortexWind = 928;
+constexpr u16 kSkillIdTetraVortexWater = 929;
+constexpr u16 kSkillIdTetraVortexMixed = 930;
 constexpr int kSkillAnimationOnlyDamage = -30000;
 constexpr u32 kEffectIdRecoveryHp = 331;
 constexpr u32 kEffectIdRecoverySp = 332;
+constexpr u32 kEffectIdTetraVortexWaterExplosion = 50088;
+constexpr u32 kEffectIdTetraVortexWaterColdForce = 50089;
+constexpr u32 kEffectIdTetraVortexWaterIceBottom = 50090;
+constexpr u32 kEffectIdTetraVortexWindExplosion = 50091;
+constexpr u32 kEffectIdTetraVortexWindHurricane = 50092;
+constexpr u32 kEffectIdTetraVortexWindHurricaneBottom = 50093;
+constexpr u32 kEffectIdTetraVortexFireExplosion = 50094;
+constexpr u32 kEffectIdTetraVortexFireArdor = 50095;
+constexpr u32 kEffectIdTetraVortexFireArdorBottom = 50096;
+constexpr u32 kEffectIdTetraVortexEarthExplosion = 50097;
+constexpr u32 kEffectIdTetraVortexEarthBuster = 50098;
+constexpr u32 kEffectIdTetraVortexEarthEffligoBottom = 50099;
+constexpr u32 kEffectIdTetraVortexMixedExplosion = 50100;
+constexpr u32 kEffectIdTetraVortexMixedChainLightning = 50101;
+constexpr u32 kEffectIdTetraVortexMixedConflagration = 50102;
+constexpr u32 kEffectIdTetraVortexMixedPsychicWave = 50103;
 constexpr u32 kEffectIdHealSmall = 7;
 constexpr u32 kEffectIdHealMedium = 312;
 constexpr u32 kEffectIdHealLarge = 313;
@@ -853,9 +874,11 @@ void HandleIgnorePacket(CGameMode&, const PacketView&)
 
 CGameActor* EnsureRuntimeActor(CGameMode& mode, u32 gid, bool preferPc);
 
-void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool active, u32 remainingMs)
+void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool active, u32 remainingMs, int value1 = 0)
 {
     const bool sphereStatus = statusType >= kStatusTypeSphere1 && statusType <= kStatusTypeSphere4;
+    const int sphereCastLevel = sphereStatus && active && IsLocalActorId(actorId)
+        ? g_session.ConfirmElementalSphereSkillLevel() : 0;
     // Status visuals belong to the affected actor; only the local player's
     // status icons belong in the UI.
     if ((statusType == kStatusTypeFrenzy || statusType == kStatusTypeBloodsport
@@ -870,7 +893,10 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
             else if (statusType == kStatusTypeBloodsport) actor->SetBloodsportStatus(active, remainingMs);
             else if (statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(active, remainingMs);
             else if (statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(active, remainingMs);
-            else actor->SetSphereStatus(statusType - kStatusTypeSphere1, active);
+            else {
+                if (sphereCastLevel != 0) actor->SetElementalSphereCastLevel(sphereCastLevel);
+                actor->SetSphereStatus(statusType - kStatusTypeSphere1, active, value1);
+            }
             DbgLog("[GameMode] actor status type=%d actor=%u active=%d remainingMs=%u\n",
                 statusType, actorId, active ? 1 : 0, remainingMs);
         }
@@ -881,7 +907,7 @@ void ApplyStatusChangePacket(CGameMode& mode, int statusType, u32 actorId, bool 
         return;
     }
 
-    g_session.SetActiveStatusIcon(statusType, active, remainingMs);
+    g_session.SetActiveStatusIcon(statusType, active, remainingMs, value1);
     DbgLog("[GameMode] self status icon type=%d actor=%u active=%d remainingMs=%u\n",
         statusType,
         actorId,
@@ -911,7 +937,8 @@ void HandlePacket043F(CGameMode& mode, const PacketView& packet)
     const u32 actorId = ReadLE32(packet.data + 4);
     const bool active = packet.data[8] != 0;
     const u32 remainingMs = ReadLE32(packet.data + 9);
-    ApplyStatusChangePacket(mode, statusType, actorId, active, remainingMs);
+    const int value1 = static_cast<int>(ReadLE32(packet.data + 13));
+    ApplyStatusChangePacket(mode, statusType, actorId, active, remainingMs, value1);
 }
 
 int ResolvePotionEffectId(unsigned int itemId)
@@ -4460,6 +4487,7 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
     }
 
     const u16 skillId = ReadLE16(packet.data + 2);
+    if (skillId == kSkillIdSummonElementalSpheres) g_session.CancelElementalSphereSkillRequest();
     if (skillId == 2016 && mode.m_world && mode.m_world->m_player) {
         mode.m_world->m_player->m_vigorEffectSuppressUntilTick = 0;
     }
@@ -5949,14 +5977,19 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         && sourceActor->m_castingSkillId != 0 && sourceActor->m_castingSkillId != skillId
         && (static_cast<s32>(sourceActor->m_skillRechargeEndTick - now) > 0
             || (sourceActor->m_isMotionFreezed && static_cast<s32>(sourceActor->m_freezeEndTick - now) > 0));
+    // This server sends a zero-result completion after applying the four sphere
+    // statuses. It still needs the configured invocation motion and name shout.
+    const bool sphereSummonCompleted = skillId == kSkillIdSummonElementalSpheres
+        && sourceActor && sourceActor == targetActor;
     // Automatic blocks keep the actor's current action and attached cast effects.
     // Their target barrier is emitted independently below.
-    if (sourceActor && result != 0 && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
+    if (sourceActor && (result != 0 || sphereSummonCompleted)
+        && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor);
     }
 
-    if (result != 0 && (targetActor || sourceActor)) {
+    if ((result != 0 || sphereSummonCompleted) && (targetActor || sourceActor)) {
         PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::NoDamage,
             targetActor ? targetActor->m_pos : sourceActor->m_pos);
     }
@@ -5967,6 +6000,33 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         if (effectId >= 0) {
             targetActor->LaunchEffect(effectId, vector3d{}, 0.0f);
         }
+    } else if (targetActor && result != 0 && skillId == kSkillIdTetraVortexWater) {
+        // The server selects this subskill for the four-water-sphere cast.
+        // Play on its completion notification, once before the damage packets.
+        targetActor->LaunchEffect(kEffectIdTetraVortexWaterExplosion, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexWaterColdForce, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexWaterIceBottom, vector3d{}, 0.0f);
+    } else if (targetActor && result != 0 && skillId == kSkillIdTetraVortexWind) {
+        // The wind-form completion identifies the four-wind-sphere cast.
+        targetActor->LaunchEffect(kEffectIdTetraVortexWindExplosion, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexWindHurricane, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexWindHurricaneBottom, vector3d{}, 0.0f);
+    } else if (targetActor && result != 0 && skillId == kSkillIdTetraVortexFire) {
+        // The fire-form completion identifies the four-fire-sphere cast.
+        targetActor->LaunchEffect(kEffectIdTetraVortexFireExplosion, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexFireArdor, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexFireArdorBottom, vector3d{}, 0.0f);
+    } else if (targetActor && result != 0 && skillId == kSkillIdTetraVortexEarth) {
+        // The earth-form completion identifies the four-earth-sphere cast.
+        targetActor->LaunchEffect(kEffectIdTetraVortexEarthExplosion, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexEarthBuster, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexEarthEffligoBottom, vector3d{}, 0.0f);
+    } else if (targetActor && result != 0 && skillId == kSkillIdTetraVortexMixed) {
+        // The neutral-form completion identifies the mixed elemental sphere set.
+        targetActor->LaunchEffect(kEffectIdTetraVortexMixedExplosion, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexMixedChainLightning, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexMixedConflagration, vector3d{}, 0.0f);
+        targetActor->LaunchEffect(kEffectIdTetraVortexMixedPsychicWave, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && skillId == 9) { // SK_SM_SRECOVERY: server SP restoration
         EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);

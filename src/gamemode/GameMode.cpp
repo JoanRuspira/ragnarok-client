@@ -5544,6 +5544,10 @@ bool SendUseSkillToIdPacket(u16 skillId, u16 skillLevel, u32 targetGid)
         packetLength);
     if (sent) {
         NoteLocalHideSkillRequest(skillId, targetGid);
+        if (skillId == kSkillIdSummonElementalSpheres
+            && targetGid == ResolveSelfSkillTargetId()) {
+            g_session.NoteElementalSphereSkillRequest(skillLevel);
+        }
     }
     DbgLog("[GameMode] useskilltoid skillId=%u level=%u target=%u sent=%d\n",
         static_cast<unsigned int>(skillId),
@@ -7135,6 +7139,7 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
     }
 
     if (createdActor) {
+        actor->SetElementalSphereCastLevel(g_session.GetElementalSphereCastLevel());
         const u32 serverNow = g_session.GetServerTime();
         for (const auto& status : g_session.GetActiveStatusIcons()) {
             if (status.hasTimer && static_cast<s32>(status.expireServerTime - serverNow) <= 0) continue;
@@ -7146,7 +7151,7 @@ void EnsureBootstrapSelfActor(CGameMode& mode)
             if (status.statusType == kStatusTypeMilleniumShields) actor->SetMilleniumShieldsStatus(true, remainingMs);
             if (status.statusType == kStatusTypeEnergyCoat) actor->SetEnergyCoatStatus(true, remainingMs);
             if (status.statusType >= kStatusTypeSphere1 && status.statusType <= kStatusTypeSphere4) {
-                actor->SetSphereStatus(status.statusType - kStatusTypeSphere1, true);
+                actor->SetSphereStatus(status.statusType - kStatusTypeSphere1, true, status.value1);
             }
         }
     }

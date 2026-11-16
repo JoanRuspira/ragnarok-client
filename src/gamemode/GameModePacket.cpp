@@ -6117,7 +6117,7 @@ void ShowSkillChoices(std::vector<std::string> labels, std::function<void(int)> 
     ShowSkillChoicePage(menu);
 }
 
-void SendSkillMenuReply(const std::vector<u16>& words)
+bool SendSkillMenuReply(const std::vector<u16>& words)
 {
     std::vector<u8> bytes;
     bytes.reserve(words.size() * 2);
@@ -6127,6 +6127,21 @@ void SendSkillMenuReply(const std::vector<u16>& words)
     }
     if (!CRagConnection::instance()->SendPacket(reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()))) {
         g_windowMgr.PushChatEvent("Could not send the skill selection.", 0x00FF4040u, 6);
+        return false;
+    }
+    return true;
+}
+
+void EmitSkillSelectionEffect(u16 menuSkillId, u16 selectedSkillId)
+{
+    if (selectedSkillId == 0) return;
+    const SkillPresentation* presentation = FindSkillPresentation(menuSkillId);
+    if (!presentation || presentation->passive) return;
+    const auto selected = presentation->selectionEffects.find(selectedSkillId);
+    if (selected == presentation->selectionEffects.end()) return;
+    CGameMode* mode = g_modeMgr.GetCurrentGameMode();
+    if (mode && mode->m_world && mode->m_world->m_player) {
+        mode->m_world->m_player->LaunchEffect(selected->second, vector3d{}, 0.0f);
     }
 }
 
@@ -6176,6 +6191,9 @@ void HandleSkillSelectChoices(CGameMode&, const PacketView& packet)
 {
     if (!packet.data) return;
     const bool modern = packet.packetId == 0x0442;
+    // The server also sends 0x0442 lists to 2008 clients; their reply remains 0x01CE.
+    const bool useSkillSelectResponse = modern
+        && ro::net::GetActiveAccountLoginPacketProfile().clientDate >= 20081210;
     if (packet.packetLength < (modern ? 8 : 30)) return;
     const size_t count = modern ? ReadLE32(packet.data + 4) : 7;
     const size_t stride = modern ? 2 : 4;
@@ -6191,10 +6209,12 @@ void HandleSkillSelectChoices(CGameMode&, const PacketView& packet)
         const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(static_cast<int>(skill));
         labels.push_back(metadata && !metadata->displayName.empty() ? metadata->displayName : "Skill " + std::to_string(skill));
     }
-    ShowSkillChoices(std::move(labels), [skills, modern](int choice) {
+    ShowSkillChoices(std::move(labels), [skills, useSkillSelectResponse](int choice) {
         const u16 skill = choice < 0 ? 0 : skills[choice];
-        if (modern) SendSkillMenuReply({0x0443, 0, 0, skill});
-        else SendSkillMenuReply({0x01CE, skill, 0});
+        const bool sent = useSkillSelectResponse
+            ? SendSkillMenuReply({0x0443, 0, 0, skill})
+            : SendSkillMenuReply({0x01CE, skill, 0});
+        if (sent) EmitSkillSelectionEffect(279, skill);
     });
 }
 

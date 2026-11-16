@@ -320,6 +320,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadInteger(state, table, "delay_ms", effect.delayMs, error)
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
         || !ReadInteger(state, table, "saturation_percent", effect.saturationPercent, error)
+        || !ReadInteger(state, table, "tint", effect.tint, error)
         || !ReadBoolean(state, table, "ground_plane", effect.groundPlane, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
         || !ReadInteger(state, table, "bottom_order", effect.bottomOrder, error)
@@ -352,6 +353,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         error = "expected saturation_percent between 0 and 100";
         return false;
     }
+    if (effect.tint < 0 || effect.tint > 0xFFFFFF) {
+        error = "expected tint between 0x000000 and 0xFFFFFF";
+        return false;
+    }
     lua_getfield(state, table, "bottom_offset_px");
     if (!lua_isnil(state, -1)) {
         const double offset = lua_tonumber(state, -1);
@@ -381,9 +386,9 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         error = "draw_over_actors requires an STR renderer";
         return false;
     }
-    if ((effect.hueShiftDegrees != 0 || effect.saturationPercent != 100)
+    if ((effect.hueShiftDegrees != 0 || effect.saturationPercent != 100 || effect.tint != 0xFFFFFF)
             && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
-        error = "hue_shift_degrees and saturation_percent require an STR renderer";
+        error = "hue_shift_degrees, saturation_percent, and tint require an STR renderer";
         return false;
     }
     if (renderer == "body_burst") {
@@ -395,7 +400,8 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         return ReadBodyBurst(state, table, effect.bodyBurst, error);
     }
     if (!renderer.empty() && renderer != "str" && renderer != "directional_str"
-        && renderer != "guard_sphere" && renderer != "sonic_wave" && renderer != "ground_circle") {
+        && renderer != "guard_sphere" && renderer != "sonic_wave" && renderer != "soul_exchange"
+        && renderer != "ground_circle") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -428,6 +434,27 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     if (renderer == "directional_str") {
         effect.renderer = SkillEffectPresentation::Renderer::DirectionalStr;
         return ReadDirectionalStr(state, table, effect.directionalStr, error);
+    }
+    if (renderer == "soul_exchange") {
+        effect.renderer = SkillEffectPresentation::Renderer::SoulExchange;
+        auto& exchange = effect.soulExchange;
+        if (effect.loop) {
+            error = "soul_exchange cannot loop";
+            return false;
+        }
+        if (!ReadInteger(state, table, "duration_ms", exchange.durationMs, error)
+            || !ReadInteger(state, table, "color", exchange.color, error)
+            || !ReadInteger(state, table, "core_color", exchange.coreColor, error)
+            || !ReadBoolean(state, table, "target_to_source_only", exchange.targetToSourceOnly, error)
+            || !ReadNumber(state, table, "radius", exchange.radius, 0.1f, 32.0f, error)
+            || !ReadNumber(state, table, "height", exchange.height, 0.0f, 100.0f, error)) return false;
+        if (exchange.durationMs <= 0 || exchange.durationMs > 5000
+            || exchange.color < 0 || exchange.color > 0xFFFFFF
+            || exchange.coreColor < 0 || exchange.coreColor > 0xFFFFFF) {
+            error = "invalid soul_exchange duration or color";
+            return false;
+        }
+        return true;
     }
     if (renderer == "sonic_wave") {
         effect.renderer = SkillEffectPresentation::Renderer::SonicWave;
@@ -561,6 +588,42 @@ struct PresentationCatalog {
         return true;
     }
 
+    bool ReadSelectionEffects(lua_State* state, int table, std::map<int, int>& selections,
+        std::string& error)
+    {
+        lua_getfield(state, table, "selection");
+        if (lua_isnil(state, -1)) {
+            lua_pop(state, 1);
+            return true;
+        }
+        if (!lua_istable(state, -1)) {
+            error = "expected a selection effects table";
+            return false;
+        }
+        const int entries = lua_gettop(state);
+        lua_pushnil(state);
+        while (lua_next(state, entries)) {
+            int skillId = 0;
+            int effectId = -1;
+            SkillEffectPresentation effect;
+            if (!ReadIdKey(state, skillId, error) || skillId > 65535
+                || !lua_istable(state, -1)
+                || !ReadInteger(state, -1, "effect_id", effectId, error) || effectId < 0) {
+                error = "expected a skill ID and nonnegative effect_id for selection";
+                return false;
+            }
+            if (!ReadEffect(state, -1, effect, error)) return false;
+            if (!effects.emplace(effectId, std::move(effect)).second) {
+                error = "duplicate effect definition: " + std::to_string(effectId);
+                return false;
+            }
+            selections.emplace(skillId, effectId);
+            lua_pop(state, 1);
+        }
+        lua_pop(state, 1);
+        return true;
+    }
+
     bool Read(lua_State* state, std::string& error)
     {
         if (!lua_istable(state, 1)) {
@@ -638,7 +701,8 @@ struct PresentationCatalog {
                 || !ReadSkillEffects(state, entry, "casting_target", skill.castingTargetEffects, error)
                 || !ReadSkillEffects(state, entry, "source", skill.sourceEffects, error)
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
-                || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)) return false;
+                || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)
+                || !ReadSelectionEffects(state, entry, skill.selectionEffects, error)) return false;
             skill.sourceServerNotified = serverNotified;
             skill.targetServerNotified = serverNotified;
             skill.groundServerNotified = serverNotified;
@@ -657,6 +721,10 @@ struct PresentationCatalog {
             }
             if (skill.passive && skill.beginEffectId >= 0) {
                 error = "passive skill must have no cast-start effect";
+                return false;
+            }
+            if (skill.passive && !skill.selectionEffects.empty()) {
+                error = "passive skill must have no selection effects";
                 return false;
             }
             for (const auto* ids : { &skill.castingEffects, &skill.castingGroundEffects,

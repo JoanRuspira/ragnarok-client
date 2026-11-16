@@ -47,6 +47,15 @@ local function ground_casting_circle(color)
     }
 end
 
+local function autospell_selection_effect(effect_id, tint)
+    return {
+        effect_id = effect_id,
+        str = [[data\texture\effect\rebound_shield\rebound_shield_cast\rebound_shield_cast.str]],
+        saturation_percent = 0,
+        tint = tint,
+    }
+end
+
 local tetra_vortex_presentation = {
     name = "Tetra Vortex",
     cast_motion_type = 1,
@@ -139,6 +148,14 @@ return {
             wav = [[data\wav\effect\swordman_provoke.wav]],
             trigger = "no_damage",
         },
+        [373] = { -- SK_PF_INDULGE
+            wav = [[data\wav\effect\priest_slowpoison.wav]],
+            trigger = "no_damage",
+        },
+        [374] = { -- SK_PF_SOULEXHALE
+            wav = [[data\wav\effect\wh_calamitygale.wav]],
+            trigger = "no_damage",
+        },
         [375] = { -- SK_SA_SOULBURN
             wav = [[data\wav\effect\lg_rayofgenesis.wav]],
             trigger = "damage",
@@ -154,6 +171,10 @@ return {
         [2201] = { -- SK_SA_WHITEIMPRISON
             wav = [[data\wav\effect\wl_whiteimprison.wav]],
             trigger = "no_damage",
+        },
+        [279] = { -- SK_SA_AUTOSPELL
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            trigger = "casting",
         },
         [288] = { -- SK_PF_LANDPROTECTOR
             wav = [[data\wav\effect\ef_beginspell.wav]],
@@ -341,6 +362,35 @@ return {
                 },
             },
         },
+        [279] = { -- SK_SA_AUTOSPELL
+            name = "Bolt Theory",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            selection = {
+                [839] = autospell_selection_effect(50125, 0xB47844),
+                [20] = autospell_selection_effect(50126, 0x40E8FF),
+                [14] = autospell_selection_effect(50127, 0x4080FF),
+                [19] = autospell_selection_effect(50128, 0xFF4040),
+                [340] = autospell_selection_effect(50129, 0xB478FF),
+                [13] = autospell_selection_effect(50130, 0xFFFFFF),
+            },
+            casting = {
+                {
+                    effect_id = 50123,
+                    str = [[data\texture\effect\research_report\researchreport_cast\researchreport_cast.str]],
+                    saturation_percent = 0,
+                    loop = true,
+                },
+                {
+                    effect_id = 50124,
+                    str = [[data\texture\effect\research_report\researchreport_cast_bottom\researchreport_cast_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                    saturation_percent = 0,
+                    loop = true,
+                },
+            },
+        },
         [76] = { -- SK_SA_SILENCE
             name = "Silence",
             source = {
@@ -412,6 +462,55 @@ return {
                 },
             },
         },
+        [373] = { -- SK_PF_INDULGE
+            name = "Indulge",
+            source = {
+                {
+                    effect_id = 50120,
+                    str = [[data\texture\effect\new_chargingpierce\new_chargingpierce_cast\new_chargingpierce_cast.str]],
+                    hue_shift_degrees = 110,
+                },
+                { effect_id = 50115 },
+                {
+                    effect_id = 50121,
+                    str = [[data\texture\effect\new_vigor\new_vigor_buff\new_vigor_buff.str]],
+                    hue_shift_degrees = 210,
+                },
+            },
+        },
+        [374] = { -- SK_PF_SOULEXHALE
+            name = "Soul Exhale",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
+            casting = {
+                {
+                    effect_id = 50118,
+                    str = [[data\texture\effect\new_battle_w\new_battle_w_bottom\new_battle_w_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 25,
+                },
+                { effect_id = 50104 },
+            },
+            source = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+                { effect_id = 50109 },
+                {
+                    effect_id = 50119,
+                    renderer = "soul_exchange",
+                    duration_ms = 1100,
+                    color = 0x70B8FF,
+                    radius = 3.6,
+                    height = 10,
+                },
+            },
+            target = {
+                { effect_id = 2023 },
+                { effect_id = 50104 },
+                { effect_id = 50109 },
+            },
+        },
         [375] = { -- SK_SA_SOULBURN
             name = "Soul Burn",
             source_once_per_cast = true,
@@ -454,6 +553,16 @@ return {
                     hue_shift_degrees = 270,
                     bottom_effect = true,
                     bottom_offset_px = 25,
+                },
+                {
+                    effect_id = 50122,
+                    renderer = "soul_exchange",
+                    target_to_source_only = true,
+                    duration_ms = 1100,
+                    color = 0x70FF98,
+                    core_color = 0xC0FFD0,
+                    radius = 3.6,
+                    height = 10,
                 },
             },
             target = {
@@ -1663,6 +1772,7 @@ return {
             name = "Storm Slash",
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 2011,
@@ -1674,6 +1784,7 @@ return {
             name = "Bowling Bash",
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 2012,
@@ -1733,10 +1844,15 @@ return {
             name = "Brandish Spear",
             motion_type = 2,
             server_notified = true,
+            source_server_notified = false,
+            target_server_notified = false,
+            source = {
+                { effect_id = 50117 },
+            },
             target = {
                 {
                     effect_id = 2018,
-                    str = [[data\texture\effect\brandish.str]],
+                    str = [[data\texture\effect\brandhis.str]],
                 },
                 {
                     effect_id = 2019,
@@ -1747,7 +1863,10 @@ return {
         [56] = {
             name = "Pierce",
             motion_type = 2,
-            server_notified = true,
+            server_notified = false,
+            source = {
+                { effect_id = 50117 },
+            },
             target = {
                 {
                     effect_id = 2020,
@@ -1765,6 +1884,7 @@ return {
             name = "Wind Cutter",
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             source = {
                 {
                     effect_id = 2021,
@@ -1888,14 +2008,26 @@ return {
                 },
             },
         },
+        [397] = {
+            name = "Clashing Spiral",
+            motion_type = 2,
+            target = {
+                {
+                    effect_id = 108,
+                    str = [[data\texture\effect\freezing.str]],
+                },
+            },
+        },
         [953] = { -- SK_CM_REND; the server must preserve this ID in damage packets.
             name = "Rend",
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 2031,
                     str = [[data\texture\effect\4iq_massivefblaster\massivefblaster\massivefblaster.str]],
+                    wav = [[data\wav\effect\dk_dragonic_aura1.wav]],
                     bottom_effect = true,
                     bottom_offset_px = 25,
                 },
@@ -1963,13 +2095,11 @@ return {
             name = "A Hundred Spears",
             motion_type = 2,
             server_notified = true,
+            source_server_notified = false,
+            source = {
+                { effect_id = 50117 },
+            },
             target = {
-                -- {
-                --     effect_id = 2035,
-                --     str = [[data\texture\effect\servant_phantom\data\texture\effect\servant_phantom\servant_phantom_shot\servant_phantom_shot.str]],
-                --     once_per_hit = true,
-                --     delay_ms = 100,
-                -- },
                 {
                     effect_id = 2036,
                     str = [[data\texture\effect\servant_demolition\servant_demolition_leftdown\servant_demolition_leftdown.str]],
@@ -1983,12 +2113,6 @@ return {
                     bottom_effect = true,
                     bottom_offset_px = 25,
                     delay_ms = 100,
-                },
-                {
-                    effect_id = 2038,
-                    str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_cast_bottom\acidified_zone_water_cast_bottom.str]],
-                    bottom_effect = true,
-                    bottom_offset_px = 25,
                 },
             },
         },
@@ -2079,6 +2203,11 @@ return {
         [50103] = {
             str = [[data\texture\effect\new_psychicwave\new_psychicwave\new_psychicwave.str]],
             bottom_effect = true,
+        },
+        [50117] = {
+            str = [[data\texture\effect\new_soulexpansion\new_soulexpansion_cast_bottom\new_soulexpansion_cast_bottom.str]],
+            bottom_effect = true,
+            bottom_offset_px = 25,
         },
         [95] = { -- SK_MG_QUAGMIRE: only the center ground unit controls this loop.
             str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],

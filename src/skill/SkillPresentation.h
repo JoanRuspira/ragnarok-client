@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,15 @@ struct SkillSonicWavePresentation {
     float height = 14.0f;
 };
 
+struct SkillSoulExchangePresentation {
+    int durationMs = 900;
+    int color = 0x509FFF;
+    int coreColor = 0xB8E8FF;
+    bool targetToSourceOnly = false;
+    float radius = 3.0f;
+    float height = 10.0f;
+};
+
 // A textured ground marker, sized in map cells rather than screen pixels.
 struct SkillGroundCirclePresentation {
     std::string texturePath;
@@ -76,7 +86,7 @@ struct SkillGroundCirclePresentation {
 };
 
 struct SkillEffectPresentation {
-    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, GroundCircle };
+    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, SoulExchange, GroundCircle };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
     std::vector<std::string> additionalStrPaths; // Simultaneous STR layers sharing this effect's lifetime.
@@ -84,6 +94,7 @@ struct SkillEffectPresentation {
     SkillBodyBurstPresentation bodyBurst;
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
+    SkillSoulExchangePresentation soulExchange;
     SkillGroundCirclePresentation groundCircle;
     std::string loopWavPath; // Plays while this effect is looping, independently of visual cadence.
     bool bottomEffect = false;
@@ -93,6 +104,7 @@ struct SkillEffectPresentation {
     float offsetY = 0.0f;
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
     int saturationPercent = 100; // STR color saturation; 0 makes a white/gray glow.
+    int tint = 0xFFFFFF;
     bool groundPlane = false; // Project STR coordinates onto the world XZ plane.
     float rotationSpeed = 0.0f; // Additional STR rotation, in radians per second.
     bool loop = false;
@@ -125,6 +137,7 @@ struct SkillPresentation {
     std::vector<int> sourceEffects;
     std::vector<int> targetEffects;
     std::vector<int> groundEffects;
+    std::map<int, int> selectionEffects;
 };
 
 // Audio can be configured without taking ownership of a skill's existing visuals.

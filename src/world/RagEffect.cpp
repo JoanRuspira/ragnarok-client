@@ -95,6 +95,14 @@ const RagEffectAssetEntry* FindRagEffectAssets(int effectId)
     return it != end && it->effectId == effectId ? it : nullptr;
 }
 
+u32 MultiplyEffectTint(u32 color, u32 tint)
+{
+    const u32 red = ((color >> 16) & 0xFFu) * ((tint >> 16) & 0xFFu) / 255u;
+    const u32 green = ((color >> 8) & 0xFFu) * ((tint >> 8) & 0xFFu) / 255u;
+    const u32 blue = (color & 0xFFu) * (tint & 0xFFu) / 255u;
+    return (color & 0xFF000000u) | (red << 16) | (green << 8) | blue;
+}
+
 vector3d AddVec3(const vector3d& a, const vector3d& b)
 {
     return vector3d{ a.x + b.x, a.y + b.y, a.z + b.z };
@@ -4113,6 +4121,7 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
     if (m_presentationHueShiftDegrees != 0 || m_presentationSaturationPercent != 100) {
         color = ShiftColorHue(color, m_presentationHueShiftDegrees, m_presentationSaturationPercent);
     }
+    if (m_presentationTint != 0xFFFFFFu) color = MultiplyEffectTint(color, m_presentationTint);
 
     float axisX = 0.0f, axisY = 0.0f, authoredLength = 1.0f, targetLength = 1.0f;
     if (direction) {
@@ -4186,6 +4195,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationOffsetY = 0.0f;
     m_presentationHueShiftDegrees = 0;
     m_presentationSaturationPercent = 100;
+    m_presentationTint = 0xFFFFFF;
     m_presentationGroundPlane = false;
     m_presentationRotationSpeed = 0.0f;
     m_strPlaysRemaining = 1;
@@ -4207,6 +4217,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_sonicWaveStartPos = vector3d{};
     m_sonicWaveEndPos = vector3d{};
     m_sonicWaveDirection = vector3d{};
+    m_soulExchangeStartPos = vector3d{};
+    m_soulExchangeEndPos = vector3d{};
     m_presentationStarted = false;
     m_presentationStartTick = 0;
     m_bloodsportMistStatusOwned = false;
@@ -4251,6 +4263,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_loopedPresentationSound = presentation->loopWavPath;
         m_presentationHueShiftDegrees = presentation->hueShiftDegrees % 360;
         m_presentationSaturationPercent = presentation->saturationPercent;
+        m_presentationTint = static_cast<u32>(presentation->tint);
         m_presentationGroundPlane = presentation->groundPlane;
         m_presentationRotationSpeed = presentation->rotationSpeed;
         m_strPlaysRemaining = presentation->playCount;
@@ -4266,6 +4279,14 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             m_presentationTexture = TryResolveEffectTextureCandidates({ presentation->groundCircle.texturePath.c_str() });
             SetLooping(presentation->loop);
             if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", presentation->groundCircle.texturePath.c_str());
+            return;
+        }
+        if (presentation->renderer == SkillEffectPresentation::Renderer::SoulExchange) {
+            m_handler = Handler::SoulExchange;
+            m_proceduralPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            m_duration = static_cast<int>(std::ceil(presentation->soulExchange.durationMs / kEffectTickMs));
+            m_presentationTexture = GetSoftGlowTexture(true);
             return;
         }
         if (presentation->renderer == SkillEffectPresentation::Renderer::SonicWave) {
@@ -4355,6 +4376,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             component->m_presentationOffsetY = m_presentationOffsetY;
             component->m_presentationHueShiftDegrees = m_presentationHueShiftDegrees;
             component->m_presentationSaturationPercent = m_presentationSaturationPercent;
+            component->m_presentationTint = m_presentationTint;
             component->m_presentationGroundPlane = m_presentationGroundPlane;
             component->m_presentationRotationSpeed = m_presentationRotationSpeed;
             component->m_presentationBottomEffect = m_presentationBottomEffect;
@@ -5112,6 +5134,20 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
             + wave.radius * 2.0f + wave.height;
         break;
     }
+    case Handler::SoulExchange: {
+        const auto& exchange = m_proceduralPresentation->soulExchange;
+        vector3d start = m_presentationStarted ? m_soulExchangeStartPos : base;
+        vector3d end = m_presentationStarted ? m_soulExchangeEndPos : (m_hasTargetPos ? m_targetPos : base);
+        if (!m_presentationStarted) {
+            start.y += m_presentationOffsetY - exchange.height;
+            end.y += m_presentationOffsetY - exchange.height;
+        }
+        center = ScaleVec3(AddVec3(start, end), 0.5f);
+        const vector3d delta = AddVec3(end, ScaleVec3(start, -1.0f));
+        radius = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z) * 0.5f
+            + exchange.radius * 5.5f;
+        break;
+    }
     case Handler::GuardSphere:
         center.y += m_presentationOffsetY;
         radius = (std::max)(m_proceduralPresentation->guardSphere.radius,
@@ -5174,7 +5210,7 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
         break;
     }
 
-    if (m_hasTargetPos && m_handler != Handler::SonicWave) {
+    if (m_hasTargetPos && m_handler != Handler::SonicWave && m_handler != Handler::SoulExchange) {
         center.x = (base.x + m_targetPos.x) * 0.5f;
         center.y = (base.y + m_targetPos.y) * 0.5f;
         center.z = (base.z + m_targetPos.z) * 0.5f;
@@ -7141,6 +7177,18 @@ u8 CRagEffect::OnProcess()
             if (distance > 0.0001f) m_sonicWaveDirection = { dx / distance, 0.0f, dz / distance };
         }
     }
+    if (m_handler == Handler::SoulExchange && !m_presentationStarted) {
+        if (!m_hasTargetPos) return 0;
+        m_soulExchangeStartPos = ResolveBasePosition();
+        m_soulExchangeEndPos = m_targetPos;
+        const vector3d delta = AddVec3(m_soulExchangeEndPos, ScaleVec3(m_soulExchangeStartPos, -1.0f));
+        if (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z < 0.0001f) return 0;
+        const float height = m_presentationOffsetY - m_proceduralPresentation->soulExchange.height;
+        m_soulExchangeStartPos.y += height;
+        m_soulExchangeEndPos.y += height;
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+    }
     if (m_handler == Handler::SpriteFlash && !m_presentationStarted) {
         m_presentationStarted = true;
         m_presentationStartTick = timeGetTime();
@@ -7212,6 +7260,10 @@ u8 CRagEffect::OnProcess()
         const int durationMs = wave.waveDurationMs + (wave.waveCount - 1) * wave.waveIntervalMs;
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return now - m_presentationStartTick < static_cast<u32>(durationMs) ? 1 : 0;
+    }
+    if (m_handler == Handler::SoulExchange) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < static_cast<u32>(m_proceduralPresentation->soulExchange.durationMs) ? 1 : 0;
     }
     if (nativeBuff) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
@@ -7436,7 +7488,8 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
             m_hasTargetPos = true;
             return;
         }
-        if (m_handler == Handler::SonicWave && par1 != 0 && !m_presentationStarted) {
+        if ((m_handler == Handler::SonicWave || m_handler == Handler::SoulExchange)
+            && par1 != 0 && !m_presentationStarted) {
             m_targetPos = *reinterpret_cast<const vector3d*>(par1);
             m_hasTargetPos = true;
             return;
@@ -8101,6 +8154,55 @@ void CRagEffect::RenderSonicWave(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderSoulExchange(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
+    const auto& exchange = m_proceduralPresentation->soulExchange;
+    const float elapsedMs = static_cast<float>(timeGetTime() - m_presentationStartTick);
+    if (elapsedMs >= exchange.durationMs) return;
+    const vector3d delta = AddVec3(m_soulExchangeEndPos, ScaleVec3(m_soulExchangeStartPos, -1.0f));
+    const float distance = std::sqrt(delta.x * delta.x + delta.z * delta.z);
+    const vector3d side = distance > 0.0001f
+        ? vector3d{ -delta.z / distance, 0.0f, delta.x / distance } : vector3d{ 1.0f, 0.0f, 0.0f };
+    constexpr int kTrailCount = 18;
+    const float flightMs = exchange.durationMs * 0.76f;
+    const float tailMs = exchange.durationMs - flightMs;
+    CTexture* coreTexture = GetSoftDiscTexture();
+    // Exchanging souls take opposite sides; a drain sends only the returning soul.
+    // Staggered clouds retain a flowing tail until the last wisp reaches its recipient.
+    for (int direction = exchange.targetToSourceOnly ? 1 : 0; direction < 2; ++direction) {
+        const float sign = direction == 0 ? 1.0f : -1.0f;
+        for (int index = kTrailCount - 1; index >= 0; --index) {
+            const float tail = static_cast<float>(index) / (kTrailCount - 1);
+            const float progress = (elapsedMs - tail * tailMs) / flightMs;
+            if (progress <= 0.0f || progress >= 1.0f) continue;
+            const float along = direction == 0 ? progress : 1.0f - progress;
+            const float arc = std::sin(progress * kPi);
+            const float phase = progress * kPi * 2.5f + index * 0.65f + direction * kPi;
+            const float bend = sign * exchange.radius * arc * (1.8f + 0.35f * std::cos(phase));
+            vector3d position = AddVec3(m_soulExchangeStartPos,
+                AddVec3(ScaleVec3(delta, along), ScaleVec3(side, bend)));
+            position.y -= exchange.radius * arc * (0.65f + 0.35f * std::sin(phase));
+            tlvertex3d anchor{};
+            if (!ProjectPoint(position, viewMatrix, &anchor)) continue;
+            const float scale = anchor.oow * g_renderer.m_hpc;
+            if (!std::isfinite(scale) || scale <= 0.0f) continue;
+            anchor.z = (std::max)(0.0f, anchor.z - kEffectSpriteDepthBias);
+            const float fade = (std::min)(1.0f, progress / 0.12f)
+                * (std::min)(1.0f, (1.0f - progress) / 0.12f) * (1.0f - tail * 0.8f);
+            const float size = exchange.radius * (2.4f + tail * 1.8f) * scale;
+            const u32 color = (static_cast<u32>(fade * 130.0f) << 24) | static_cast<u32>(exchange.color);
+            SubmitScreenQuadPivot(anchor, m_presentationTexture, size * 0.5f, size * 0.4f,
+                size, size * 0.8f, sign * (progress * 90.0f + index * 37.0f),
+                color, D3DBLEND_ONE, 0.0f, 1 | 4);
+            const float coreSize = exchange.radius * (0.7f + tail * 0.3f) * scale;
+            const u32 coreColor = (static_cast<u32>(fade * 150.0f) << 24) | static_cast<u32>(exchange.coreColor);
+            SubmitScreenQuad(anchor, coreTexture, 0.0f, 0.0f, coreSize, coreSize,
+                coreColor, D3DBLEND_ONE, 0.0f, 1 | 4);
+        }
+    }
+}
+
 void CRagEffect::RenderDirectionalStr(matrix* viewMatrix)
 {
     if (!m_presentationStarted || !m_aniClips) return;
@@ -8297,6 +8399,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::GrandCross) RenderGrandCross(*viewMatrix);
     if (m_handler == Handler::MagicCell) RenderMagicCell(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
+    if (m_handler == Handler::SoulExchange) RenderSoulExchange(*viewMatrix);
     if (m_handler == Handler::GroundCircle) RenderGroundCircle(*viewMatrix);
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);

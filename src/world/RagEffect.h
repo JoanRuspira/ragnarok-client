@@ -252,6 +252,7 @@ private:
     float m_presentationOffsetY = 0.0f;
     int m_presentationHueShiftDegrees = 0;
     int m_presentationSaturationPercent = 100;
+    u32 m_presentationTint = 0xFFFFFF;
     bool m_presentationGroundPlane = false;
     float m_presentationRotationSpeed = 0.0f;
     int m_strPlaysRemaining = 1;
@@ -275,6 +276,8 @@ private:
     vector3d m_sonicWaveStartPos{};
     vector3d m_sonicWaveEndPos{};
     vector3d m_sonicWaveDirection{};
+    vector3d m_soulExchangeStartPos{};
+    vector3d m_soulExchangeEndPos{};
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
     bool m_bloodsportMistStatusOwned = false;
@@ -296,6 +299,7 @@ private:
         BodyBurst,
         GuardSphere,
         SonicWave,
+        SoulExchange,
         GroundCircle,
         GrandCross,
         SpriteFlash,
@@ -364,6 +368,7 @@ private:
     void RenderBodyBurst(const matrix& viewMatrix);
     void RenderGuardSphere(const matrix& viewMatrix);
     void RenderSonicWave(const matrix& viewMatrix);
+    void RenderSoulExchange(const matrix& viewMatrix);
     void RenderGroundCircle(const matrix& viewMatrix);
     void RenderGrandCross(const matrix& viewMatrix);
     void StartBuffEffect();

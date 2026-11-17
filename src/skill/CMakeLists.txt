@@ -5,6 +5,7 @@ add_library(ro_skill STATIC
     Skill.cpp
     SkillPresentation.h
     SkillPresentation.cpp
+    SkillDamageAudio.generated.inc
 )
 
 target_include_directories(ro_skill PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

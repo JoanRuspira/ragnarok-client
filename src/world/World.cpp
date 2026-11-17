@@ -1956,28 +1956,32 @@ public:
         }
 
         if (m_visual == WorldProjectileVisual::SoulStrike) {
-            // Keep growth linear on screen: the rising arc must not magnify
-            // the sprite early just because it moves closer to the camera.
+            // Keep the wisps the same apparent size along the rising arc.
             tlvertex3d launchAnchor{};
             const float referenceOow = ProjectPoint(g_renderer, *viewMatrix, m_startPos, &launchAnchor)
                 ? launchAnchor.oow : anchor.oow;
-            // Fading copies of the authored soul sprite form its travelling tail.
-            const float trailStep = (1000.0f / 60.0f) / (m_travelFrames * kWorldProjectileFrameMs);
-            for (int index = 11; index > 0; --index) {
-                const float progress = m_travelProgress - static_cast<float>(index) * trailStep;
+            const float pixelScale = referenceOow * g_renderer.m_hpc;
+            const u32 coreColor = m_soulStrikeTint == 0x00FFFFFFu ? 0x00FFFFFFu : 0x00E8D8FFu;
+            const float fadeIn = (std::min)(1.0f, m_travelProgress / 0.12f);
+            // Use the same cloudy, bright-cored souls as Soul Exhale and Drain Life.
+            // Sample a bounded part of the flight so later hits retain a flowing tail.
+            constexpr int kTrailCount = 18;
+            for (int index = kTrailCount - 1; index > 0; --index) {
+                const float tail = static_cast<float>(index) / (kTrailCount - 1);
+                const float progress = m_travelProgress - tail * 0.28f;
                 if (progress <= 0.0f) continue;
                 tlvertex3d trail{};
                 if (ProjectPoint(g_renderer, *viewMatrix, ResolveTravelPosition(progress), &trail)) {
-                    const float fade = 1.0f - static_cast<float>(index) / 12.0f;
-                    RenderSoulStrikeProjectile(trail, fade * fade * 0.45f,
-                        ResolveSoulStrikeScale(progress) * referenceOow / trail.oow
-                            * (0.5f + fade * 0.5f), m_soulStrikeTint);
+                    const float fade = 1.0f - tail;
+                    RenderSoulWisp(trail, ResolveSoulStrikeRadius(progress) * pixelScale * (1.0f - tail * 0.45f),
+                        fadeIn * fade * fade * 0.7f, tail, progress * 90.0f + index * 37.0f,
+                        m_soulStrikeTint, coreColor);
                 }
             }
-            if (!RenderSoulStrikeProjectile(anchor, 1.0f,
-                    ResolveSoulStrikeScale(m_travelProgress) * referenceOow / anchor.oow, m_soulStrikeTint)
+            if (!RenderSoulWisp(anchor, ResolveSoulStrikeRadius(m_travelProgress) * pixelScale,
+                    fadeIn, 0.0f, m_travelProgress * 90.0f, m_soulStrikeTint, coreColor)
                 && !m_loggedTextureFailure) {
-                DbgLog("[Projectile] render skipped visual=soul-strike reason=no-sprite-frame\n");
+                DbgLog("[Projectile] render skipped visual=soul-strike reason=no-wisp-texture\n");
                 m_loggedTextureFailure = true;
             }
             return;
@@ -2116,13 +2120,10 @@ public:
     }
 
 private:
-    static constexpr float kSoulStrikeInitialScale = 2.0f;
-
-    static float ResolveSoulStrikeScale(float progress)
+    static float ResolveSoulStrikeRadius(float progress)
     {
-        // Double at 98% of the flight, immediately before reaching the target.
-        const float growth = (std::max)(0.0f, (std::min)(1.0f, progress / 0.98f));
-        return kSoulStrikeInitialScale * (1.0f + growth);
+        // Larger strike spirits, with only a little growth toward impact.
+        return 7.2f * (1.0f + std::clamp(progress, 0.0f, 1.0f) * 0.25f);
     }
 
     float ResolveSoulStrikeRetreatDistance() const

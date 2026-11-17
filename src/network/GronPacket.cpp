@@ -1,6 +1,7 @@
 #include "GronPacket.h"
 
 #include "MapSendProfile.h"
+#include "audio/CombatHitAudio.h"
 
 #include <array>
 #include <mutex>
@@ -26,6 +27,8 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
 {
     g_buildPacketSizeTable = &packetSizeTable;
     packetSizeTable.fill(0);
+    SetPacketSize(kActorDamageAudioPacket, kDamageAudioPacketSize);
+    SetPacketSize(kSkillDamageAudioPacket, kDamageAudioPacketSize);
 
     // Table aligned to the observed pre-Renewal receive family used by the active
     // server chain, starting from the packet_ver 23 reference set and keeping the

@@ -1,0 +1,298 @@
+--- a/src/map/Damage.h
++++ b/src/map/Damage.h
+@@ -15,5 +15,7 @@
+ 	int miscflag;
+ 	enum damage_lv dmg_lv; /// ATK_LUCKY,ATK_FLEE,ATK_DEF
+ 	bool isspdamage; /// Display blue damage numbers in clif_damage
++	int hitAudioElement[2]; // Resolved right/left properties, captured during damage calculation.
++	bool hitAudioElementKnown;
+ 	bool hide_damage; /// Suppress the client damage packet
+ };
+--- a/src/map/EquipmentAttackCalculator.cpp
++++ b/src/map/EquipmentAttackCalculator.cpp
+@@ -163,6 +163,14 @@
+ 
+ 	
+ 
++	// Snapshot the property before ammo is consumed or an endow expires.
++	// Bow/instrument hit audio always follows the equipped arrow's property,
++	// including neutral arrows (zero), rather than the instrument's endow.
++	wd->hitAudioElement[weapon_position == EQI_HAND_R ? 0 : 1] =
++		sd && (sd->weapontype1 == W_BOW || sd->weapontype1 == W_MUSICAL)
++			? sd->bonus.arrow_ele : element;
++	wd->hitAudioElementKnown = true;
++
+ 	// calc_flag means the element should be calculated for damage only
+ 	if (calc_for_damage_only)
+ 		return element;
+--- a/src/map/battle.cpp
++++ b/src/map/battle.cpp
+@@ -3833,6 +3833,9 @@
+ 		sd->state.arrow_atk = 0;
+ 		ad.blewcount += battle_blewcount_bonus(sd, skill_id);
+ 	}
++
++	ad.hitAudioElement[0] = ad.hitAudioElement[1] = s_ele;
++	ad.hitAudioElementKnown = true;
+ 
+ 	//Skill Range Criteria
+ 	ad.flag |= battle_range_type(src, target, skill_id, skill_lv);
+@@ -4373,6 +4376,9 @@
+ 	else if (s_ele == ELE_RANDOM) //Use random element
+ 		s_ele = rnd()%ELE_ALL;
+ 
++	md.hitAudioElement[0] = md.hitAudioElement[1] = s_ele;
++	md.hitAudioElementKnown = true;
++
+ 	//Skill Range Criteria
+ 	md.flag |= battle_range_type(src, target, skill_id, skill_lv);
+ 
+@@ -4923,7 +4929,7 @@
+ 	damage = wd.damage + wd.damage2;
+ 
+ 	if (!wd.hide_damage)
+-		wd.dmotion = clif_damage(src, target, tick, wd.amotion, wd.dmotion, wd.damage, wd.div_ , wd.type, wd.damage2, wd.isspdamage);
++		wd.dmotion = clif_damage(src, target, tick, wd.amotion, wd.dmotion, wd.damage, wd.div_ , wd.type, wd.damage2, wd.isspdamage, &wd);
+ 
+ 	if (sd && sd->bonus.splash_range > 0 && damage > 0)
+ 		skill_castend_damage_id(src, target, 0, 1, tick, 0);
+--- a/src/map/skill.cpp
++++ b/src/map/skill.cpp
+@@ -1802,37 +1802,37 @@
+ 	switch( skill_id ) {
+ 		case SK_PF_SPELLFIST_HIDDEN:
+ 			dmg.amotion = 900;/* makes the damage value not overlap with previous damage (when displayed by the client) */
+-			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, SK_PF_SPELLFIST_HIDDEN, -2, DMG_SINGLE );
++			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, SK_PF_SPELLFIST_HIDDEN, -2, DMG_SINGLE, &dmg );
+ 			break;
+ 		case SK_PR_DUPLELUX_HIDDEN:
+ 			dmg.amotion = 900;/* makes the damage value not overlap with previous damage (when displayed by the client) */
+-			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, SK_PR_DUPLELUX_HIDDEN, -2, DMG_MULTI_HIT );
++			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, SK_PR_DUPLELUX_HIDDEN, -2, DMG_MULTI_HIT, &dmg );
+ 			break;
+ 		case SK_CM_REND:
+ 			dmg.amotion = 900;/* makes the damage value not overlap with previous damage (when displayed by the client) */
+-			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_CM_REND, -2, DMG_SINGLE );
++			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_CM_REND, -2, DMG_SINGLE, &dmg );
+ 			break;
+ 		case SK_PA_SHIELDCHAIN_ATK:
+-			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_PA_SHIELDCHAIN_ATK, -2, DMG_SINGLE );
++			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_PA_SHIELDCHAIN_ATK, -2, DMG_SINGLE, &dmg );
+ 			break;
+ 		case SK_AM_BASILISK2:
+-			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_AM_BASILISK2, -2, DMG_SINGLE );
++			clif_skill_damage(src,bl, tick, dmg.amotion, dmg.dmotion, damage, 1, SK_AM_BASILISK2, -2, DMG_SINGLE, &dmg );
+ 			break;
+ 		case SK_KN_COUNTERATTACK:
+ 		case SK_AS_DOUBLEATTACK:
+-			dmg.dmotion = clif_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,dmg.type,dmg.damage2,false);
++			dmg.dmotion = clif_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,dmg.type,dmg.damage2,false, &dmg);
+ 			break;
+ 
+ 		case SK_AS_VENOMSPLASHER:
+ 			if( flag&SD_ANIMATION ) // the surrounding targets
+-				dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, -1, DMG_SPLASH); // needs -1 as skill level
++				dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, -1, DMG_SPLASH, &dmg); // needs -1 as skill level
+ 			else // the central target doesn't display an animation
+-				dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, -2, DMG_SPLASH); // needs -2(!) as skill level
++				dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, -2, DMG_SPLASH, &dmg); // needs -2(!) as skill level
+ 			break;
+ 
+ 		case SK_MG_VOIDEXPANSION:
+-			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,1, SK_MG_VOIDEXPANSION,-2,DMG_SINGLE);
+-			//dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,1,WL_CHAINLIGHTNING_ATK,-2,DMG_SINGLE);
++			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,1, SK_MG_VOIDEXPANSION,-2,DMG_SINGLE, &dmg);
++			//dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,1,WL_CHAINLIGHTNING_ATK,-2,DMG_SINGLE, &dmg);
+ 			break;
+ 
+ 		case SK_SA_FIREBALL:
+@@ -1848,10 +1848,10 @@
+ 		case SK_AM_BASILISK1:
+ 		case SK_AM_BEHOLDER1:
+ 		case SK_CR_BEHOLDER3:
+-			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,skill_id,-1,DMG_SPLASH);
++			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,skill_id,-1,DMG_SPLASH, &dmg);
+ 			break;
+ 		case SK_CL_SEVERERAINSTORM_MELEE:
+-			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,SK_CL_SEVERERAINSTORM,-2,DMG_SPLASH);
++			dmg.dmotion = clif_skill_damage(src,bl,tick,dmg.amotion,dmg.dmotion,damage,dmg.div_,SK_CL_SEVERERAINSTORM,-2,DMG_SPLASH, &dmg);
+ 			break;
+ 		default:
+ 			if( flag&SD_ANIMATION && dmg.div_ < 2 ) //Disabling skill animation doesn't works on multi-hit.
+@@ -1859,11 +1859,11 @@
+ 			if (src->type == BL_SKILL) {
+ 				TBL_SKILL *su = (TBL_SKILL*)src;
+ 				if (su->group && skill_get_inf2(su->group->skill_id, INF2_ISTRAP)) { // show damage on trap targets
+-					clif_skill_damage(src, bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, flag&SD_LEVEL ? -1 : skill_lv, DMG_SPLASH);
++					clif_skill_damage(src, bl, tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, flag&SD_LEVEL ? -1 : skill_lv, DMG_SPLASH, &dmg);
+ 					break;
+ 				}
+ 			}
+-			dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, flag&SD_LEVEL?-1:skill_lv, dmg_type);
++			dmg.dmotion = clif_skill_damage(dsrc,bl,tick, dmg.amotion, dmg.dmotion, damage, dmg.div_, skill_id, flag&SD_LEVEL?-1:skill_lv, dmg_type, &dmg);
+ 			break;
+ 	}
+ 
+--- a/src/map/clif.hpp
++++ b/src/map/clif.hpp
+@@ -628,7 +628,8 @@
+ void clif_delitem(struct map_session_data *sd,int n,int amount, short reason); //self
+ void clif_updatestatus(struct map_session_data *sd,int type);	//self
+ void clif_changestatus(struct map_session_data* sd,int type,int val);	//area
+-int clif_damage(struct block_list* src, struct block_list* dst, t_tick tick, int sdelay, int ddelay, int64 sdamage, int div, enum e_damage_type type, int64 sdamage2, bool spdamage);	// area
++struct Damage;
++int clif_damage(struct block_list* src, struct block_list* dst, t_tick tick, int sdelay, int ddelay, int64 sdamage, int div, enum e_damage_type type, int64 sdamage2, bool spdamage, const Damage* hitAudio = nullptr);	// area
+ void clif_takeitem(struct block_list* src, struct block_list* dst);
+ void clif_sitting(struct block_list* bl);
+ void clif_standing(struct block_list* bl);
+@@ -708,8 +709,8 @@
+ void clif_skillcastcancel(struct block_list* bl);
+ void clif_skill_fail(struct map_session_data *sd,uint16 skill_id,enum useskill_fail_cause cause,int btype, t_itemid itemId = 0);
+ void clif_skill_cooldown(struct map_session_data *sd, uint16 skill_id, t_tick tick);
+-int clif_skill_damage(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int64 sdamage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type);
+-//int clif_skill_damage2(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int damage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type);
++int clif_skill_damage(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int64 sdamage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type, const Damage* hitAudio = nullptr);
++//int clif_skill_damage2(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int damage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type, const Damage* hitAudio = nullptr);
+ bool clif_skill_nodamage(struct block_list *src,struct block_list *dst,uint16 skill_id,int heal,t_tick tick);
+ void clif_skill_poseffect(struct block_list *src,uint16 skill_id,int val,int x,int y,t_tick tick);
+ void clif_skill_estimation(struct map_session_data *sd,struct block_list *dst);
+--- a/src/map/clif.cpp
++++ b/src/map/clif.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "atcommand.hpp"
+ #include "battle.hpp"
++#include "Damage.h"
+ #include "channel.hpp"
+ #include "chat.hpp"
+ #include "chrif.hpp"
+@@ -4793,9 +4794,45 @@
+ ///     11 = lucky dodge
+ ///     12 = (touch skill?)
+ ///     13 = multi-hit critical
+-int clif_damage(struct block_list* src, struct block_list* dst, t_tick tick, int sdelay, int ddelay, int64 sdamage, int div, enum e_damage_type type, int64 sdamage2, bool spdamage)
+-{
+-	unsigned char buf[34];
++// Extended OpenMidgard damage packets retain the 33-byte legacy payload and
++// append flags, right element/weapon, left element/weapon. No second hit event.
++// Disable this when serving an unmodified Gravity client.
++static constexpr bool ENABLE_OPENMIDGARD_DAMAGE_AUDIO = PACKETVER == 20080910;
++
++static void clif_write_damage_audio(unsigned char* buf, block_list* src, block_list* dst,
++	uint16 skill_id, uint16 skill_lv, const Damage* hitAudio)
++{
++	block_list* attacker = src;
++	if (src->type == BL_SKILL) {
++		TBL_SKILL* unit = (TBL_SKILL*)src;
++		if (unit->group) {
++			if (block_list* caster = map_id2bl(unit->group->src_id)) attacker = caster;
++		}
++	}
++	map_session_data* sd = BL_CAST(BL_PC, attacker);
++	const status_data* status = status_get_status_data(attacker);
++	const uint16 level = skill_lv > 0 && skill_lv < 1000 ? skill_lv : 1;
++	const int kind = hitAudio ? hitAudio->flag : skill_id ? skill_get_type(skill_id) : BF_WEAPON;
++	const bool magic = (kind & BF_MAGIC) != 0;
++	const bool ranged = hitAudio ? (hitAudio->flag & BF_LONG) != 0
++		: skill_id ? skill_get_range(skill_id, level) > 3 : status->rhw.range > 3;
++	int element = skill_id ? skill_get_ele(skill_id, level, dst) : ELE_WEAPON;
++	if (element == ELE_ENDOWED) element = status_get_attack_sc_element(attacker, status_get_sc(attacker));
++	const int right = hitAudio && hitAudio->hitAudioElementKnown ? hitAudio->hitAudioElement[0]
++		: element == ELE_WEAPON ? status->rhw.ele : element;
++	const int left = hitAudio && hitAudio->hitAudioElementKnown ? hitAudio->hitAudioElement[1]
++		: element == ELE_WEAPON ? status->lhw.ele : element;
++	const bool arrows = !magic && sd && (sd->weapontype1 == W_BOW || sd->weapontype1 == W_MUSICAL);
++	WBUFB(buf,33) = (magic ? 2 : 1) | (ranged ? 4 : 0) | (sd ? 8 : 0);
++	WBUFB(buf,34) = arrows ? (hitAudio && hitAudio->hitAudioElementKnown ? right : sd->bonus.arrow_ele) : right;
++	WBUFB(buf,35) = sd ? sd->weapontype1 : W_FIST;
++	WBUFB(buf,36) = left;
++	WBUFB(buf,37) = sd ? (sd->weapontype2 ? sd->weapontype2 : sd->weapontype1) : W_FIST;
++}
++
++int clif_damage(struct block_list* src, struct block_list* dst, t_tick tick, int sdelay, int ddelay, int64 sdamage, int div, enum e_damage_type type, int64 sdamage2, bool spdamage, const Damage* hitAudio)
++{
++	unsigned char buf[38];
+ 	struct status_change *sc;
+ 	int damage = (int)cap_value(sdamage,INT_MIN,INT_MAX);
+ 	int damage2 = (int)cap_value(sdamage2,INT_MIN,INT_MAX);
+@@ -4846,13 +4883,20 @@
+ #endif
+ 	WBUFW(buf,24+offset) = div;
+ 	WBUFB(buf,26+offset) = type;
++	const bool hitAudioPacket = ENABLE_OPENMIDGARD_DAMAGE_AUDIO
++		&& type != DMG_PICKUP_ITEM && type != DMG_SIT_DOWN && type != DMG_STAND_UP;
++	const int packetLength = hitAudioPacket ? 38 : packet_len(cmd);
++	if (hitAudioPacket) {
++		WBUFW(buf,0) = 0x7f10;
++		clif_write_damage_audio(buf, src, dst, 0, 1, hitAudio);
++	}
+ 
+ 	if(disguised(dst)) {
+-		clif_send(buf, packet_len(cmd), dst, AREA_WOS);
++		clif_send(buf, packetLength, dst, AREA_WOS);
+ 		WBUFL(buf,6) = disguised_bl_id( dst->id );
+-		clif_send(buf, packet_len(cmd), dst, SELF);
++		clif_send(buf, packetLength, dst, SELF);
+ 	} else
+-		clif_send(buf, packet_len(cmd), dst, AREA);
++		clif_send(buf, packetLength, dst, AREA);
+ 
+ 	if(disguised(src)) {
+ 		WBUFL(buf,2) = disguised_bl_id( src->id );
+@@ -4865,7 +4909,7 @@
+ 		if(damage > 0) WBUFL(buf,22) = -1;
+ 		if(damage2 > 0) WBUFL(buf,27+offset) = -1;
+ #endif
+-		clif_send(buf,packet_len(cmd),src,SELF);
++		clif_send(buf,packetLength,src,SELF);
+ 	}
+ 
+ 	if(src == dst) {
+@@ -5580,7 +5624,7 @@
+ /// Skill attack effect and damage.
+ /// 0114 <skill id>.W <src id>.L <dst id>.L <tick>.L <src delay>.L <dst delay>.L <damage>.W <level>.W <div>.W <type>.B (ZC_NOTIFY_SKILL)
+ /// 01de <skill id>.W <src id>.L <dst id>.L <tick>.L <src delay>.L <dst delay>.L <damage>.L <level>.W <div>.W <type>.B (ZC_NOTIFY_SKILL2)
+-int clif_skill_damage(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int64 sdamage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type)
++int clif_skill_damage(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int64 sdamage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type, const Damage* hitAudio)
+ {
+ 	unsigned char buf[64];
+ 	struct status_change *sc;
+@@ -5612,12 +5656,17 @@
+ 	// type 6 (ACTION_SKILL) skills. So we have to do a small
+ 	// hack to set all type 6 to be sent as type 8 ACTION_ATTACK_MULTIPLE
+ 	WBUFB(buf,32)=( type == DMG_SINGLE ) ? DMG_MULTI_HIT : type;
++	const int packetLength = ENABLE_OPENMIDGARD_DAMAGE_AUDIO ? 38 : packet_len(0x1de);
++	if (ENABLE_OPENMIDGARD_DAMAGE_AUDIO) {
++		WBUFW(buf,0) = 0x7f11;
++		clif_write_damage_audio(buf, src, dst, skill_id, skill_lv, hitAudio);
++	}
+ 	if (disguised(dst)) {
+-		clif_send(buf,packet_len(0x1de),dst,AREA_WOS);
++		clif_send(buf,packetLength,dst,AREA_WOS);
+ 		WBUFL(buf,8)=disguised_bl_id(dst->id);
+-		clif_send(buf,packet_len(0x1de),dst,SELF);
++		clif_send(buf,packetLength,dst,SELF);
+ 	} else
+-		clif_send(buf,packet_len(0x1de),dst,AREA);
++		clif_send(buf,packetLength,dst,AREA);
+ 
+ 	if(disguised(src)) {
+ 		WBUFL(buf,4)=disguised_bl_id(src->id);
+@@ -5625,7 +5674,7 @@
+ 			WBUFL(buf,8)=dst->id;
+ 		if(damage > 0)
+ 			WBUFL(buf,24)=-1;
+-		clif_send(buf,packet_len(0x1de),src,SELF);
++		clif_send(buf,packetLength,src,SELF);
+ 	}
+ 
+ 	//Because the damage delay must be synced with the client, here is where the can-walk tick must be updated. [Skotlex]
+@@ -5636,7 +5685,7 @@
+ /// Ground skill attack effect and damage (ZC_NOTIFY_SKILL_POSITION).
+ /// 0115 <skill id>.W <src id>.L <dst id>.L <tick>.L <src delay>.L <dst delay>.L <x>.W <y>.W <damage>.W <level>.W <div>.W <type>.B
+ /*
+-int clif_skill_damage2(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int damage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type)
++int clif_skill_damage2(struct block_list *src,struct block_list *dst,t_tick tick,int sdelay,int ddelay,int damage,int div,uint16 skill_id,uint16 skill_lv,enum e_damage_type type, const Damage* hitAudio)
+ {
+ 	unsigned char buf[64];
+ 	struct status_change *sc;

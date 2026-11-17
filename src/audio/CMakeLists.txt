@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 add_library(ro_audio STATIC
     Audio.h
+    CombatHitAudio.h
+    WeaponDamageAudio.generated.inc
     AudioBackend.h
     Audio.cpp
     MilesAudioBackend.cpp

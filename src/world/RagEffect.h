@@ -18,7 +18,8 @@ struct tlvertex3d;
 
 // Shares the effect SPR/ACT frame cache with the world projectile renderer.
 bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float directionY, float alpha);
-bool RenderSoulStrikeProjectile(const tlvertex3d& anchor, float alpha, float scale, u32 tint);
+bool RenderSoulWisp(const tlvertex3d& anchor, float radiusPixels, float alpha,
+    float tail, float angleDegrees, u32 color, u32 coreColor);
 
 enum EFFECTPRIMID {
     PP_3DCIRCLE = 0,

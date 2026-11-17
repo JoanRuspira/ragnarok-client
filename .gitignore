@@ -30,3 +30,5 @@ build_output*.txt
 *.ps1
 *.py
 !tools/generate_rageffect_assets.py
+!tools/generate_skill_damage_audio.py
+!tools/test_skill_damage_audio.py

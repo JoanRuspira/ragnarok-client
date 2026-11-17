@@ -1,11 +1,11 @@
 -- Open Midgard's source of truth for the skills migrated here.
 -- Paths are full GRF keys; variants pair each STR with its WAV.
--- Damage skills use normal player attack hit audio,
--- or data\wav\effect\ef_hit2.wav for non-player casters, once per hit.
+-- Physical damage plays the weapon WAV and, for non-neutral properties, the element WAV per hit.
+-- Bow/instrument properties come from arrows. Neutral monsters use randomized enemy hit WAVs.
+-- Magic damage plays the element WAV per hit, including each ground/AoE damage tick.
 -- Hit audio follows WhiteDamageNumbers.DelayBetweenNumbersMs in open-midgard.ini.
--- A skills entry can set hit_wav to replace its default per-hit audio.
--- Completion WAVs play alongside hit audio, once even for per-hit visuals.
--- Keep per-hit audio enabled for every skill, including those with completion WAVs.
+-- Single-impact targeted magic uses its dedicated audio without a generic hit layer.
+-- Skill WAVs, hit_wav, and effect audio retain their existing triggers and timing.
 -- Casting WAVs belong to the casting stage; omit wav and loop_wav for a silent effect.
 -- loop_wav repeats independently of visual timing while the effect is looping.
 -- source/target/ground select the attachment. server_notified means the server
@@ -47,10 +47,11 @@ local function ground_casting_circle(color)
     }
 end
 
-local function autospell_selection_effect(effect_id, tint)
+local function autospell_selection_effect(effect_id, tint, wav)
     return {
         effect_id = effect_id,
         str = [[data\texture\effect\rebound_shield\rebound_shield_cast\rebound_shield_cast.str]],
+        wav = wav,
         saturation_percent = 0,
         tint = tint,
     }
@@ -367,12 +368,12 @@ return {
             cast_motion_type = 1,
             skill_motion_type = 1,
             selection = {
-                [839] = autospell_selection_effect(50125, 0xB47844),
-                [20] = autospell_selection_effect(50126, 0x40E8FF),
-                [14] = autospell_selection_effect(50127, 0x4080FF),
-                [19] = autospell_selection_effect(50128, 0xFF4040),
-                [340] = autospell_selection_effect(50129, 0xB478FF),
-                [13] = autospell_selection_effect(50130, 0xFFFFFF),
+                [839] = autospell_selection_effect(50125, 0xB47844, [[data\wav\_stone_explosion.wav]]),
+                [20] = autospell_selection_effect(50126, 0x40E8FF, [[data\wav\effect\h_moonlight_2.wav]]),
+                [14] = autospell_selection_effect(50127, 0x4080FF, [[data\wav\effect\bo_acidified_zone_water.wav]]),
+                [19] = autospell_selection_effect(50128, 0xFF4040, [[data\wav\effect\ef_fireball.wav]]),
+                [340] = autospell_selection_effect(50129, 0xB478FF, [[data\wav\effect\bo_hell_howling.wav]]),
+                [13] = autospell_selection_effect(50130, 0xFFFFFF, [[data\wav\effect\dk_servant_w_demol.wav]]),
             },
             casting = {
                 {
@@ -997,6 +998,7 @@ return {
                 {
                     effect_id = 50035,
                     str = [[data\texture\effect\strantumtremor\strantumtremor\strantumtremor.str]],
+                    bottom_effect = true,
                     play_count = 2,
                 },
             },

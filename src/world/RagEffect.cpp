@@ -1735,13 +1735,16 @@ static void PlayEzStrAssociatedStartupSound(const char* strResourcePath, int eff
         return;
     }
 
+    const std::string base = StrBasenameLowerNoExt(strResourcePath);
+    // Stone Curse audio belongs to the status onset, independently of its visual.
+    if (effectId == 23 || base == "stonecurse") return;
+
     std::vector<std::string> tryPaths;
     if (effectId == 337) {
         tryPaths.push_back("effect\\levelup.wav");
         tryPaths.push_back("wav\\levelup.wav");
     }
 
-    const std::string base = StrBasenameLowerNoExt(strResourcePath);
     if (!base.empty()) {
         const std::string compact = CompactAlnumLowerAscii(base);
         if (!compact.empty()) {
@@ -2911,25 +2914,27 @@ bool RenderSpearProjectile(const tlvertex3d& anchor, float directionX, float dir
     return true;
 }
 
-bool RenderSoulStrikeProjectile(const tlvertex3d& anchor, float alpha, float scale, u32 tint)
+bool RenderSoulWisp(const tlvertex3d& anchor, float radiusPixels, float alpha,
+    float tail, float angleDegrees, u32 color, u32 coreColor)
 {
-    // EF_SOULSTRIKE uses the installed particle1 SPR/ACT, shared through the
-    // same sprite-frame cache as spear and other effect particles.
-    const BakedEffectSpriteFrame* frame = GetBakedEffectSpriteFrame(
-        "data\\sprite\\\300\314\306\321\306\256\\particle1.act",
-        "data\\sprite\\\300\314\306\321\306\256\\particle1.spr", 0, 0);
-    if (!frame || !frame->texture) return false;
+    if (!std::isfinite(radiusPixels) || radiusPixels <= 0.0f) return false;
+    CTexture* cloudTexture = GetSoftGlowTexture(true);
+    CTexture* coreTexture = GetSoftDiscTexture();
+    if (!cloudTexture || !coreTexture || cloudTexture == &CTexMgr::s_dummy_texture
+        || coreTexture == &CTexMgr::s_dummy_texture) return false;
 
-    const float pixelRatio = ResolveEffectPixelRatio(anchor) * scale;
-    if (!std::isfinite(pixelRatio) || pixelRatio <= 0.0f) return false;
-    const unsigned int opacity = static_cast<unsigned int>(
-        (std::max)(0.0f, (std::min)(1.0f, alpha)) * 255.0f);
-    SubmitScreenQuadPivot(anchor, frame->texture,
-        frame->pivotX * pixelRatio, frame->pivotY * pixelRatio,
-        static_cast<float>(frame->width) * pixelRatio,
-        static_cast<float>(frame->height) * pixelRatio, 0.0f,
-        (opacity << 24) | (tint & 0x00FFFFFFu), D3DBLEND_INVSRCALPHA,
-        anchor.oow, 1, kEffectSpriteDepthBias);
+    alpha = std::clamp(alpha, 0.0f, 1.0f);
+    tail = std::clamp(tail, 0.0f, 1.0f);
+    tlvertex3d soulAnchor = anchor;
+    soulAnchor.z = (std::max)(0.0f, soulAnchor.z - kEffectSpriteDepthBias);
+    const float size = radiusPixels * (2.4f + tail * 1.8f);
+    const u32 cloudColor = (static_cast<u32>(alpha * 130.0f) << 24) | (color & 0x00FFFFFFu);
+    SubmitScreenQuadPivot(soulAnchor, cloudTexture, size * 0.5f, size * 0.4f,
+        size, size * 0.8f, angleDegrees, cloudColor, D3DBLEND_ONE, 0.0f, 1 | 4);
+    const float coreSize = radiusPixels * (0.7f + tail * 0.3f);
+    const u32 brightCoreColor = (static_cast<u32>(alpha * 150.0f) << 24) | (coreColor & 0x00FFFFFFu);
+    SubmitScreenQuad(soulAnchor, coreTexture, 0.0f, 0.0f, coreSize, coreSize,
+        brightCoreColor, D3DBLEND_ONE, 0.0f, 1 | 4);
     return true;
 }
 
@@ -8167,7 +8172,6 @@ void CRagEffect::RenderSoulExchange(const matrix& viewMatrix)
     constexpr int kTrailCount = 18;
     const float flightMs = exchange.durationMs * 0.76f;
     const float tailMs = exchange.durationMs - flightMs;
-    CTexture* coreTexture = GetSoftDiscTexture();
     // Exchanging souls take opposite sides; a drain sends only the returning soul.
     // Staggered clouds retain a flowing tail until the last wisp reaches its recipient.
     for (int direction = exchange.targetToSourceOnly ? 1 : 0; direction < 2; ++direction) {
@@ -8187,18 +8191,10 @@ void CRagEffect::RenderSoulExchange(const matrix& viewMatrix)
             if (!ProjectPoint(position, viewMatrix, &anchor)) continue;
             const float scale = anchor.oow * g_renderer.m_hpc;
             if (!std::isfinite(scale) || scale <= 0.0f) continue;
-            anchor.z = (std::max)(0.0f, anchor.z - kEffectSpriteDepthBias);
             const float fade = (std::min)(1.0f, progress / 0.12f)
                 * (std::min)(1.0f, (1.0f - progress) / 0.12f) * (1.0f - tail * 0.8f);
-            const float size = exchange.radius * (2.4f + tail * 1.8f) * scale;
-            const u32 color = (static_cast<u32>(fade * 130.0f) << 24) | static_cast<u32>(exchange.color);
-            SubmitScreenQuadPivot(anchor, m_presentationTexture, size * 0.5f, size * 0.4f,
-                size, size * 0.8f, sign * (progress * 90.0f + index * 37.0f),
-                color, D3DBLEND_ONE, 0.0f, 1 | 4);
-            const float coreSize = exchange.radius * (0.7f + tail * 0.3f) * scale;
-            const u32 coreColor = (static_cast<u32>(fade * 150.0f) << 24) | static_cast<u32>(exchange.coreColor);
-            SubmitScreenQuad(anchor, coreTexture, 0.0f, 0.0f, coreSize, coreSize,
-                coreColor, D3DBLEND_ONE, 0.0f, 1 | 4);
+            RenderSoulWisp(anchor, exchange.radius * scale, fade, tail,
+                sign * (progress * 90.0f + index * 37.0f), exchange.color, exchange.coreColor);
         }
     }
 }

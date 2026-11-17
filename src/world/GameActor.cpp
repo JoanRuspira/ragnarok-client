@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <set>
@@ -690,10 +691,8 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
     }
 
     if (hitInfo.playHitSound) {
-        if (hitInfo.waveName[0] != '\0') {
-            TryPlayQueuedWaveAtActor(actor, hitInfo.waveName);
-        } else if (const char* genericWave = g_session.GetWeaponHitWaveName(-1)) {
-            TryPlayQueuedWaveAtActor(actor, genericWave);
+        for (const char* wave : CombatHitWaves(hitInfo.hitAudio, static_cast<u32>(std::rand()))) {
+            if (wave) TryPlayQueuedWaveAtActor(actor, wave);
         }
     }
 
@@ -5827,7 +5826,8 @@ void CGameActor::QueueWillBeAttacked(const WBA& hitInfo)
     m_willBeAttackedList.push_back(hitInfo);
 }
 
-u32 CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs)
+u32 CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind,
+    u32 delayMs, bool serializeWhiteNumbers)
 {
     // Totals can exceed six digits even when each individual hit does not.
     const int clampedValue = kind == kTotalDamageNumberKind ? (std::max)(0, value) : ClampDamageNumber(value);
@@ -5835,7 +5835,7 @@ u32 CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorA
         DeleteTotalNumber(kind);
     }
     if (CMsgEffect* effect = SpawnDamageNumberEffect(*this, sourceActor, clampedValue, colorArgb, kind)) {
-        if (IsWhiteDamageNumber(kind, colorArgb)) {
+        if (serializeWhiteNumbers && IsWhiteDamageNumber(kind, colorArgb)) {
             const u32 intervalMs = GetWhiteDamageNumberSettings().delayBetweenNumbersMs;
             if (m_hasNextWhiteDamageNumberTick && intervalMs > 0) {
                 // Signed tick differences also handle the timer wrapping around.

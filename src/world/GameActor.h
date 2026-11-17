@@ -3,6 +3,7 @@
 #include "res/Sprite.h"
 #include "res/ActRes.h"
 #include "Granny.h"
+#include "audio/CombatHitAudio.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -99,8 +100,8 @@ struct WBA {
     int damageKind = 0;
     float damageDestX = 0.0f;
     float damageDestZ = 0.0f;
-    char waveName[128] = {};
-    bool playHitSound = true;
+    CombatHitAudio hitAudio;
+    bool playHitSound = false;
 };
 struct _MSG2AI { u8 gap[32]; };
 struct PROCEEDTYPE { int type; };
@@ -368,8 +369,9 @@ public:
     bool IsSphereStatusActive(int sphereIndex) const;
     int GetSpherePresentationEffectId(int sphereIndex) const;
     void QueueWillBeAttacked(const WBA& hitInfo);
-    // Returns the display delay after applying per-actor white-number spacing.
-    u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind, u32 delayMs = 0);
+    // Skill sequences supply their own hit spacing instead of joining the normal-attack queue.
+    u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind,
+        u32 delayMs = 0, bool serializeWhiteNumbers = true);
     void DeleteMatchingEffect(CMsgEffect* effect);
     void DeleteTotalNumber(int kind, const CMsgEffect* keepEffect = nullptr);
     void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY);

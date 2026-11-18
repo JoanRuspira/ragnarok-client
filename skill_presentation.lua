@@ -57,6 +57,14 @@ local function autospell_selection_effect(effect_id, tint, wav)
     }
 end
 
+local function elemental_hit_effect(tint)
+    return {
+        str = [[data\texture\effect\acidified_zone_water\acidified_zone_water_water\acidified_zone_water_water.str]],
+        saturation_percent = tint and 0 or 100,
+        tint = tint,
+    }
+end
+
 local tetra_vortex_presentation = {
     name = "Tetra Vortex",
     cast_motion_type = 1,
@@ -153,6 +161,10 @@ return {
             wav = [[data\wav\effect\priest_slowpoison.wav]],
             trigger = "no_damage",
         },
+        [482] = { -- SK_PF_MAGICSQUARED
+            wav = [[data\wav\effect\em_summon_elemental_procella_2.wav]],
+            trigger = "no_damage",
+        },
         [374] = { -- SK_PF_SOULEXHALE
             wav = [[data\wav\effect\wh_calamitygale.wav]],
             trigger = "no_damage",
@@ -231,6 +243,40 @@ return {
         },
     },
     skills = {
+        [2445] = { -- SK_PF_SPELLFIST: the interrupted cast selects the visual pair.
+            name = "Spell Fist",
+        },
+        [482] = { -- SK_PF_MAGICSQUARED
+            name = "Magic Squared",
+            casting = {
+                {
+                    effect_id = 50151,
+                    str = [[data\texture\effect\new_battle_w\new_battle_w_bottom\new_battle_w_bottom.str]],
+                    wav = [[data\wav\effect\ef_beginspell.wav]],
+                    bottom_effect = true,
+                    bottom_offset_px = 0,
+                    loop = true,
+                    saturation_percent = 0,
+                    tint = 0xFF4040,
+                },
+                {
+                    effect_id = 50152,
+                    str = [[data\texture\effect\new_cannon_spear\new_cannon_spear_12_clock\new_cannon_spear_12_clock.str]],
+                    loop = true,
+                    saturation_percent = 0,
+                    tint = 0xFF4040,
+                },
+            },
+            source = {
+                {
+                    effect_id = 50153,
+                    str = [[data\texture\effect\new_cart_tornado\new_cart_tornado_bottom\new_cart_tornado_bottom.str]],
+                    bottom_effect = true,
+                    saturation_percent = 0,
+                    tint = 0xFF4040,
+                },
+            },
+        },
         [3] = {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
@@ -296,6 +342,9 @@ return {
                     effect_id = 2094,
                     str = [[data\texture\effect\new_jackfrost\new_jackfrost\new_jackfrost_01.str]],
                     delay_ms = 100,
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                    draw_over_actors = true,
                 },
             },
         },
@@ -369,7 +418,7 @@ return {
             skill_motion_type = 1,
             selection = {
                 [839] = autospell_selection_effect(50125, 0xB47844, [[data\wav\_stone_explosion.wav]]),
-                [20] = autospell_selection_effect(50126, 0x40E8FF, [[data\wav\effect\h_moonlight_2.wav]]),
+                [20] = autospell_selection_effect(50126, 0x40E8FF, [[data\wav\effect\]] .. "s\192\207\183\186\198\174\184\175\191\246\197\169.wav"),
                 [14] = autospell_selection_effect(50127, 0x4080FF, [[data\wav\effect\bo_acidified_zone_water.wav]]),
                 [19] = autospell_selection_effect(50128, 0xFF4040, [[data\wav\effect\ef_fireball.wav]]),
                 [340] = autospell_selection_effect(50129, 0xB478FF, [[data\wav\effect\bo_hell_howling.wav]]),
@@ -380,6 +429,7 @@ return {
                     effect_id = 50123,
                     str = [[data\texture\effect\research_report\researchreport_cast\researchreport_cast.str]],
                     saturation_percent = 0,
+                    tint = 0x800020,
                     loop = true,
                 },
                 {
@@ -388,6 +438,7 @@ return {
                     bottom_effect = true,
                     bottom_offset_px = 25,
                     saturation_percent = 0,
+                    tint = 0x800020,
                     loop = true,
                 },
             },
@@ -2147,6 +2198,95 @@ return {
     -- Effect IDs also configure recovery boosts: 331 = HP, 332 = SP.
     -- These are triggered by recovery packets, independently of skills[4]/skills[9].
     effects = {
+        [50143] = elemental_hit_effect(), -- Water: original colors.
+        [50144] = { -- Earth.
+            str = [[data\texture\effect\new_strantumtremor\new_strantumtremor_hit\new_strantumtremor_hit.str]],
+            play_count = 2,
+            saturation_percent = 0,
+            tint = 0xB47844,
+        },
+        [50145] = { -- Fire: original colors.
+            str = [[data\texture\effect\4ig_explosionblaster\explosionblaster_hit\explosionblaster_hit.str]],
+        },
+        [50146] = { -- Wind: original colors.
+            str = [[data\texture\effect\new_varetyrspear\new_varetyrspear_cast\new_varetyrspear_cast.str]],
+        },
+        [50147] = { -- Poison.
+            str = [[data\texture\effect\serpens\serpens_cast\serpens_cast.str]],
+            saturation_percent = 0,
+            tint = 0xD3A6FF,
+        },
+        [50148] = { -- Holy.
+            str = [[data\texture\effect\hawkvumerang\hawkvumerang_start\hawkvumerang_start.str]],
+            saturation_percent = 0,
+            tint = 0xA0D8FF,
+        },
+        [50149] = { -- Dark: original colors.
+            str = [[data\texture\effect\4abc_abyss_slayer\abyss_slayer_cast\abyss_slayer_cast.str]],
+        },
+        [50150] = { -- Ghost.
+            str = [[data\texture\effect\new_hit\new_criticalattack\new_criticalattack.str]],
+            saturation_percent = 0,
+            tint = 0xFFFFFF,
+        },
+        [50131] = { -- Spell Fist: Fire Bolt.
+            str = [[data\texture\effect\new_spellfist\new_spellfist_fire\new_spellfist_fire.str]],
+            wav = [[data\wav\effect\ef_fireball.wav]],
+        },
+        [50132] = {
+            str = [[data\texture\effect\new_spellfist\new_spellfist_fire_bottom\new_spellfist_fire_bottom.str]],
+            bottom_effect = true,
+        },
+        [50133] = { -- Spell Fist: Cold Bolt.
+            str = [[data\texture\effect\new_spellfist\new_spellfist_water\new_spellfist_water.str]],
+            wav = [[data\wav\effect\bo_acidified_zone_water.wav]],
+        },
+        [50134] = {
+            str = [[data\texture\effect\new_spellfist\new_spellfist_water_bottom\new_spellfist_water_bottom.str]],
+            bottom_effect = true,
+        },
+        [50135] = { -- Spell Fist: Lightning Bolt.
+            str = [[data\texture\effect\new_spellfist\new_spellfist_wind\new_spellfist_wind.str]],
+            wav = [[data\wav\effect\]] .. "s\192\207\183\186\198\174\184\175\191\246\197\169.wav",
+        },
+        [50136] = {
+            str = [[data\texture\effect\absolute_zephyr\absolute_zephyr\absolute_zephyr.str]],
+            bottom_effect = true,
+            saturation_percent = 0,
+            tint = 0x40E8FF,
+        },
+        [50137] = { -- Spell Fist: Earth Bolt.
+            str = [[data\texture\effect\new_strantumtremor\new_strantumtremor_cast\new_strantumtremor_cast.str]],
+            wav = [[data\wav\_stone_explosion.wav]],
+        },
+        [50138] = {
+            str = [[data\texture\effect\new_strantumtremor\new_strantumtremor_cast_bottom\new_strantumtremor_cast_bottom.str]],
+            bottom_effect = true,
+        },
+        [50139] = { -- Spell Fist: Null Strike.
+            str = [[data\texture\effect\wooden_fairy\fairy_dusty\fairy_dusty.str]],
+            wav = [[data\wav\effect\dk_servant_w_demol.wav]],
+            saturation_percent = 0,
+            tint = 0xFFFFFF,
+        },
+        [50140] = {
+            str = [[data\texture\effect\wooden_warrior\wooden_warrior_cast_bottom\wooden_warrior_cast_bottom.str]],
+            bottom_effect = true,
+            saturation_percent = 0,
+            tint = 0xFFFFFF,
+        },
+        [50141] = { -- Spell Fist: Dark Strike.
+            str = [[data\texture\effect\new_spellfist\new_spellfist_wind\new_spellfist_wind.str]],
+            wav = [[data\wav\effect\bo_hell_howling.wav]],
+            saturation_percent = 0,
+            tint = 0xB478FF,
+        },
+        [50142] = {
+            str = [[data\texture\effect\absolute_zephyr\absolute_zephyr\absolute_zephyr.str]],
+            bottom_effect = true,
+            saturation_percent = 0,
+            tint = 0xB478FF,
+        },
         [507] = { -- Mind Games: the server launches this visual; keep it silent.
             str = [[data\texture\effect\mapae.str]],
         },

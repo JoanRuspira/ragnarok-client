@@ -5,6 +5,7 @@
 #include "Granny.h"
 #include "audio/CombatHitAudio.h"
 #include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <list>
@@ -90,6 +91,11 @@ struct CPathInfo {
     }
 };
 
+struct DamageTotalUpdate {
+    u32 delayMs = 0;
+    int value = 0;
+};
+
 struct WBA {
     u32 gid = 0;
     u32 time = 0;
@@ -102,6 +108,7 @@ struct WBA {
     float damageDestZ = 0.0f;
     CombatHitAudio hitAudio;
     bool playHitSound = false;
+    int elementalHitEffectId = -1;
 };
 struct _MSG2AI { u8 gap[32]; };
 struct PROCEEDTYPE { int type; };
@@ -320,6 +327,9 @@ public:
     int m_lastPresentedSkillId = 0;
     std::set<int> m_presentedCastSkillIds;
     u16 m_castingSkillId = 0;
+    u16 m_spellFistCastSkillId = 0;
+    u32 m_spellFistEffectUntilTick = 0;
+    int m_spellFistAttackElement = -1; // Retained for the separate empowered-hit packets.
     u32 m_vigorEffectSuppressUntilTick = 0;
     u32 m_parryCastAckUntilTick = 0;
     u32 m_autoGuardCastAckUntilTick = 0;
@@ -372,6 +382,7 @@ public:
     // Skill sequences supply their own hit spacing instead of joining the normal-attack queue.
     u32 QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorArgb, int kind,
         u32 delayMs = 0, bool serializeWhiteNumbers = true);
+    void QueueDamageTotal(CGameActor* sourceActor, std::vector<DamageTotalUpdate> updates);
     void DeleteMatchingEffect(CMsgEffect* effect);
     void DeleteTotalNumber(int kind, const CMsgEffect* keepEffect = nullptr);
     void ProcessSkillRechargeGageOverlay(int screenCenterX, int screenTopY);
@@ -386,6 +397,7 @@ public:
     u8 OnProcess() override;
     void OnActorDeleted(const CGameActor* actor) override;
     void SetStartDelayMs(u32 milliseconds);
+    void SetDamageTotalUpdates(std::vector<DamageTotalUpdate> updates);
     void SendMsg(CGameObject* sender, int msg, msgparam_t par1, msgparam_t par2, msgparam_t par3) override;
     void Render(matrix* viewMatrix) override;
 
@@ -420,6 +432,10 @@ public:
     u8 m_followInitialized;
     u8 m_followRenderInitialized;
     u8 m_followRenderAfterOwner;
+
+private:
+    std::vector<DamageTotalUpdate> m_damageTotalUpdates;
+    std::size_t m_nextDamageTotalUpdate = 0;
 };
 
 void SetRuntimeActorCameraLongitude(float longitude);

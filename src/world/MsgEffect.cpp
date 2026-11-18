@@ -20,13 +20,14 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
 
 constexpr float kMsgEffectNearPlane = 10.0f;
 constexpr float kMsgEffectSubmitNearPlane = 80.0f;
-constexpr float kTotalDamageScaleMultiplier = 1.5f;
+constexpr float kTotalDamageScaleMultiplier = 1.35f;
 constexpr u32 kTotalDamageLifetimeMs = 2880;
 constexpr u32 kTotalDamageFadeInMs = 160;
 constexpr u32 kTotalDamageFadeOutMs = 720;
@@ -90,6 +91,7 @@ struct QueuedMsgSpriteEffectDraw {
     bool useProjectedDepth = false;
     bool usePerspectiveScale = false;
     bool bypassZoomClamp = false;
+    bool useActScale = false;
 };
 
 std::vector<QueuedMsgEffectDraw> g_queuedMsgEffects;
@@ -493,7 +495,29 @@ int ResolveDigitAtIndex(int value, int index)
     return value % 10;
 }
 
-bool ResolveDigitClipBox(int digit, RECT* outClipBox)
+struct MsgClipRect {
+    float left;
+    float top;
+    float width;
+    float height;
+};
+
+MsgClipRect ResolveMsgClipRect(const CSprClip& clip, const SprImg& image, bool useActScale)
+{
+    if (!useActScale) {
+        return { static_cast<float>(clip.x - image.width / 2),
+            static_cast<float>(clip.y - image.height / 2),
+            static_cast<float>(image.width), static_cast<float>(image.height) };
+    }
+    const float zoomX = std::isfinite(clip.zoomX) ? std::fabs(clip.zoomX) : 1.0f;
+    const float zoomY = std::isfinite(clip.zoomY) ? std::fabs(clip.zoomY) : 1.0f;
+    const float width = static_cast<float>(image.width) * zoomX;
+    const float height = static_cast<float>(image.height) * zoomY;
+    return { static_cast<float>(clip.x) - width * 0.5f,
+        static_cast<float>(clip.y) - height * 0.5f, width, height };
+}
+
+bool ResolveDigitClipBox(int digit, MsgClipRect* outClipBox)
 {
     if (!outClipBox) {
         return false;
@@ -514,7 +538,7 @@ bool ResolveDigitClipBox(int digit, RECT* outClipBox)
         return false;
     }
 
-    RECT clipBox{};
+    MsgClipRect clipBox{};
     bool hasClip = false;
     for (const CSprClip& clip : motion->sprClips) {
         const SprImg* image = sprite->GetSprite(clip.clipType, clip.sprIndex);
@@ -522,17 +546,18 @@ bool ResolveDigitClipBox(int digit, RECT* outClipBox)
             continue;
         }
 
-        const int drawX = clip.x - image->width / 2;
-        const int drawY = clip.y - image->height / 2;
-        RECT current = { drawX, drawY, drawX + image->width, drawY + image->height };
+        const MsgClipRect rect = ResolveMsgClipRect(clip, *image, true);
+        if (rect.width <= 0.0f || rect.height <= 0.0f) continue;
         if (!hasClip) {
-            clipBox = current;
+            clipBox = rect;
             hasClip = true;
         } else {
-            clipBox.left = (std::min)(clipBox.left, current.left);
-            clipBox.top = (std::min)(clipBox.top, current.top);
-            clipBox.right = (std::max)(clipBox.right, current.right);
-            clipBox.bottom = (std::max)(clipBox.bottom, current.bottom);
+            const float right = (std::max)(clipBox.left + clipBox.width, rect.left + rect.width);
+            const float bottom = (std::max)(clipBox.top + clipBox.height, rect.top + rect.height);
+            clipBox.left = (std::min)(clipBox.left, rect.left);
+            clipBox.top = (std::min)(clipBox.top, rect.top);
+            clipBox.width = right - clipBox.left;
+            clipBox.height = bottom - clipBox.top;
         }
     }
 
@@ -546,13 +571,12 @@ bool ResolveDigitClipBox(int digit, RECT* outClipBox)
 
 int ResolveDigitOutputWidth(int digit, float zoom, bool isTotalDamage)
 {
-    RECT clipBox{};
+    MsgClipRect clipBox{};
     if (!ResolveDigitClipBox(digit, &clipBox)) {
         return (std::max)(1, static_cast<int>(std::lround(8.0f * ResolveDigitScale(zoom, isTotalDamage))));
     }
 
-    const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
-    return (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * ResolveDigitScale(zoom, isTotalDamage))));
+    return (std::max)(1, static_cast<int>(std::lround(clipBox.width * ResolveDigitScale(zoom, isTotalDamage))));
 }
 
 unsigned int PremultiplyArgb(unsigned int color)
@@ -745,16 +769,14 @@ bool QueueDigitSpriteQuad(const QueuedMsgEffectDraw& draw)
         return false;
     }
 
-    RECT clipBox{};
+    MsgClipRect clipBox{};
     if (!ResolveDigitClipBox(draw.digit, &clipBox)) {
         return false;
     }
 
     const float scale = ResolveDigitScale(draw.zoom, draw.isTotalDamage);
-    const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
-    const int nativeHeight = (std::max)(1, static_cast<int>(clipBox.bottom - clipBox.top));
-    const int outWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * scale)));
-    const int outHeight = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeHeight) * scale)));
+    const int outWidth = (std::max)(1, static_cast<int>(std::lround(clipBox.width * scale)));
+    const int outHeight = (std::max)(1, static_cast<int>(std::lround(clipBox.height * scale)));
     const float originX = static_cast<float>(draw.screenX + ResolveDigitShiftPixels(draw) - outWidth / 2) - 0.5f;
     const float originY = static_cast<float>(draw.screenY - outHeight / 2) - 0.5f;
 
@@ -771,10 +793,12 @@ bool QueueDigitSpriteQuad(const QueuedMsgEffectDraw& draw)
             continue;
         }
 
-        const float drawLeft = originX + static_cast<float>(clip.x - image->width / 2 - clipBox.left) * scale;
-        const float drawTop = originY + static_cast<float>(clip.y - image->height / 2 - clipBox.top) * scale;
-        const float drawRight = drawLeft + static_cast<float>(image->width) * scale;
-        const float drawBottom = drawTop + static_cast<float>(image->height) * scale;
+        const MsgClipRect rect = ResolveMsgClipRect(clip, *image, true);
+        if (rect.width <= 0.0f || rect.height <= 0.0f) continue;
+        const float drawLeft = originX + (rect.left - static_cast<float>(clipBox.left)) * scale;
+        const float drawTop = originY + (rect.top - static_cast<float>(clipBox.top)) * scale;
+        const float drawRight = drawLeft + rect.width * scale;
+        const float drawBottom = drawTop + rect.height * scale;
 
         const float maxU = texture->m_w != 0
             ? static_cast<float>(texture->m_surfaceUpdateWidth > 0 ? texture->m_surfaceUpdateWidth : static_cast<unsigned int>(image->width))
@@ -790,7 +814,8 @@ bool QueueDigitSpriteQuad(const QueuedMsgEffectDraw& draw)
             continue;
         }
 
-        const bool flipX = (clip.flags & 1) != 0;
+        const bool flipX = ((clip.flags & 1) != 0) != (clip.zoomX < 0.0f);
+        const bool flipY = clip.zoomY < 0.0f;
         const u32 color = BuildDigitClipColor(draw, clip);
         if (((color >> 24) & 0xFFu) == 0u) {
             continue;
@@ -808,10 +833,10 @@ bool QueueDigitSpriteQuad(const QueuedMsgEffectDraw& draw)
         face->destAlphaMode = D3DBLEND_INVSRCALPHA;
         face->alphaSortKey = 1.7f + clipSortOffset;
 
-        face->m_verts[0] = { drawLeft,  drawTop,    0.0f, 1.0f, color, 0xFF000000u, flipX ? maxU : 0.0f, 0.0f };
-        face->m_verts[1] = { drawRight, drawTop,    0.0f, 1.0f, color, 0xFF000000u, flipX ? 0.0f : maxU, 0.0f };
-        face->m_verts[2] = { drawLeft,  drawBottom, 0.0f, 1.0f, color, 0xFF000000u, flipX ? maxU : 0.0f, maxV };
-        face->m_verts[3] = { drawRight, drawBottom, 0.0f, 1.0f, color, 0xFF000000u, flipX ? 0.0f : maxU, maxV };
+        face->m_verts[0] = { drawLeft,  drawTop,    0.0f, 1.0f, color, 0xFF000000u, flipX ? maxU : 0.0f, flipY ? maxV : 0.0f };
+        face->m_verts[1] = { drawRight, drawTop,    0.0f, 1.0f, color, 0xFF000000u, flipX ? 0.0f : maxU, flipY ? maxV : 0.0f };
+        face->m_verts[2] = { drawLeft,  drawBottom, 0.0f, 1.0f, color, 0xFF000000u, flipX ? maxU : 0.0f, flipY ? 0.0f : maxV };
+        face->m_verts[3] = { drawRight, drawBottom, 0.0f, 1.0f, color, 0xFF000000u, flipX ? 0.0f : maxU, flipY ? 0.0f : maxV };
         g_renderer.AddRP(face, 1 | 8);
         clipSortOffset += 0.0001f;
         queuedAny = true;
@@ -826,13 +851,11 @@ bool GetDigitDrawBounds(const QueuedMsgEffectDraw& draw, RECT* outRect)
         return false;
     }
 
-    RECT clipBox{};
+    MsgClipRect clipBox{};
     if (ResolveDigitClipBox(draw.digit, &clipBox)) {
         const float scale = ResolveDigitScale(draw.zoom, draw.isTotalDamage);
-        const int nativeWidth = (std::max)(1, static_cast<int>(clipBox.right - clipBox.left));
-        const int nativeHeight = (std::max)(1, static_cast<int>(clipBox.bottom - clipBox.top));
-        const int outWidth = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeWidth) * scale)));
-        const int outHeight = (std::max)(1, static_cast<int>(std::lround(static_cast<float>(nativeHeight) * scale)));
+        const int outWidth = (std::max)(1, static_cast<int>(std::lround(clipBox.width * scale)));
+        const int outHeight = (std::max)(1, static_cast<int>(std::lround(clipBox.height * scale)));
         const int originX = draw.screenX + ResolveDigitShiftPixels(draw) - outWidth / 2;
         const int originY = draw.screenY - outHeight / 2;
         outRect->left = originX - 1;
@@ -854,7 +877,8 @@ bool GetDigitDrawBounds(const QueuedMsgEffectDraw& draw, RECT* outRect)
     return true;
 }
 
-bool ResolveMsgSpriteClipBox(CSprRes* sprite, CActRes* act, int actionIndex, int motionIndex, RECT* outClipBox)
+bool ResolveMsgSpriteClipBox(CSprRes* sprite, CActRes* act, int actionIndex, int motionIndex, RECT* outClipBox,
+    bool useActScale = false)
 {
     if (!sprite || !act || !outClipBox) {
         return false;
@@ -876,9 +900,10 @@ bool ResolveMsgSpriteClipBox(CSprRes* sprite, CActRes* act, int actionIndex, int
             continue;
         }
 
-        const int drawX = clip.x - image->width / 2;
-        const int drawY = clip.y - image->height / 2;
-        RECT current = { drawX, drawY, drawX + image->width, drawY + image->height };
+        const MsgClipRect rect = ResolveMsgClipRect(clip, *image, useActScale);
+        if (rect.width <= 0.0f || rect.height <= 0.0f) continue;
+        RECT current = { static_cast<LONG>(std::floor(rect.left)), static_cast<LONG>(std::floor(rect.top)),
+            static_cast<LONG>(std::ceil(rect.left + rect.width)), static_cast<LONG>(std::ceil(rect.top + rect.height)) };
         if (!hasClip) {
             clipBox = current;
             hasClip = true;
@@ -965,7 +990,7 @@ bool QueueMsgSpriteQuad(const QueuedMsgSpriteEffectDraw& draw)
     }
 
     RECT clipBox{};
-    if (!ResolveMsgSpriteClipBox(sprite, act, draw.actionIndex, draw.motionIndex, &clipBox)) {
+    if (!ResolveMsgSpriteClipBox(sprite, act, draw.actionIndex, draw.motionIndex, &clipBox, draw.useActScale)) {
         return false;
     }
 
@@ -996,10 +1021,12 @@ bool QueueMsgSpriteQuad(const QueuedMsgSpriteEffectDraw& draw)
             continue;
         }
 
-        const float drawLeft = originX + static_cast<float>(clip.x - image->width / 2 - clipBox.left) * scale;
-        const float drawTop = originY + static_cast<float>(clip.y - image->height / 2 - clipBox.top) * scale;
-        const float drawRight = drawLeft + static_cast<float>(image->width) * scale;
-        const float drawBottom = drawTop + static_cast<float>(image->height) * scale;
+        const MsgClipRect rect = ResolveMsgClipRect(clip, *image, draw.useActScale);
+        if (rect.width <= 0.0f || rect.height <= 0.0f) continue;
+        const float drawLeft = originX + (rect.left - static_cast<float>(clipBox.left)) * scale;
+        const float drawTop = originY + (rect.top - static_cast<float>(clipBox.top)) * scale;
+        const float drawRight = drawLeft + rect.width * scale;
+        const float drawBottom = drawTop + rect.height * scale;
 
         const float maxU = texture->m_w != 0
             ? static_cast<float>(texture->m_surfaceUpdateWidth > 0 ? texture->m_surfaceUpdateWidth : static_cast<unsigned int>(image->width))
@@ -1015,7 +1042,8 @@ bool QueueMsgSpriteQuad(const QueuedMsgSpriteEffectDraw& draw)
             continue;
         }
 
-        const bool flipX = (clip.flags & 1) != 0;
+        const bool flipX = ((clip.flags & 1) != 0) != (draw.useActScale && clip.zoomX < 0.0f);
+        const bool flipY = draw.useActScale && clip.zoomY < 0.0f;
         const u32 color = BuildMsgSpriteClipColor(draw, clip);
         if (((color >> 24) & 0xFFu) == 0u) {
             continue;
@@ -1035,10 +1063,10 @@ bool QueueMsgSpriteQuad(const QueuedMsgSpriteEffectDraw& draw)
         const float oow = draw.useProjectedDepth ? draw.projectedOow : 1.0f;
         face->alphaSortKey = draw.alphaSortBase + clipSortOffset;
 
-        face->m_verts[0] = { drawLeft,  drawTop,    depth, oow, color, 0xFF000000u, flipX ? maxU : 0.0f, 0.0f };
-        face->m_verts[1] = { drawRight, drawTop,    depth, oow, color, 0xFF000000u, flipX ? 0.0f : maxU, 0.0f };
-        face->m_verts[2] = { drawLeft,  drawBottom, depth, oow, color, 0xFF000000u, flipX ? maxU : 0.0f, maxV };
-        face->m_verts[3] = { drawRight, drawBottom, depth, oow, color, 0xFF000000u, flipX ? 0.0f : maxU, maxV };
+        face->m_verts[0] = { drawLeft,  drawTop,    depth, oow, color, 0xFF000000u, flipX ? maxU : 0.0f, flipY ? maxV : 0.0f };
+        face->m_verts[1] = { drawRight, drawTop,    depth, oow, color, 0xFF000000u, flipX ? 0.0f : maxU, flipY ? maxV : 0.0f };
+        face->m_verts[2] = { drawLeft,  drawBottom, depth, oow, color, 0xFF000000u, flipX ? maxU : 0.0f, flipY ? 0.0f : maxV };
+        face->m_verts[3] = { drawRight, drawBottom, depth, oow, color, 0xFF000000u, flipX ? 0.0f : maxU, flipY ? 0.0f : maxV };
         g_renderer.AddRP(face, draw.useProjectedDepth ? 1 : (1 | 8));
         clipSortOffset += 0.0001f;
         queuedAny = true;
@@ -1059,7 +1087,7 @@ bool GetMsgSpriteDrawBounds(const QueuedMsgSpriteEffectDraw& draw, RECT* outRect
         return false;
     }
     RECT clipBox{};
-    if (!ResolveMsgSpriteClipBox(sprite, act, draw.actionIndex, draw.motionIndex, &clipBox)) {
+    if (!ResolveMsgSpriteClipBox(sprite, act, draw.actionIndex, draw.motionIndex, &clipBox, draw.useActScale)) {
         return false;
     }
 
@@ -1928,6 +1956,12 @@ void CMsgEffect::SetStartDelayMs(u32 milliseconds)
     m_startDelayMs = milliseconds;
 }
 
+void CMsgEffect::SetDamageTotalUpdates(std::vector<DamageTotalUpdate> updates)
+{
+    m_damageTotalUpdates = std::move(updates);
+    m_nextDamageTotalUpdate = 0;
+}
+
 u8 CMsgEffect::OnProcess()
 {
     if (m_isDisappear) {
@@ -1947,7 +1981,7 @@ u8 CMsgEffect::OnProcess()
         m_stateStartTick += m_startDelayMs;
         m_startDelayMs = 0;
         if (m_msgEffectType == kTotalDamageNumberKind && m_masterActor) {
-            // Capture the target when the total appears, after its final hit.
+            // Capture the target when the total's first hit appears.
             m_pos = m_masterActor->m_pos;
             m_orgPos = m_pos;
             m_masterActor->DeleteTotalNumber(kTotalDamageNumberKind, this);
@@ -2069,12 +2103,22 @@ u8 CMsgEffect::OnProcess()
         m_pos = m_orgPos;
         m_zoom = m_orgZoom;
         const u32 elapsedMs = now - m_stateStartTick;
+        while (m_nextDamageTotalUpdate < m_damageTotalUpdates.size()
+            && elapsedMs >= m_damageTotalUpdates[m_nextDamageTotalUpdate].delayMs) {
+            m_numberValue = m_damageTotalUpdates[m_nextDamageTotalUpdate].value;
+            m_digit = m_numberValue % 10;
+            ++m_nextDamageTotalUpdate;
+        }
+        const u32 lastUpdateMs = m_damageTotalUpdates.empty() ? 0 : m_damageTotalUpdates.back().delayMs;
+        const u32 afterLastHitMs = elapsedMs > lastUpdateMs ? elapsedMs - lastUpdateMs : 0;
+        const u32 holdMs = m_damageTotalUpdates.empty() ? 0 : GetYellowDamageNumberSettings().delayAfterLastHitMs;
+        const u32 finalValueAgeMs = afterLastHitMs > holdMs ? afterLastHitMs - holdMs : 0;
         const float fadeIn = std::clamp(static_cast<float>(elapsedMs)
             / static_cast<float>(kTotalDamageFadeInMs), 0.0f, 1.0f);
         const float fadeOut = std::clamp((static_cast<float>(kTotalDamageLifetimeMs)
-            - static_cast<float>(elapsedMs)) / static_cast<float>(kTotalDamageFadeOutMs), 0.0f, 1.0f);
+            - static_cast<float>(finalValueAgeMs)) / static_cast<float>(kTotalDamageFadeOutMs), 0.0f, 1.0f);
         m_alpha = static_cast<int>(std::lround(250.0f * (std::min)(fadeIn, fadeOut)));
-        if (elapsedMs >= kTotalDamageLifetimeMs) {
+        if (finalValueAgeMs >= kTotalDamageLifetimeMs) {
             m_isDisappear = 1;
         }
         break;
@@ -2208,6 +2252,7 @@ void CMsgEffect::Render(matrix* viewMatrix)
         draw.colorArgb = m_colorArgb;
         draw.alpha = m_alpha;
         draw.zoom = m_zoom;
+        draw.useActScale = m_msgEffectType == kCriticalMsgEffectType;
         draw.alphaSortBase = m_msgEffectType == kAttachedActorSpriteMsgEffectType
             ? projected.oow
             : (m_msgEffectType == kCriticalMsgEffectType ? 1.6f : 1.7f);

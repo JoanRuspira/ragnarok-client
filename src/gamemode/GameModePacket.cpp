@@ -81,6 +81,7 @@ constexpr u32 kActorChatBubblePerCharLifetimeMs = 90;
 constexpr u32 kActorChatBubbleMinLifetimeMs = 4500;
 constexpr u32 kActorChatBubbleMaxLifetimeMs = 8000;
 constexpr u32 kActorNameRequestCooldownMs = 1000;
+constexpr u16 kSkillIdSpellFist = 2445;
 
 PendingDisconnectAction g_pendingDisconnectAction = PendingDisconnectAction::None;
 u32 g_lastLocalLevelUpEffectId = 0;
@@ -798,6 +799,30 @@ void HandleNotifyEffect(CGameMode& mode, const PacketView& packet)
     }
 }
 
+struct SpellFistEffectPair {
+    u16 castSkillId;
+    u32 serverEffectId;
+    int mainEffectId;
+    int bottomEffectId;
+    int element;
+};
+
+const SpellFistEffectPair* FindSpellFistEffectPair(u16 castSkillId)
+{
+    static constexpr SpellFistEffectPair effects[] = {
+        { 19, 1270, 50131, 50132, 3 }, // Fire Bolt.
+        { 14, 1271, 50133, 50134, 1 }, // Cold Bolt.
+        { 20, 1272, 50135, 50136, 4 }, // Lightning Bolt.
+        { 839, 1273, 50137, 50138, 2 }, // Earth Bolt.
+        { 13, 992, 50139, 50140, 8 }, // Null Strike.
+        { 340, 995, 50141, 50142, 7 }, // Dark Strike.
+    };
+    for (const SpellFistEffectPair& effect : effects) {
+        if (effect.castSkillId == castSkillId) return &effect;
+    }
+    return nullptr;
+}
+
 void HandleNotifyEffect2(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 10) {
@@ -822,6 +847,16 @@ void HandleNotifyEffect2(CGameMode& mode, const PacketView& packet)
         static_cast<unsigned int>(actorId),
         static_cast<unsigned int>(effectId),
         actor == (mode.m_world ? static_cast<CGameActor*>(mode.m_world->m_player) : nullptr));
+
+    // Spell Fist already rendered its conversion from the interrupted cast.
+    // Suppress an optional legacy copy without affecting other uses of these IDs.
+    if (const auto* spellFist = FindSpellFistEffectPair(actor->m_spellFistCastSkillId);
+        spellFist && effectId == spellFist->serverEffectId && actor->m_spellFistEffectUntilTick != 0
+        && static_cast<s32>(actor->m_spellFistEffectUntilTick - timeGetTime()) > 0) {
+        actor->m_spellFistCastSkillId = 0;
+        actor->m_spellFistEffectUntilTick = 0;
+        return;
+    }
 
     // Vigor sends these before its skill-use response. EF_GREENBODY also serves
     // Acid Terror, so suppress it only while this actor is completing Vigor.
@@ -856,6 +891,8 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
     }
 
     ClearAttachedSkillEffects(actor);
+    actor->m_spellFistCastSkillId = 0;
+    actor->m_spellFistEffectUntilTick = 0;
     actor->m_vigorEffectSuppressUntilTick = 0;
     actor->m_parryCastAckUntilTick = 0;
     actor->m_autoGuardCastAckUntilTick = 0;
@@ -3577,6 +3614,7 @@ constexpr u8 kNotifyActMultiHitDamage = 8;
 constexpr u8 kNotifyActMultiHitEndure = 9;
 constexpr u8 kNotifyActCriticalDamage = 10;
 constexpr u8 kNotifyActLuckyDodge = 11;
+constexpr u8 kNotifyActMultiHitCriticalDamage = 13;
 constexpr int kDefaultAttackMotionTime = 1440;
 constexpr int kDefaultSkillMotionTime = 450;
 constexpr u32 kRefDoubleAttackTermMs = 200;
@@ -3607,6 +3645,7 @@ bool IsAttackNotifyType(u8 actionType)
     case kNotifyActMultiHitDamage:
     case kNotifyActMultiHitEndure:
     case kNotifyActCriticalDamage:
+    case kNotifyActMultiHitCriticalDamage:
     case kNotifyActLuckyDodge:
         return true;
     default:
@@ -3644,7 +3683,8 @@ int ResolveCombatNumberKind(int damage, u8 actionType)
 
 u16 ResolveAttackRepeatHitCount(u8 actionType, u16 div)
 {
-    if (actionType == kNotifyActMultiHitDamage || actionType == kNotifyActMultiHitEndure) {
+    if (actionType == kNotifyActMultiHitDamage || actionType == kNotifyActMultiHitEndure
+        || actionType == kNotifyActMultiHitCriticalDamage) {
         return static_cast<u16>((std::max)(1, (std::min)(36, static_cast<int>(div))));
     }
 
@@ -3949,7 +3989,7 @@ int ResolveQueuedCombatMessage(u8 actionType)
     if (actionType == kNotifyActLuckyDodge) {
         return 94;
     }
-    if (actionType == kNotifyActCriticalDamage) {
+    if (actionType == kNotifyActCriticalDamage || actionType == kNotifyActMultiHitCriticalDamage) {
         return 93;
     }
     return 133;
@@ -3997,6 +4037,21 @@ int ResolveLegacyWeaponImpactElement(const CGameActor& sourceActor, bool offhand
     return weapon->element;
 }
 
+CombatHitAudio ApplySpellFistAttackElement(CombatHitAudio hit, const CGameActor* sourceActor, u16 skillId)
+{
+    if (skillId != kSpellFistAttackSkillId) return hit;
+
+    // Prefer the converted property carried by this hit, including after login
+    // or when another caster's conversion was outside our view. Cast memory is
+    // only a fallback for legacy packets that cannot report that property.
+    const int element = hit.element > 0 && hit.element <= 8
+        ? hit.element : sourceActor ? sourceActor->m_spellFistAttackElement : -1;
+    hit.kind = CombatDamageKind::Magic;
+    hit.element = element;
+    hit.weaponImpactElement = element;
+    return hit;
+}
+
 CombatHitAudio ResolveCombatHitAudio(const PacketView& packet, CGameActor* sourceActor,
     u16 skillId = 0, bool offhand = false)
 {
@@ -4011,7 +4066,7 @@ CombatHitAudio ResolveCombatHitAudio(const PacketView& packet, CGameActor* sourc
         hit.element = packet.data[offhand ? 36 : 34];
         hit.weaponType = packet.data[offhand ? 37 : 35];
         hit.weaponImpactElement = hit.element;
-        return hit;
+        return ApplySpellFistAttackElement(hit, sourceActor, skillId);
     }
     // Legacy packets have no property or damage-kind fields. Skill metadata
     // and the local inventory/statuses can supply the additional neutral layer.
@@ -4041,7 +4096,47 @@ CombatHitAudio ResolveCombatHitAudio(const PacketView& packet, CGameActor* sourc
                 hit.weaponType, hit.weaponImpactElement, offhand ? 1 : 0);
         }
     }
-    return hit;
+    return ApplySpellFistAttackElement(hit, sourceActor, skillId);
+}
+
+int ResolveElementalHitEffectId(const CombatHitAudio& hit, u16 skillId = 0)
+{
+    const SkillDamageAudio* skill = FindSkillDamageAudio(skillId);
+    const bool weaponElementMagic = hit.kind == CombatDamageKind::Magic
+        && (skillId == kSpellFistAttackSkillId || (skill && skill->element == -1));
+    if (hit.kind != CombatDamageKind::Physical && !weaponElementMagic) {
+        return -1;
+    }
+
+    const int element = hit.weaponImpactElement >= 0 ? hit.weaponImpactElement : hit.element;
+    switch (element) {
+    case 1: return 50143; // Water.
+    case 2: return 50144; // Earth.
+    case 3: return 50145; // Fire.
+    case 4: return 50146; // Wind.
+    case 5: return 50147; // Poison.
+    case 6: return 50148; // Holy.
+    case 7: return 50149; // Dark.
+    case 8: return 50150; // Ghost.
+    default: return -1;
+    }
+}
+
+void EmitElementalHitEffects(CGameActor* targetActor, u16 skillId, int damage, u8 actionType,
+    const std::vector<u32>& hitDelays, const CombatHitAudio& hitAudio)
+{
+    if (!targetActor || damage <= 0 || actionType == kNotifyActLuckyDodge) {
+        return;
+    }
+    const int effectId = ResolveElementalHitEffectId(hitAudio, skillId);
+    if (effectId < 0) {
+        return;
+    }
+    for (u32 delayMs : hitDelays) {
+        if (CRagEffect* effect = targetActor->LaunchEffect(effectId, vector3d{}, 0.0f)) {
+            effect->SetStartDelayMs(delayMs);
+        }
+    }
 }
 
 std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
@@ -4052,8 +4147,9 @@ std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetAc
         return hitDelays;
     }
     hitDelays.reserve(hitDamages.size());
+    std::vector<DamageTotalUpdate> totalUpdates;
+    if (hitDamages.size() > 1) totalUpdates.reserve(hitDamages.size());
     s64 totalDamage = 0;
-    u32 lastHitDelayMs = 0;
     for (size_t hitIndex = 0; hitIndex < hitDamages.size(); ++hitIndex) {
         const int hitDamage = hitDamages[hitIndex];
         const bool isWhite = IsWhiteDamageNumber(ResolveCombatNumberKind(hitDamage, actionType),
@@ -4067,17 +4163,17 @@ std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetAc
         const u32 displayDelayMs = EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
             impactDelayMs + static_cast<u32>(hitIndex) * intervalMs, false);
         hitDelays.push_back(displayDelayMs);
-        lastHitDelayMs = (std::max)(lastHitDelayMs, displayDelayMs);
         if (hitDamage > 0) {
             totalDamage += hitDamage;
+            if (hitDamages.size() > 1) {
+                const int totalValue = static_cast<int>((std::min)(totalDamage,
+                    static_cast<s64>((std::numeric_limits<int>::max)())));
+                totalUpdates.push_back({ displayDelayMs, totalValue });
+            }
         }
     }
-    if (hitDamages.size() > 1 && totalDamage > 0) {
-        const int totalValue = static_cast<int>((std::min)(totalDamage,
-            static_cast<s64>((std::numeric_limits<int>::max)())));
-        const u32 totalDelayMs = lastHitDelayMs + GetYellowDamageNumberSettings().delayAfterLastHitMs;
-        targetActor->QueueDamageNumber(sourceActor, totalValue, 0xFFFFFF00u,
-            kTotalDamageNumberKind, totalDelayMs);
+    if (!totalUpdates.empty()) {
+        targetActor->QueueDamageTotal(sourceActor, std::move(totalUpdates));
     }
     return hitDelays;
 }
@@ -4265,14 +4361,17 @@ void QueueTimedAttackHit(CGameActor* sourceActor,
     hitInfo.attackedMotionTime = attackedMT;
     hitInfo.damage = damage < 0 ? -damage : damage;
     if (damage != 0) {
-        hitInfo.damageColor = ResolveCombatNumberColor(sourceActor, *targetActor, damage, actionType);
-        hitInfo.damageKind = ResolveCombatNumberKind(damage, actionType);
+        const u8 numberActionType = actionType == kNotifyActMultiHitCriticalDamage
+            ? kNotifyActCriticalDamage : actionType;
+        hitInfo.damageColor = ResolveCombatNumberColor(sourceActor, *targetActor, damage, numberActionType);
+        hitInfo.damageKind = ResolveCombatNumberKind(damage, numberActionType);
     }
     hitInfo.damageDestX = targetActor->m_pos.x;
     hitInfo.damageDestZ = targetActor->m_pos.z;
     if (actionType != kNotifyActLuckyDodge) {
         hitInfo.hitAudio = hitAudio;
         hitInfo.playHitSound = damage > 0;
+        if (damage > 0) hitInfo.elementalHitEffectId = ResolveElementalHitEffectId(hitAudio);
     }
     targetActor->QueueWillBeAttacked(hitInfo);
 }
@@ -5094,6 +5193,18 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
         return;
     }
 
+    if (skillId == kSpellFistAttackSkillId) {
+        int weaponMotionMs = attackMotionMs > 0 ? attackMotionMs : kDefaultAttackMotionTime;
+        if (IsLocalActorId(actor->m_gid) && g_session.m_aspd > 0 && g_session.m_aspd <= 200) {
+            // Spell Fist's hidden damage packet uses a fixed display delay.
+            // Animate the weapon with the player's current ASPD instead, so
+            // the next hit does not restart a partially played slow swing.
+            weaponMotionMs = (std::max)(1, 2000 - g_session.m_aspd * 10);
+        }
+        StartAttackAnimation(actor, targetActor, weaponMotionMs);
+        return;
+    }
+
     const UseSkillPacketInfo packetInfo = skillId != 0 ? ResolveUseSkillPacketInfo(skillId) : UseSkillPacketInfo{};
     const SkillPresentation* presentation = FindSkillPresentation(skillId);
     if (skillId != 0) {
@@ -5409,9 +5520,9 @@ public:
           m_playDelays(std::move(playDelays)), m_startTick(timeGetTime()) {}
 
     CScheduledSkillSounds(CGameActor* target, const vector3d& position, const CombatHitAudio& hitAudio,
-        std::vector<u32> playDelays, std::string skillHitWavPath = {})
+        std::vector<u32> playDelays, std::string skillHitWavPath = {}, bool spellFistAttack = false)
         : m_target(target), m_position(position), m_wavPath(std::move(skillHitWavPath)),
-          m_hitAudio(hitAudio), m_combatHit(true),
+          m_hitAudio(hitAudio), m_combatHit(true), m_spellFistAttack(spellFistAttack),
           m_playDelays(std::move(playDelays)), m_startTick(timeGetTime()) {}
 
     u8 OnProcess() override
@@ -5420,7 +5531,8 @@ public:
         const u32 elapsedMs = timeGetTime() - m_startTick;
         while (m_nextPlay < m_playDelays.size() && elapsedMs >= m_playDelays[m_nextPlay]) {
             if (m_combatHit) {
-                const auto hitWaves = CombatHitWaves(m_hitAudio, static_cast<u32>(std::rand()));
+                const u32 randomValue = static_cast<u32>(std::rand());
+                const auto hitWaves = CombatHitWaves(m_hitAudio, randomValue, m_spellFistAttack);
                 for (const char* wave : hitWaves) {
                     if (wave) TryPlayEffectWaveAtPosition(m_position, wave);
                 }
@@ -5429,6 +5541,11 @@ public:
                 if (!m_wavPath.empty() && std::none_of(hitWaves.begin(), hitWaves.end(),
                         [this](const char* wave) { return wave && m_wavPath == wave; })) {
                     TryPlayEffectWaveAtPosition(m_position, m_wavPath);
+                }
+                if (m_spellFistAttack) {
+                    if (const char* weaponWave = CombatWeaponWave(m_hitAudio.weaponType, randomValue)) {
+                        TryPlayEffectWaveAtPosition(m_position, weaponWave);
+                    }
                 }
             } else {
                 TryPlayEffectWaveAtPosition(m_position, m_wavPath);
@@ -5452,6 +5569,7 @@ private:
     std::string m_wavPath;
     CombatHitAudio m_hitAudio;
     bool m_combatHit = false;
+    bool m_spellFistAttack = false;
     std::vector<u32> m_playDelays;
     u32 m_startTick;
     size_t m_nextPlay = 0;
@@ -5520,7 +5638,8 @@ static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sour
         previousDelayMs = delayMs;
     }
     mode.m_world->m_gameObjectList.push_back(new CScheduledSkillSounds(positionDamage ? nullptr : targetActor,
-        position, hitAudio, std::move(hitDelays), presentation ? presentation->hitWavPath : std::string{}));
+        position, hitAudio, std::move(hitDelays), presentation ? presentation->hitWavPath : std::string{},
+        skillId == kSpellFistAttackSkillId));
 }
 
 // EzStr world effects do not emit audio from keyframes; timed casts no longer attach begin-spell STR (which
@@ -5905,10 +6024,11 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         SpawnSoulStrikeProjectiles(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
             displayHitCount, hitDelays);
     }
+    EmitElementalHitEffects(targetActor, skillId, damage, actionType, hitDelays, hitAudio);
     PlaySkillDamageSounds(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
         damage, actionType, std::move(hitDelays), hitAudio);
 
-    DbgLog("[GameMode] skill damage opcode=0x%04X src=%u dst=%u skill=%u level=%u damage=%d div=%u type=%u\n",
+    DbgLog("[GameMode] skill damage opcode=0x%04X src=%u dst=%u skill=%u level=%u damage=%d div=%u type=%u kind=%d element=%d\n",
         packet.packetId,
         srcGid,
         dstGid,
@@ -5916,7 +6036,9 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         static_cast<unsigned int>(level),
         damage,
         static_cast<unsigned int>(div),
-        static_cast<unsigned int>(actionType));
+        static_cast<unsigned int>(actionType),
+        static_cast<int>(hitAudio.kind),
+        hitAudio.element);
 }
 
 void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
@@ -5997,6 +6119,7 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
     }
 
     EmitGroundSkillEffects(mode, skillId, level, impactPos, displayHitCount);
+    EmitElementalHitEffects(targetActor, skillId, damage, actionType, hitDelays, hitAudio);
     PlaySkillDamageSounds(mode, skillId, sourceActor, targetActor, impactPos,
         damage, actionType, std::move(hitDelays), hitAudio, true);
     DbgLog("[GameMode] skill damage pos src=%u dst=%u skill=%u level=%u damage=%d div=%u cell=(%d,%d)\n",
@@ -6070,6 +6193,20 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     CGameActor* targetActor = ResolveCombatActor(mode, dstGid, true);
     const UseSkillPacketInfo packetInfo = ResolveUseSkillPacketInfo(skillId);
     const u32 now = timeGetTime();
+    if (sourceActor && skillId == kSkillIdSpellFist && result != 0) {
+        // Choose and play both layers locally before cancellation clears the
+        // interrupted skill. No special-effect notification is required.
+        if (const auto* spellFist = FindSpellFistEffectPair(sourceActor->m_castingSkillId)) {
+            sourceActor->m_spellFistCastSkillId = spellFist->castSkillId;
+            sourceActor->m_spellFistEffectUntilTick = now + 2000u;
+            sourceActor->m_spellFistAttackElement = spellFist->element;
+            sourceActor->LaunchEffect(spellFist->mainEffectId, vector3d{}, 0.0f);
+            sourceActor->LaunchEffect(spellFist->bottomEffectId, vector3d{}, 0.0f);
+            DbgLog("[GameMode] spell fist presentation actor=%u interruptedSkill=%u main=%d bottom=%d\n",
+                srcGid, static_cast<unsigned int>(spellFist->castSkillId),
+                spellFist->mainEffectId, spellFist->bottomEffectId);
+        }
+    }
     if (sourceActor && skillId == 2016) sourceActor->m_vigorEffectSuppressUntilTick = 0;
     const bool parryTrigger = skillId == kSkillIdParry
         && (!sourceActor || sourceActor->m_parryCastAckUntilTick == 0

@@ -21,6 +21,7 @@ struct CombatHitAudio {
 inline constexpr std::uint16_t kActorDamageAudioPacket = 0x7F10;
 inline constexpr std::uint16_t kSkillDamageAudioPacket = 0x7F11;
 inline constexpr int kDamageAudioPacketSize = 38;
+inline constexpr std::uint16_t kSpellFistAttackSkillId = 158;
 
 struct CombatWeaponInfo {
     int firstItemId;
@@ -41,17 +42,17 @@ inline const CombatWeaponInfo* FindCombatWeaponInfo(int itemId)
     return nullptr;
 }
 
-inline const char* CombatElementWave(int element)
+inline const char* CombatElementWave(int element, bool weaponHit = false)
 {
     switch (element) {
     case 0: return "data\\wav\\effect\\cd_reparatio1.wav";
     case 1: return "data\\wav\\effect\\bo_acidified_zone_water.wav";
-    case 2: return "data\\wav\\_stone_explosion.wav";
+    case 2: return weaponHit ? "data\\wav\\_stonecurse.wav" : "data\\wav\\_stone_explosion.wav";
     case 3: return "data\\wav\\effect\\ef_fireball.wav";
-    case 4: return "data\\wav\\effect\\h_moonlight_2.wav";
+    case 4: return "data\\wav\\effect\\s\xC0\xCF\xB7\xBA\xC6\xAE\xB8\xAF\xBF\xF6\xC5\xA9.wav";
     case 5: return "data\\wav\\_poison.wav";
     case 6: return "data\\wav\\effect\\dk_chargingpierce2.wav";
-    case 7: return "data\\wav\\effect\\bo_hell_howling.wav";
+    case 7: return weaponHit ? "data\\wav\\effect\\ef_firearrow1.wav" : "data\\wav\\effect\\bo_hell_howling.wav";
     case 8: return "data\\wav\\effect\\dk_servant_w_demol.wav";
     default: return nullptr;
     }
@@ -125,9 +126,9 @@ inline const char* CombatNeutralWeaponWave(const CombatHitAudio& hit, std::uint3
 }
 
 inline std::array<const char*, 3> CombatHitWaves(const CombatHitAudio& hit,
-    std::uint32_t randomValue)
+    std::uint32_t randomValue, bool spellFistAttack = false)
 {
-    if (hit.kind == CombatDamageKind::Magic) return { CombatElementWave(hit.element), nullptr };
+    if (hit.kind == CombatDamageKind::Magic) return { CombatElementWave(hit.element, spellFistAttack), nullptr };
     if (hit.kind != CombatDamageKind::Physical) return { nullptr, nullptr };
     if (!hit.player && hit.element == 0) {
         static constexpr const char* waves[] = {
@@ -141,7 +142,7 @@ inline std::array<const char*, 3> CombatHitWaves(const CombatHitAudio& hit,
     const char* neutralWave = CombatNeutralWeaponWave(hit, randomValue);
     // The book already uses the requested WAV. Play it once per hit.
     if (weaponWave && neutralWave && std::strcmp(weaponWave, neutralWave) == 0) neutralWave = nullptr;
-    return { weaponWave, hit.element > 0 ? CombatElementWave(hit.element) : nullptr, neutralWave };
+    return { weaponWave, hit.element > 0 ? CombatElementWave(hit.element, true) : nullptr, neutralWave };
 }
 
 struct SkillDamageAudio {
@@ -170,7 +171,7 @@ inline const SkillDamageAudio* FindSkillDamageAudio(int skillId)
 
 inline bool UsesDedicatedMagicHitAudio(int skillId, const CombatHitAudio& hit, std::size_t hitCount)
 {
-    if (hit.kind != CombatDamageKind::Magic) return false;
+    if (hit.kind != CombatDamageKind::Magic || skillId == kSpellFistAttackSkillId) return false;
     const SkillDamageAudio* skill = FindSkillDamageAudio(skillId);
     return hitCount == 1 && (!skill || skill->singleHit);
 }

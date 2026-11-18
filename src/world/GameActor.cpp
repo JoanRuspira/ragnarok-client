@@ -31,6 +31,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -694,6 +695,10 @@ void ApplyQueuedHitReaction(CGameActor& actor, const WBA& hitInfo)
         for (const char* wave : CombatHitWaves(hitInfo.hitAudio, static_cast<u32>(std::rand()))) {
             if (wave) TryPlayQueuedWaveAtActor(actor, wave);
         }
+    }
+
+    if (hitInfo.elementalHitEffectId >= 0) {
+        actor.LaunchEffect(hitInfo.elementalHitEffectId, vector3d{}, 0.0f);
     }
 
     if (actor.m_stateId == kDeathStateId) {
@@ -5850,6 +5855,20 @@ u32 CGameActor::QueueDamageNumber(CGameActor* sourceActor, int value, u32 colorA
         effect->SetStartDelayMs(delayMs);
     }
     return delayMs;
+}
+
+void CGameActor::QueueDamageTotal(CGameActor* sourceActor, std::vector<DamageTotalUpdate> updates)
+{
+    if (updates.empty()) return;
+
+    const u32 firstHitDelayMs = updates.front().delayMs;
+    if (CMsgEffect* effect = SpawnDamageNumberEffect(*this, sourceActor, updates.front().value,
+            0xFFFFFF00u, kTotalDamageNumberKind)) {
+        for (DamageTotalUpdate& update : updates) update.delayMs -= firstHitDelayMs;
+        effect->SetDamageTotalUpdates(std::move(updates));
+        effect->SetStartDelayMs(firstHitDelayMs);
+        if (firstHitDelayMs == 0) DeleteTotalNumber(kTotalDamageNumberKind, effect);
+    }
 }
 
 void CGameActor::SetModifyFactorOfmotionSpeed(int attackMT)

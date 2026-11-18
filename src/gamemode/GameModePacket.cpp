@@ -566,7 +566,7 @@ bool ApplySelfStatusUpdate(CGameMode& mode, u32 statusType, u32 value);
 void ClearAttachedSkillEffects(CGameActor* actor, int preserveBeginEffectId = -1);
 CRagEffect* SpawnWorldSkillEffect(CGameMode& mode, int effectId, const vector3d& position);
 void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
-    u16 skillId = 0, CGameActor* targetActor = nullptr, u16 hitCount = 1);
+    u16 skillId = 0, CGameActor* targetActor = nullptr, u16 hitCount = 1, u16 skillLevel = 0);
 
 int ResolveHealVisualEffectId(u32 amount)
 {
@@ -1109,7 +1109,49 @@ void MakePotionEffect(CGameMode& mode, unsigned int itemId, u32 actorId)
         effectId);
 }
 
-void HandleUseItemAck2(CGameMode&, const PacketView& packet)
+void HandleElementalInfo(CGameMode& mode, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 22) return;
+    const u32 gid = ReadLE32(packet.data + 2);
+    if (mode.m_ownedElementalGid != 0 && mode.m_ownedElementalGid != gid) {
+        mode.m_elementalVitals.erase(mode.m_ownedElementalGid);
+    }
+    mode.m_ownedElementalGid = gid;
+    if (gid == 0) return;
+    mode.m_elementalVitals[gid] = { g_session.m_aid != 0 ? g_session.m_aid : g_session.m_gid,
+        ReadLE32(packet.data + 6), ReadLE32(packet.data + 10),
+        ReadLE32(packet.data + 14), ReadLE32(packet.data + 18) };
+    DbgLog("[GameMode] elemental info gid=%u hp=%u/%u sp=%u/%u\n", gid,
+        ReadLE32(packet.data + 6), ReadLE32(packet.data + 10),
+        ReadLE32(packet.data + 14), ReadLE32(packet.data + 18));
+}
+
+void HandleElementalStatus(CGameMode& mode, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 8) return;
+    const auto it = mode.m_elementalVitals.find(mode.m_ownedElementalGid);
+    if (it == mode.m_elementalVitals.end()) return;
+    const u32 value = ReadLE32(packet.data + 4);
+    switch (ReadLE16(packet.data + 2)) {
+    case 5: it->second.hp = value; break;
+    case 6: it->second.maxHp = value; break;
+    case 7: it->second.sp = value; break;
+    case 8: it->second.maxSp = value; break;
+    }
+}
+
+void HandleFriendlyElementalVitals(CGameMode& mode, const PacketView& packet)
+{
+    if (!packet.data || packet.packetLength < 26) return;
+    const u32 gid = ReadLE32(packet.data + 2);
+    const u32 ownerAid = ReadLE32(packet.data + 6);
+    if (gid == 0 || ownerAid == 0) return;
+    mode.m_elementalVitals[gid] = { ownerAid,
+        ReadLE32(packet.data + 10), ReadLE32(packet.data + 14),
+        ReadLE32(packet.data + 18), ReadLE32(packet.data + 22) };
+}
+
+void HandleUseItemAck2(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 13) {
         return;
@@ -1124,6 +1166,13 @@ void HandleUseItemAck2(CGameMode&, const PacketView& packet)
     const unsigned int actorId = ReadLE32(packet.data + 6);
     const int remainingAmount = static_cast<int>(ReadLE16(packet.data + 10));
     const bool ok = packet.data[12] != 0;
+
+    // These scrolls select the summon level before the level-less casting notification.
+    if (ok && itemId >= 39 && itemId <= 42) {
+        if (CGameActor* actor = ResolveNotifyEffectActor(mode, actorId)) {
+            actor->NoteElementalSummonRequest(static_cast<int>(itemId - 38));
+        }
+    }
 
     if (IsLocalActorId(actorId)) {
         if (CGameMode* gameMode = g_modeMgr.GetCurrentGameMode()) {
@@ -1231,7 +1280,7 @@ void ShowIdentifyWindow(const std::vector<unsigned int>& itemIndices)
     window->SetIdentifyItemIndices(itemIndices);
 }
 
-bool SendIdentifySkillUseRequest()
+bool SendAutoRunSelfSkillUseRequest(u16 skillId, u16 skillLevel)
 {
     const u32 targetGid = g_session.m_gid != 0 ? g_session.m_gid : g_session.m_aid;
     if (targetGid == 0) {
@@ -1243,8 +1292,8 @@ bool SendIdentifySkillUseRequest()
     if (profile.id == ro::net::MapGameplaySendProfileId::PacketVer22) {
         PACKET_CZ_USESKILLTOID_PACKETVER22 packet{};
         packet.PacketType = profile.useSkillToId;
-        packet.SkillLevel = 1;
-        packet.SkillId = kSkillMerchantIdentify;
+        packet.SkillLevel = skillLevel;
+        packet.SkillId = skillId;
         packet.TargetGID = targetGid;
         sent = CRagConnection::instance()->SendPacket(
             reinterpret_cast<const char*>(&packet),
@@ -1252,31 +1301,46 @@ bool SendIdentifySkillUseRequest()
     } else {
         PACKET_CZ_USESKILLTOID2 packet{};
         packet.PacketType = profile.useSkillToId;
-        packet.SkillLevel = 1;
-        packet.SkillId = kSkillMerchantIdentify;
+        packet.SkillLevel = skillLevel;
+        packet.SkillId = skillId;
         packet.TargetGID = targetGid;
         sent = CRagConnection::instance()->SendPacket(
             reinterpret_cast<const char*>(&packet),
             static_cast<int>(sizeof(packet)));
     }
-    DbgLog("[GameMode] autorun skill MC_IDENTIFY request target=%u sent=%d\n",
+    DbgLog("[GameMode] autorun self skill request skill=%u level=%u target=%u sent=%d\n",
+        static_cast<unsigned int>(skillId),
+        static_cast<unsigned int>(skillLevel),
         static_cast<unsigned int>(targetGid),
         sent ? 1 : 0);
     return sent;
 }
 
-void HandleAutoRunSkill(CGameMode&, const PacketView& packet)
+void HandleAutoRunSkill(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 39) {
         return;
     }
 
-    const unsigned int skillId = static_cast<unsigned int>(ReadLE16(packet.data + 2));
-    if (skillId != kSkillMerchantIdentify) {
+    const u16 skillId = ReadLE16(packet.data + 2);
+    const u32 skillType = ReadLE32(packet.data + 4);
+    const u16 skillLevel = ReadLE16(packet.data + 8);
+    if (skillId == 0 || skillLevel == 0) {
         return;
     }
 
-    SendIdentifySkillUseRequest();
+    constexpr u32 kSelfTargetSkill = 0x04;
+    if (skillId != kSkillMerchantIdentify && (skillType & kSelfTargetSkill) == 0) {
+        DbgLog("[GameMode] autorun skill unsupported target type skill=%u level=%u type=0x%08X\n",
+            static_cast<unsigned int>(skillId), static_cast<unsigned int>(skillLevel), skillType);
+        return;
+    }
+
+    if (SendAutoRunSelfSkillUseRequest(skillId, skillLevel) && skillId == kSkillIdSummonElemental) {
+        if (CGameActor* actor = ResolveNotifyEffectActor(mode, g_session.m_aid)) {
+            actor->NoteElementalSummonRequest(skillLevel);
+        }
+    }
 }
 
 void HandleItemIdentifyList(CGameMode&, const PacketView& packet)
@@ -3511,6 +3575,8 @@ bool IsSameMapAlreadyLoaded(const CGameMode& mode, const MapChangeInfo& info)
 void PrepareSameMapWarpReuse(CGameMode& mode)
 {
     mode.ReleaseHeldAttack();
+    mode.m_elementalVitals.clear();
+    mode.m_ownedElementalGid = 0;
     CPlayer* const player = mode.m_world ? mode.m_world->m_player : nullptr;
     if (!player) {
         return;
@@ -5187,7 +5253,7 @@ void MaybeStartGrimtoothSourcePresentation(CGameActor* sourceActor, u32 srcGid, 
 }
 
 void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int attackMotionMs,
-    u16 skillId, CGameActor* targetActor, u16 hitCount)
+    u16 skillId, CGameActor* targetActor, u16 hitCount, u16 skillLevel)
 {
     if (!actor) {
         return;
@@ -5261,11 +5327,12 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     InvalidateActorBillboard(actor);
 
     CGameActor* effectActor = packetInfo.useTargetSlot && targetActor ? targetActor : actor;
-    const auto launchSourceEffect = [effectActor, targetPos](int effectId) -> CRagEffect* {
+    const auto launchSourceEffect = [effectActor, targetPos, skillLevel](int effectId) -> CRagEffect* {
         if (effectId <= 0) {
             return nullptr;
         }
         CRagEffect* effect = effectActor->LaunchEffect(effectId, vector3d{}, 0.0f);
+        if (effect) effect->ApplySkillLevelTint(skillLevel);
         if (effect && targetPos) {
             effect->SendMsg(effect, 14, reinterpret_cast<msgparam_t>(targetPos), 0, 0);
         }
@@ -5804,6 +5871,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         ? targetActor->m_pos
         : ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
+    const int castSkillLevel = skillId == kSkillIdSummonElemental
+        ? sourceActor->ConsumeElementalSummonRequestLevel() : 0;
+
     // A fresh acknowledgement re-arms only this skill, including instant casts.
     sourceActor->ResetSkillPresentationForCast(skillId);
 
@@ -5821,6 +5891,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     // Most instant skills receive their action/effects from the successful-use packet.
     if (castTimeMs <= 0) {
+        if (skillId == kSkillIdSummonElemental) {
+            PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::Casting, sourceActor->m_pos);
+        }
         // Stone Curse sends only this acknowledgement and the target's effect,
         // so present the configured caster/target effects and skill-name shout here.
         if (skillId == kSkillIdStoneCurse) {
@@ -5910,7 +5983,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     if (presentation) {
         for (int effectId : presentation->castingEffects) {
-            sourceActor->LaunchCastingEffect(effectId, castTimeMs);
+            if (CRagEffect* effect = sourceActor->LaunchCastingEffect(effectId, castTimeMs)) {
+                effect->ApplySkillLevelTint(castSkillLevel);
+            }
         }
         const vector3d groundPos = ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
         for (int effectId : presentation->castingGroundEffects) {
@@ -6232,13 +6307,23 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     // Their target barrier is emitted independently below.
     if (sourceActor && (result != 0 || sphereSummonCompleted)
         && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
+        const u16 skillLevel = skillId == kSkillIdSummonElemental ? levelOrAmount : 0;
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
-            kDefaultSkillMotionTime, skillId, targetActor);
+            kDefaultSkillMotionTime, skillId, targetActor, 1, skillLevel);
     }
 
     if ((result != 0 || sphereSummonCompleted) && (targetActor || sourceActor)) {
         PlayConfiguredSkillSound(skillId, SkillSoundPresentation::Trigger::NoDamage,
             targetActor ? targetActor->m_pos : sourceActor->m_pos);
+    }
+
+    if (sourceActor && result != 0 && skillId == kSkillIdSummonElemental) {
+        constexpr std::array<int, 4> kSummonElementsByLevel = { 2, 4, 1, 3 }; // Tera, Ventus, Aqua, Agni.
+        if (levelOrAmount >= 1 && levelOrAmount <= kSummonElementsByLevel.size()) {
+            if (const char* wav = CombatElementWave(kSummonElementsByLevel[levelOrAmount - 1])) {
+                TryPlayEffectWaveAtPosition(sourceActor->m_pos, wav);
+            }
+        }
     }
 
     if (sourceActor && sourceActor == targetActor && result != 0 && skillId == kSkillIdStasis) {
@@ -9415,6 +9500,8 @@ void HandleActorVanish(CGameMode& mode, const PacketView& packet)
 
     const u32 gid = ReadLE32(packet.data + 2);
     const u8 reason = packet.data[6];
+    mode.m_elementalVitals.erase(gid);
+    if (mode.m_ownedElementalGid == gid) mode.m_ownedElementalGid = 0;
     DbgLog("[GameMode] vanish gid=%u reason=%u\n", gid, static_cast<unsigned int>(reason));
     if (const auto groundItemIt = mode.m_groundItemList.find(gid); groundItemIt != mode.m_groundItemList.end()) {
         DbgLog("[GroundItem] vanish overlaps item obj=%u item=%u amount=%u reason=%u\n",
@@ -9945,6 +10032,9 @@ void RegisterDefaultGameModePacketHandlers(CGameModePacketRouter& router)
     router.Register(0x00AC, HandleUnequipItemAck);
     RegisterHandlerIfValid(router, receiveProfile.useItemAckBasic, HandleUseItemAck);
     router.Register(0x0147, HandleAutoRunSkill);
+    router.Register(0x081D, HandleElementalInfo);
+    router.Register(0x081E, HandleElementalStatus);
+    router.Register(0x7F12, HandleFriendlyElementalVitals);
     router.Register(0x017B, HandleItemCompositionList);
     router.Register(0x0177, HandleItemIdentifyList);
     router.Register(0x017D, HandleItemCompositionAck);

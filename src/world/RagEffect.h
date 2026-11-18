@@ -220,6 +220,7 @@ public:
     bool IsFreezeStatusLoop() const { return m_freezeStatusOwned; }
     bool IsSphereStatusEffect() const { return m_type >= kRagEffectSphereSlotFirst && m_type <= kRagEffectSphereSlotLast; }
     void SetCastDurationMs(int milliseconds);
+    void ApplySkillLevelTint(int level);
     // Keep the caster as lifetime owner while anchoring a cast marker to its cell.
     void FixWorldPosition(const vector3d& position) { m_fixedWorldPosition = position; }
     // The caster owns cleanup while the visual follows another actor.
@@ -279,6 +280,8 @@ private:
     vector3d m_sonicWaveDirection{};
     vector3d m_soulExchangeStartPos{};
     vector3d m_soulExchangeEndPos{};
+    vector3d m_flameBreathStartPos{};
+    vector3d m_flameBreathEndPos{};
     bool m_presentationStarted = false;
     u32 m_presentationStartTick = 0;
     bool m_bloodsportMistStatusOwned = false;
@@ -301,6 +304,7 @@ private:
         GuardSphere,
         SonicWave,
         SoulExchange,
+        FlameBreath,
         GroundCircle,
         GrandCross,
         SpriteFlash,
@@ -370,6 +374,7 @@ private:
     void RenderGuardSphere(const matrix& viewMatrix);
     void RenderSonicWave(const matrix& viewMatrix);
     void RenderSoulExchange(const matrix& viewMatrix);
+    void RenderFlameBreath(const matrix& viewMatrix);
     void RenderGroundCircle(const matrix& viewMatrix);
     void RenderGrandCross(const matrix& viewMatrix);
     void StartBuffEffect();

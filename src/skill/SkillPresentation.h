@@ -77,6 +77,16 @@ struct SkillSoulExchangePresentation {
     float height = 10.0f;
 };
 
+struct SkillFlameBreathPresentation {
+    std::string wavPath;
+    int durationMs = 1100;
+    int travelMs = 320;
+    int color = 0x309CFF;
+    int coreColor = 0xB8F4FF;
+    float radius = 2.8f;
+    float height = 14.0f;
+};
+
 // A textured ground marker, sized in map cells rather than screen pixels.
 struct SkillGroundCirclePresentation {
     std::string texturePath;
@@ -86,7 +96,9 @@ struct SkillGroundCirclePresentation {
 };
 
 struct SkillEffectPresentation {
-    enum class Renderer { Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, SoulExchange, GroundCircle };
+    enum class Renderer {
+        Str, DirectionalStr, BodyBurst, GuardSphere, SonicWave, SoulExchange, FlameBreath, GroundCircle
+    };
     Renderer renderer = Renderer::Str;
     std::vector<SkillEffectVariant> variants;
     std::vector<std::string> additionalStrPaths; // Simultaneous STR layers sharing this effect's lifetime.
@@ -95,6 +107,7 @@ struct SkillEffectPresentation {
     SkillGuardSpherePresentation guardSphere;
     SkillSonicWavePresentation sonicWave;
     SkillSoulExchangePresentation soulExchange;
+    SkillFlameBreathPresentation flameBreath;
     SkillGroundCirclePresentation groundCircle;
     std::string loopWavPath; // Plays while this effect is looping, independently of visual cadence.
     bool bottomEffect = false;
@@ -105,6 +118,7 @@ struct SkillEffectPresentation {
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
     int saturationPercent = 100; // STR color saturation; 0 makes a white/gray glow.
     int tint = 0xFFFFFF;
+    std::map<int, int> skillLevelTints;
     bool groundPlane = false; // Project STR coordinates onto the world XZ plane.
     float rotationSpeed = 0.0f; // Additional STR rotation, in radians per second.
     bool loop = false;

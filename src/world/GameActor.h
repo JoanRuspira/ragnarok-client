@@ -39,6 +39,7 @@ constexpr int kStatusTypeSphere2 = 364; // EFST_SUMMON2
 constexpr int kStatusTypeSphere3 = 365; // EFST_SUMMON3
 constexpr int kStatusTypeSphere4 = 366; // EFST_SUMMON4
 constexpr int kSkillIdSummonElementalSpheres = 2222;
+constexpr int kSkillIdSummonElemental = 2460;
 
 struct ACTOR_COLOR {
     u8 a, r, g, b;
@@ -262,6 +263,8 @@ public:
     const std::string& GetChatBubbleText() const { return m_chatBubbleText; }
     void ResetSkillPresentationForCast(int skillId);
     bool BeginSkillPresentation(int skillId, const std::string& name, u32 now, bool oncePerCast = false);
+    void NoteElementalSummonRequest(int level);
+    int ConsumeElementalSummonRequestLevel();
     bool HasActiveSkillName(u32 now) const;
     const std::string& GetSkillNameText() const { return m_skillNameText; }
     bool IsFreezeStatusActive() const;
@@ -327,6 +330,8 @@ public:
     int m_lastPresentedSkillId = 0;
     std::set<int> m_presentedCastSkillIds;
     u16 m_castingSkillId = 0;
+    int m_pendingElementalSummonLevel = 0;
+    u32 m_pendingElementalSummonTick = 0;
     u16 m_spellFistCastSkillId = 0;
     u32 m_spellFistEffectUntilTick = 0;
     int m_spellFistAttackElement = -1; // Retained for the separate empowered-hit packets.

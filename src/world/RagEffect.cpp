@@ -4224,6 +4224,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_sonicWaveDirection = vector3d{};
     m_soulExchangeStartPos = vector3d{};
     m_soulExchangeEndPos = vector3d{};
+    m_flameBreathStartPos = vector3d{};
+    m_flameBreathEndPos = vector3d{};
     m_presentationStarted = false;
     m_presentationStartTick = 0;
     m_bloodsportMistStatusOwned = false;
@@ -4284,6 +4286,15 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             m_presentationTexture = TryResolveEffectTextureCandidates({ presentation->groundCircle.texturePath.c_str() });
             SetLooping(presentation->loop);
             if (!m_presentationTexture) DbgLog("[SkillPresentation] missing texture '%s'\n", presentation->groundCircle.texturePath.c_str());
+            return;
+        }
+        if (presentation->renderer == SkillEffectPresentation::Renderer::FlameBreath) {
+            m_handler = Handler::FlameBreath;
+            m_proceduralPresentation = presentation;
+            m_presentationOffsetY = presentation->offsetY;
+            m_duration = static_cast<int>(std::ceil(presentation->flameBreath.durationMs / kEffectTickMs));
+            m_presentationTexture = GetSoftGlowTexture(true);
+            m_pendingPresentationSound = presentation->flameBreath.wavPath;
             return;
         }
         if (presentation->renderer == SkillEffectPresentation::Renderer::SoulExchange) {
@@ -4971,6 +4982,21 @@ CEffectPrim* CRagEffect::LaunchEffectPrim(EFFECTPRIMID effectPrimId, const vecto
     return prim;
 }
 
+void CRagEffect::ApplySkillLevelTint(int level)
+{
+    if (level <= 0) return;
+    const SkillEffectPresentation* presentation = FindSkillEffectPresentation(m_type);
+    if (!presentation) return;
+    const auto tint = presentation->skillLevelTints.find(level);
+    if (tint == presentation->skillLevelTints.end()) return;
+    m_presentationSaturationPercent = 0;
+    m_presentationTint = static_cast<u32>(tint->second);
+    for (auto& component : m_componentEffects) {
+        component->m_presentationSaturationPercent = m_presentationSaturationPercent;
+        component->m_presentationTint = m_presentationTint;
+    }
+}
+
 void CRagEffect::DetachFromMaster(CRenderObject* knownMaster)
 {
     if (IsSkillUnitArea() || m_type == kRagEffectDevotionLink || m_type == kRagEffectEnergyCoatAura
@@ -5139,6 +5165,20 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
             + wave.radius * 2.0f + wave.height;
         break;
     }
+    case Handler::FlameBreath: {
+        const auto& breath = m_proceduralPresentation->flameBreath;
+        vector3d start = m_presentationStarted ? m_flameBreathStartPos : base;
+        vector3d end = m_presentationStarted ? m_flameBreathEndPos : (m_hasTargetPos ? m_targetPos : base);
+        if (!m_presentationStarted) {
+            start.y += m_presentationOffsetY - breath.height;
+            end.y += m_presentationOffsetY - breath.height;
+        }
+        center = ScaleVec3(AddVec3(start, end), 0.5f);
+        const vector3d delta = AddVec3(end, ScaleVec3(start, -1.0f));
+        radius = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z) * 0.5f
+            + breath.radius * 9.0f;
+        break;
+    }
     case Handler::SoulExchange: {
         const auto& exchange = m_proceduralPresentation->soulExchange;
         vector3d start = m_presentationStarted ? m_soulExchangeStartPos : base;
@@ -5215,7 +5255,8 @@ bool CRagEffect::ResolveCullSphere(vector3d* outCenter, float* outRadius) const
         break;
     }
 
-    if (m_hasTargetPos && m_handler != Handler::SonicWave && m_handler != Handler::SoulExchange) {
+    if (m_hasTargetPos && m_handler != Handler::SonicWave && m_handler != Handler::SoulExchange
+        && m_handler != Handler::FlameBreath) {
         center.x = (base.x + m_targetPos.x) * 0.5f;
         center.y = (base.y + m_targetPos.y) * 0.5f;
         center.z = (base.z + m_targetPos.z) * 0.5f;
@@ -7182,6 +7223,23 @@ u8 CRagEffect::OnProcess()
             if (distance > 0.0001f) m_sonicWaveDirection = { dx / distance, 0.0f, dz / distance };
         }
     }
+    if (m_handler == Handler::FlameBreath && !m_presentationStarted) {
+        if (!m_hasTargetPos) return 0;
+        m_flameBreathStartPos = ResolveBasePosition();
+        m_flameBreathEndPos = m_targetPos;
+        const vector3d delta = AddVec3(m_flameBreathEndPos, ScaleVec3(m_flameBreathStartPos, -1.0f));
+        const float distance = std::sqrt(delta.x * delta.x + delta.z * delta.z);
+        if (distance < 0.0001f) return 0;
+        // Start just in front of the caster's face and keep the released stream fixed in the world.
+        const float forwardOffset = (std::min)(2.0f, distance * 0.1f) / distance;
+        m_flameBreathStartPos.x += delta.x * forwardOffset;
+        m_flameBreathStartPos.z += delta.z * forwardOffset;
+        const float height = m_presentationOffsetY - m_proceduralPresentation->flameBreath.height;
+        m_flameBreathStartPos.y += height;
+        m_flameBreathEndPos.y += height;
+        m_presentationStarted = true;
+        m_presentationStartTick = timeGetTime();
+    }
     if (m_handler == Handler::SoulExchange && !m_presentationStarted) {
         if (!m_hasTargetPos) return 0;
         m_soulExchangeStartPos = ResolveBasePosition();
@@ -7265,6 +7323,10 @@ u8 CRagEffect::OnProcess()
         const int durationMs = wave.waveDurationMs + (wave.waveCount - 1) * wave.waveIntervalMs;
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
         return now - m_presentationStartTick < static_cast<u32>(durationMs) ? 1 : 0;
+    }
+    if (m_handler == Handler::FlameBreath) {
+        m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
+        return now - m_presentationStartTick < static_cast<u32>(m_proceduralPresentation->flameBreath.durationMs) ? 1 : 0;
     }
     if (m_handler == Handler::SoulExchange) {
         m_stateCnt = static_cast<int>((now - m_presentationStartTick) / kEffectTickMs);
@@ -7493,7 +7555,7 @@ void CRagEffect::SendMsg(CGameObject*, int msg, msgparam_t par1, msgparam_t, msg
             m_hasTargetPos = true;
             return;
         }
-        if ((m_handler == Handler::SonicWave || m_handler == Handler::SoulExchange)
+        if ((m_handler == Handler::SonicWave || m_handler == Handler::SoulExchange || m_handler == Handler::FlameBreath)
             && par1 != 0 && !m_presentationStarted) {
             m_targetPos = *reinterpret_cast<const vector3d*>(par1);
             m_hasTargetPos = true;
@@ -8159,6 +8221,142 @@ void CRagEffect::RenderSonicWave(const matrix& viewMatrix)
     }
 }
 
+void CRagEffect::RenderFlameBreath(const matrix& viewMatrix)
+{
+    if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
+    const auto& breath = m_proceduralPresentation->flameBreath;
+    const float elapsedMs = static_cast<float>(timeGetTime() - m_presentationStartTick);
+    if (elapsedMs >= breath.durationMs) return;
+    const vector3d delta = AddVec3(m_flameBreathEndPos, ScaleVec3(m_flameBreathStartPos, -1.0f));
+    const float distance = std::sqrt(delta.x * delta.x + delta.z * delta.z);
+    if (distance < 0.0001f) return;
+    const vector3d side{ -delta.z / distance, 0.0f, delta.x / distance };
+    tlvertex3d sourceAnchor{}, targetAnchor{};
+    float angle = 0.0f;
+    if (ProjectPoint(m_flameBreathStartPos, viewMatrix, &sourceAnchor)
+        && ProjectPoint(m_flameBreathEndPos, viewMatrix, &targetAnchor)) {
+        angle = std::atan2(targetAnchor.y - sourceAnchor.y, targetAnchor.x - sourceAnchor.x) * (180.0f / kPi);
+    }
+
+    constexpr int kFlameCount = 80;
+    constexpr int kTailSamples = 2;
+    const float emissionMs = static_cast<float>(breath.durationMs - breath.travelMs);
+    // Keep a glowing body underneath the distinct, curling flame tongues.
+    for (int index = 0; index < kFlameCount; ++index) {
+        const float birthMs = emissionMs * index / (kFlameCount - 1);
+        const float progress = (elapsedMs - birthMs) / breath.travelMs;
+        if (progress <= 0.0f || progress >= 1.0f) continue;
+        const float seed = index * 2.39996323f;
+        const float fade = (std::min)(1.0f, progress / 0.08f)
+            * (std::min)(1.0f, (1.0f - progress) / 0.18f);
+        for (int sample = kTailSamples - 1; sample >= 0; --sample) {
+            const float tail = static_cast<float>(sample) / (kTailSamples - 1);
+            const float along = progress - sample * 0.045f;
+            if (along <= 0.0f) continue;
+            const float phase = seed + along * kPi * 3.0f;
+            const float spread = breath.radius * (0.12f + along * 1.3f);
+            vector3d position = AddVec3(m_flameBreathStartPos, AddVec3(ScaleVec3(delta, along),
+                ScaleVec3(side, spread * (0.7f * std::sin(seed) + 0.3f * std::sin(phase)))));
+            position.y += spread * std::cos(phase) * 0.5f - breath.radius * along * along;
+            tlvertex3d anchor{};
+            if (!ProjectPoint(position, viewMatrix, &anchor)) continue;
+            const float scale = anchor.oow * g_renderer.m_hpc;
+            if (!std::isfinite(scale) || scale <= 0.0f) continue;
+            const float radius = breath.radius * (0.45f + along * 1.2f)
+                * (0.9f + 0.1f * std::cos(seed));
+            const float flicker = 0.8f + 0.2f * std::sin(elapsedMs * 0.045f + seed);
+            const float alpha = fade * flicker * (0.65f - tail * 0.25f);
+            RenderSoulWisp(anchor, radius * scale, alpha, tail, angle + std::sin(phase) * 20.0f,
+                breath.color, breath.coreColor);
+        }
+    }
+
+    CTexture* flameTexture = GetSoftDiscTexture();
+    const vector3d forward{ delta.x / distance, 0.0f, delta.z / distance };
+    const auto renderTongue = [&](const vector3d& root, float length, float lift,
+        float width, float phase, float alpha) {
+        constexpr int kNodes = 9;
+        std::array<vector3d, kNodes> points{};
+        std::array<vector3d, kNodes> normals{};
+        for (int node = 0; node < kNodes; ++node) {
+            const float t = static_cast<float>(node) / (kNodes - 1);
+            // The tip hooks back as it rises, while a traveling bend makes the edge lick and flicker.
+            const float curl = std::sin(phase + t * kPi * 1.6f) - std::sin(phase);
+            points[node] = AddVec3(root, AddVec3(ScaleVec3(forward, length * (t - 0.42f * t * t * t)),
+                ScaleVec3(side, width * curl * t * 0.4f)));
+            points[node].y -= lift * (0.2f * t + 0.8f * t * t)
+                + width * std::sin(t * kPi) * std::sin(phase) * 0.25f;
+        }
+        for (int node = 0; node < kNodes; ++node) {
+            const vector3d tangent = AddVec3(points[(std::min)(node + 1, kNodes - 1)],
+                ScaleVec3(points[(std::max)(node - 1, 0)], -1.0f));
+            const vector3d normal = CrossVec3(tangent, g_renderer.m_eyeForward);
+            const float normalLengthSq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+            normals[node] = normalLengthSq > 0.0001f ? NormalizeVec3(normal) : g_renderer.m_eyeRight;
+        }
+        // A saturated outer flame surrounds a thinner, pale blue interior.
+        const float uvs[4][2] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.5f, 0.0f }, { 0.5f, 1.0f } };
+        for (int layer = 0; layer < 2; ++layer) {
+            std::array<vector3d, kNodes> left{}, right{};
+            std::array<u32, kNodes> colors{};
+            for (int node = 0; node < kNodes; ++node) {
+                const float t = static_cast<float>(node) / (kNodes - 1);
+                const float taper = (0.3f + 0.7f * std::sin(t * kPi)) * (1.0f - t);
+                const float halfWidth = width * taper * (layer == 0 ? 1.0f : 0.32f);
+                left[node] = AddVec3(points[node], ScaleVec3(normals[node], -halfWidth));
+                right[node] = AddVec3(points[node], ScaleVec3(normals[node], halfWidth));
+                const u32 opacity = static_cast<u32>(alpha * (1.0f - t * 0.45f) * (layer == 0 ? 210.0f : 130.0f));
+                const u32 color = static_cast<u32>(layer == 0 ? breath.color : breath.coreColor);
+                colors[node] = (opacity << 24) | (color & 0x00FFFFFFu);
+            }
+            for (int node = 0; node + 1 < kNodes; ++node) {
+                const vector3d quad[4] = { left[node], right[node], left[node + 1], right[node + 1] };
+                const unsigned int quadColors[4] = { colors[node], colors[node], colors[node + 1], colors[node + 1] };
+                SubmitWorldQuad(quad, viewMatrix, flameTexture, quadColors, uvs, D3DBLEND_ONE, 0.0f, 1 | 4);
+            }
+        }
+    };
+
+    constexpr int kTongueCount = 36;
+    for (int index = 0; index < kTongueCount; ++index) {
+        const float birthMs = emissionMs * index / (kTongueCount - 1);
+        const float progress = (elapsedMs - birthMs) / breath.travelMs;
+        if (progress <= 0.0f || progress >= 1.0f) continue;
+        const float seed = index * 2.39996323f;
+        const float phase = seed + elapsedMs * 0.025f;
+        const float spread = breath.radius * (0.35f + progress * 2.0f);
+        vector3d root = AddVec3(m_flameBreathStartPos, AddVec3(ScaleVec3(delta, progress),
+            ScaleVec3(side, spread * std::sin(seed))));
+        root.y += spread * std::cos(seed) * 0.4f - breath.radius * progress * progress;
+        const float flicker = 0.8f + 0.2f * std::sin(phase * 1.7f);
+        const float fade = (std::min)(1.0f, progress / 0.1f)
+            * (std::min)(1.0f, (1.0f - progress) / 0.2f);
+        const float length = breath.radius * (3.0f + progress * 2.0f) * flicker;
+        const float lift = breath.radius * (1.3f + progress * 2.0f) * flicker;
+        renderTongue(root, length, lift, breath.radius * (0.9f + progress * 1.6f), phase, fade * flicker);
+    }
+
+    // Detached embers rise away from the jet instead of extending its central beam.
+    constexpr int kEmberCount = 28;
+    for (int index = 0; index < kEmberCount; ++index) {
+        const float birthMs = emissionMs * index / (kEmberCount - 1);
+        const float age = (elapsedMs - birthMs) / breath.travelMs;
+        if (age <= 0.0f || age >= 1.0f) continue;
+        const float seed = index * 2.39996323f;
+        const float along = (std::min)(1.0f, 0.25f + (0.5f + 0.5f * std::sin(seed)) * 0.6f + age * 0.15f);
+        vector3d position = AddVec3(m_flameBreathStartPos, AddVec3(ScaleVec3(delta, along),
+            ScaleVec3(side, breath.radius * std::cos(seed) * (0.5f + age * 2.0f))));
+        position.y -= breath.radius * (0.5f + age * 3.0f + age * age * 2.0f);
+        tlvertex3d anchor{};
+        if (!ProjectPoint(position, viewMatrix, &anchor)) continue;
+        const float scale = anchor.oow * g_renderer.m_hpc;
+        if (!std::isfinite(scale) || scale <= 0.0f) continue;
+        const float fade = (std::min)(1.0f, age / 0.08f) * (1.0f - age);
+        RenderSoulWisp(anchor, breath.radius * scale * (0.12f + 0.1f * (1.0f - age)),
+            fade, 0.0f, angle, breath.color, breath.coreColor);
+    }
+}
+
 void CRagEffect::RenderSoulExchange(const matrix& viewMatrix)
 {
     if (!g_session.m_isEffectOn || !m_presentationStarted || !m_presentationTexture) return;
@@ -8396,6 +8594,7 @@ void CRagEffect::Render(matrix* viewMatrix)
     if (m_handler == Handler::MagicCell) RenderMagicCell(*viewMatrix);
     if (m_handler == Handler::SonicWave) RenderSonicWave(*viewMatrix);
     if (m_handler == Handler::SoulExchange) RenderSoulExchange(*viewMatrix);
+    if (m_handler == Handler::FlameBreath) RenderFlameBreath(*viewMatrix);
     if (m_handler == Handler::GroundCircle) RenderGroundCircle(*viewMatrix);
     if (m_handler == Handler::DevotionLink) RenderDevotionLink(*viewMatrix);
     if (m_handler == Handler::CastCone) RenderCastCone(*viewMatrix);

@@ -50,6 +50,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <utility>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -549,6 +550,7 @@ void ClearPendingSkillUse(CGameMode& mode);
 void BeginSkillChase(CGameMode& mode, u32 targetGid, u16 skillId, u16 skillLevel, int skillRange);
 void DrawPlayerVitalsOverlay(CGameMode& mode, HDC hdc);
 void FillSolidRectArgb(unsigned int* pixels, int width, int height, const RECT& rect, COLORREF color);
+void FillSolidRect(HDC hdc, const RECT& rect, COLORREF color);
 void DrawGameplayOverlayToHdc(CGameMode& mode, HDC targetDc);
 std::string ResolveHoveredActorName(CGameMode& mode, CGameActor* actor);
 const char* UiKorPrefix();
@@ -1881,6 +1883,95 @@ bool QueueHoverLabelsOverlayQuad(CGameMode& mode)
 }
 #endif
 
+struct ElementalVitalsRect {
+    RECT bounds;
+    COLORREF color;
+};
+
+std::vector<ElementalVitalsRect> CollectElementalVitalsRects(CGameMode& mode)
+{
+    std::vector<ElementalVitalsRect> rects;
+    if (!mode.m_world || !mode.m_view) return rects;
+    rects.reserve(mode.m_elementalVitals.size() * 3);
+    for (const auto& [gid, vitals] : mode.m_elementalVitals) {
+        if (vitals.ownerAid != g_session.m_aid && vitals.ownerAid != g_session.m_gid
+            && !g_session.FindPartyMemberByAid(vitals.ownerAid)) continue;
+        const auto actorIt = mode.m_runtimeActors.find(gid);
+        if (actorIt == mode.m_runtimeActors.end()) continue;
+        const CGameActor* actor = actorIt->second;
+        if (!actor || !actor->m_isVisible || actor->m_stateId == kGameActorDeathStateId
+            || (vitals.maxHp == 0 && vitals.maxSp == 0)) continue;
+        int centerX = 0, topY = 0, labelY = 0;
+        if (!mode.m_world->GetActorScreenMarker(mode.m_view->GetViewMatrix(),
+                mode.m_view->GetCameraLongitude(), gid, &centerX, &topY, &labelY)) continue;
+        // Actor markers sit 4px below the feet; player vitals sit 22px below.
+        const int left = centerX - (kPlayerVitalsBarWidth + kPlayerVitalsBorderThickness * 2) / 2;
+        const int top = labelY + 18;
+        const int height = kPlayerVitalsBarHeight * 2 + kPlayerVitalsBorderThickness * 3;
+        rects.push_back({ { left, top, left + kPlayerVitalsBarWidth + kPlayerVitalsBorderThickness * 2, top + height }, RGB(0, 0, 0) });
+        const int innerLeft = left + kPlayerVitalsBorderThickness;
+        const int hpTop = top + kPlayerVitalsBorderThickness;
+        if (vitals.maxHp > 0) {
+            const u32 hp = (std::min)(vitals.hp, vitals.maxHp);
+            const int width = static_cast<int>(static_cast<u64>(hp) * kPlayerVitalsBarWidth / vitals.maxHp);
+            const bool lowHp = static_cast<u64>(hp) * 4 < vitals.maxHp;
+            if (width > 0) rects.push_back({ { innerLeft, hpTop, innerLeft + width, hpTop + kPlayerVitalsBarHeight },
+                lowHp ? RGB(220, 32, 32) : uitheme::kHpBar });
+        }
+        if (vitals.maxSp > 0) {
+            const u32 sp = (std::min)(vitals.sp, vitals.maxSp);
+            const int width = static_cast<int>(static_cast<u64>(sp) * kPlayerVitalsBarWidth / vitals.maxSp);
+            const int spTop = hpTop + kPlayerVitalsBarHeight + kPlayerVitalsBorderThickness;
+            if (width > 0) rects.push_back({ { innerLeft, spTop, innerLeft + width, spTop + kPlayerVitalsBarHeight }, uitheme::kSpBar });
+        }
+    }
+    return rects;
+}
+
+void QueueElementalVitalsOverlayQuads(CGameMode& mode)
+{
+    if (!g_hMainWnd) return;
+    const auto rects = CollectElementalVitalsRects(mode);
+    if (rects.empty()) return;
+    static std::unique_ptr<CTexture> texture;
+    if (!texture) {
+        auto candidate = std::make_unique<CTexture>();
+        if (!candidate->Create(2, 2, PF_A8R8G8B8, false)) return;
+        unsigned int pixels[4] = { 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu };
+        candidate->Update(0, 0, 2, 2, pixels, true, 2 * static_cast<int>(sizeof(unsigned int)));
+        SetTextureDebugName(candidate.get(), "__overlay_elemental_vitals__");
+        texture = std::move(candidate);
+    }
+    RECT clientRect{};
+    GetClientRect(g_hMainWnd, &clientRect);
+    const float u = 0.5f / texture->m_w, v = 0.5f / texture->m_h;
+    for (const auto& rect : rects) {
+        RECT clipped{};
+        if (!IntersectRect(&clipped, &rect.bounds, &clientRect)) continue;
+        RPFace* face = g_renderer.BorrowNullRP();
+        if (!face) return;
+        face->primType = D3DPT_TRIANGLESTRIP;
+        face->verts = face->m_verts;
+        face->numVerts = 4;
+        face->indices = nullptr;
+        face->numIndices = 0;
+        face->tex = texture.get();
+        face->mtPreset = 0;
+        face->cullMode = D3DCULL_NONE;
+        face->srcAlphaMode = D3DBLEND_SRCALPHA;
+        face->destAlphaMode = D3DBLEND_INVSRCALPHA;
+        face->alphaSortKey = kPlayerVitalsOverlaySortKey;
+        const u32 color = 0xFF000000u | (GetRValue(rect.color) << 16) | (GetGValue(rect.color) << 8) | GetBValue(rect.color);
+        const float left = static_cast<float>(clipped.left) - 0.5f, top = static_cast<float>(clipped.top) - 0.5f;
+        const float right = static_cast<float>(clipped.right) - 0.5f, bottom = static_cast<float>(clipped.bottom) - 0.5f;
+        face->m_verts[0] = { left, top, 0.0f, 1.0f, color, 0xFF000000u, u, v };
+        face->m_verts[1] = { right, top, 0.0f, 1.0f, color, 0xFF000000u, u, v };
+        face->m_verts[2] = { left, bottom, 0.0f, 1.0f, color, 0xFF000000u, u, v };
+        face->m_verts[3] = { right, bottom, 0.0f, 1.0f, color, 0xFF000000u, u, v };
+        g_renderer.AddRP(face, 1 | 8);
+    }
+}
+
 bool QueuePlayerVitalsOverlayQuad(CGameMode& mode)
 {
     if (!g_hMainWnd || !mode.m_world || !mode.m_view || !mode.m_world->m_player) {
@@ -2166,6 +2257,9 @@ void DrawGameplayFallbackToWindow(
         DrawGameplayOverlayToHdc(mode, windowDc);
         DrawActorTextLabels(mode, windowDc);
         DrawPlayerVitalsOverlay(mode, windowDc);
+        for (const auto& rect : CollectElementalVitalsRects(mode)) {
+            FillSolidRect(windowDc, rect.bounds, rect.color);
+        }
         if (trackMovePerfFrame) {
             g_overlayMovePerfStats.fallbackOverlayDrawMs += QpcNowMs() - overlayDrawStartMs;
         }
@@ -5565,6 +5659,11 @@ bool SendUseSkillToIdPacket(u16 skillId, u16 skillLevel, u32 targetGid)
             && targetGid == ResolveSelfSkillTargetId()) {
             g_session.NoteElementalSphereSkillRequest(skillLevel);
         }
+        if (skillId == kSkillIdSummonElemental) {
+            if (CGameMode* mode = g_modeMgr.GetCurrentGameMode(); mode && mode->m_world && mode->m_world->m_player) {
+                mode->m_world->m_player->NoteElementalSummonRequest(skillLevel);
+            }
+        }
     }
     DbgLog("[GameMode] useskilltoid skillId=%u level=%u target=%u sent=%d\n",
         static_cast<unsigned int>(skillId),
@@ -7020,6 +7119,8 @@ void DestroyDeferredRuntimeActors(CGameMode& mode);
 
 void ClearRuntimeActors(CGameMode& mode)
 {
+    mode.m_elementalVitals.clear();
+    mode.m_ownedElementalGid = 0;
     CWorld* const world = mode.m_world ? mode.m_world : &g_world;
     if (world) {
         world->m_player = nullptr;
@@ -9712,6 +9813,7 @@ int  CGameMode::OnRun() {
             g_overlayMovePerfStats.queueMsgMs += QpcNowMs() - msgStartMs;
         }
         QueuePlayerVitalsOverlayQuad(*this);
+        QueueElementalVitalsOverlayQuads(*this);
         if (!IsQtUiRuntimeEnabled()) {
             QueueHoverLabelsOverlayQuad(*this);
         }

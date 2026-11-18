@@ -65,6 +65,12 @@ local function elemental_hit_effect(tint)
     }
 end
 
+local elemental_summon_tints = {
+    [2] = 0x007BA7, -- Ventus: cerulean. Tera (level 1) keeps the authored colors.
+    [3] = 0x4080FF, -- Aqua: blue.
+    [4] = 0xFF4040, -- Igni: red.
+}
+
 local tetra_vortex_presentation = {
     name = "Tetra Vortex",
     cast_motion_type = 1,
@@ -82,6 +88,10 @@ return {
     -- play_count (default 1), interval_ms, and delay_ms control sound-only playback.
     -- ignore_server_wav = true prevents matching server sound packets from adding copies.
     sounds = {
+        [2460] = { -- SK_SA_SUMMONELEMENTAL
+            wav = [[data\wav\effect\ef_beginspell.wav]],
+            trigger = "casting",
+        },
         [2222] = { -- SK_SO_SUMMONELEMENTALSPHERES
             wav = [[data\wav\effect\ef_napalmbeat.wav]],
             trigger = "no_damage",
@@ -245,6 +255,37 @@ return {
     skills = {
         [2445] = { -- SK_PF_SPELLFIST: the interrupted cast selects the visual pair.
             name = "Spell Fist",
+        },
+        [2460] = { -- SK_SA_SUMMONELEMENTAL
+            name = "Summon Elemental",
+            casting = {
+                {
+                    effect_id = 50155,
+                    str = [[data\texture\effect\new_dilectioheal\new_dilectioheal_target_bottom\new_dilectioheal_target_bottom.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 0,
+                    loop = true,
+                    skill_level_tints = elemental_summon_tints,
+                },
+                {
+                    effect_id = 50156,
+                    str = [[data\texture\effect\new_dilectioheal\new_dilectioheal_cast\new_dilectioheal_cast.str]],
+                    loop = true,
+                    skill_level_tints = elemental_summon_tints,
+                },
+            },
+            source = {
+                {
+                    effect_id = 50157,
+                    str = [[data\texture\effect\new_fatal_menace\new_fatal_menace_cast\new_fatal_menace_cast.str]],
+                    skill_level_tints = {
+                        [1] = 0xFFFF40, -- Tera: yellow.
+                        [2] = elemental_summon_tints[2], -- Ventus: cerulean.
+                        [3] = elemental_summon_tints[3], -- Aqua: blue.
+                        [4] = elemental_summon_tints[4], -- Agni: red.
+                    },
+                },
+            },
         },
         [482] = { -- SK_PF_MAGICSQUARED
             name = "Magic Squared",
@@ -2111,36 +2152,24 @@ return {
         [5004] = { -- SK_CM_DRAGONBREATH
             name = "Dragon Breath",
             motion_type = 1,
-            server_notified = true, -- The server sends effect 1310 once on the caster.
+            source_once_per_cast = true,
             source = {
                 {
                     effect_id = 1310,
-                    renderer = "directional_str",
-                    offset_y = -10,
-                    -- Endpoints are authored screen pixels relative to the STR's (320, 320) anchor.
-                    directions = {
-                        {
-                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_01_clock\new_dragonbreath_water_01_clock.str]],
-                            origin_x = 102, origin_y = -88,
-                            end_x = 225, end_y = -195,
-                        },
-                        {
-                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_05_clock\new_dragonbreath_water_05_clock.str]],
-                            origin_x = 98, origin_y = 14,
-                            end_x = 230, end_y = 170,
-                        },
-                        {
-                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_07_clock\new_dragonbreath_water_07_clock.str]],
-                            origin_x = -98, origin_y = 14,
-                            end_x = -230, end_y = 170,
-                        },
-                        {
-                            str = [[data\texture\effect\new_dragonbreath_water\new_dragonbreath_water_11_clock\new_dragonbreath_water_11_clock.str]],
-                            origin_x = -102, origin_y = -88,
-                            end_x = -225, end_y = -195,
-                        },
-                    },
+                    renderer = "flame_breath",
+                    duration_ms = 1100,
+                    travel_ms = 320,
+                    color = 0x309CFF,
+                    core_color = 0xB8F4FF,
+                    radius = 2.8,
+                    height = 14,
                     wav = [[data\wav\dragon_breath.wav]],
+                },
+                {
+                    effect_id = 50154,
+                    str = [[data\texture\effect\new_clearence\new_clearence_cast\new_clearence_cast.str]],
+                    saturation_percent = 0,
+                    tint = 0x309CFF,
                 },
             },
         },

@@ -178,6 +178,9 @@ void FillPacketSizeTable(PacketSizeTable& packetSizeTable)
     SetPacketSize(0x0105, 31);
     SetPacketSize(0x0106, 10);
     SetPacketSize(0x080E, 14);
+    SetPacketSize(0x081D, 22);             // Elemental identity and full HP/SP, owner only.
+    SetPacketSize(0x081E, 8);              // Current owned elemental's HP/SP update.
+    SetPacketSize(0x7F12, 26);             // Friendly elemental: GID, summoner AID, HP/max HP, SP/max SP.
     SetPacketSize(0x0107, 10);              // ZC_NOTIFY_POSITION_TO_GROUPM (party minimap dot)
     SetPacketSize(0x0109, kVariablePacketSize);
     SetPacketSize(0x010E, 11);

@@ -23,6 +23,14 @@ struct CellPos {
     int x, y;
 };
 
+struct ElementalVitals {
+    u32 ownerAid = 0;
+    u32 hp = 0;
+    u32 maxHp = 0;
+    u32 sp = 0;
+    u32 maxSp = 0;
+};
+
 struct ColorCellPos {
     int x, y;
     u32 color;
@@ -177,6 +185,8 @@ public:
     std::map<u32, int> m_guildMemberStatusCache;
     std::map<u32, CellPos> m_actorPosList;
     std::map<u32, CGameActor*> m_runtimeActors;
+    std::map<u32, ElementalVitals> m_elementalVitals;
+    u32 m_ownedElementalGid = 0;
     std::map<u32, GroundItemState> m_groundItemList;
     std::list<u32> m_pickupReqItemNaidList;
     std::map<u32, u32> m_aidList;

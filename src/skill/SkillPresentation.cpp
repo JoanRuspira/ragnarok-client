@@ -305,6 +305,34 @@ bool ReadAdditionalStrs(lua_State* state, int table, std::vector<std::string>& p
     return true;
 }
 
+bool ReadSkillLevelTints(lua_State* state, int table, std::map<int, int>& tints, std::string& error)
+{
+    lua_getfield(state, table, "skill_level_tints");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        return true;
+    }
+    if (!lua_istable(state, -1)) {
+        error = "expected a skill_level_tints table";
+        return false;
+    }
+    const int entries = lua_gettop(state);
+    lua_pushnil(state);
+    while (lua_next(state, entries)) {
+        int level = 0;
+        const double tint = lua_tonumber(state, -1);
+        if (!ReadIdKey(state, level, error) || level > 65535 || lua_type(state, -1) != LUA_TNUMBER
+            || !std::isfinite(tint) || tint < 0 || tint > 0xFFFFFF || tint != std::floor(tint)) {
+            error = "expected skill levels 1..65535 and RGB colors in skill_level_tints";
+            return false;
+        }
+        tints.emplace(level, static_cast<int>(tint));
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    return true;
+}
+
 bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, std::string& error)
 {
     table = AbsoluteIndex(state, table);
@@ -321,6 +349,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         || !ReadInteger(state, table, "hue_shift_degrees", effect.hueShiftDegrees, error)
         || !ReadInteger(state, table, "saturation_percent", effect.saturationPercent, error)
         || !ReadInteger(state, table, "tint", effect.tint, error)
+        || !ReadSkillLevelTints(state, table, effect.skillLevelTints, error)
         || !ReadBoolean(state, table, "ground_plane", effect.groundPlane, error)
         || !ReadBoolean(state, table, "bottom_effect", effect.bottomEffect, error)
         || !ReadInteger(state, table, "bottom_order", effect.bottomOrder, error)
@@ -386,7 +415,8 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
         error = "draw_over_actors requires an STR renderer";
         return false;
     }
-    if ((effect.hueShiftDegrees != 0 || effect.saturationPercent != 100 || effect.tint != 0xFFFFFF)
+    if ((effect.hueShiftDegrees != 0 || effect.saturationPercent != 100 || effect.tint != 0xFFFFFF
+            || !effect.skillLevelTints.empty())
             && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
         error = "hue_shift_degrees, saturation_percent, and tint require an STR renderer";
         return false;
@@ -401,7 +431,7 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     }
     if (!renderer.empty() && renderer != "str" && renderer != "directional_str"
         && renderer != "guard_sphere" && renderer != "sonic_wave" && renderer != "soul_exchange"
-        && renderer != "ground_circle") {
+        && renderer != "flame_breath" && renderer != "ground_circle") {
         error = "unknown effect renderer: " + renderer;
         return false;
     }
@@ -434,6 +464,29 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     if (renderer == "directional_str") {
         effect.renderer = SkillEffectPresentation::Renderer::DirectionalStr;
         return ReadDirectionalStr(state, table, effect.directionalStr, error);
+    }
+    if (renderer == "flame_breath") {
+        effect.renderer = SkillEffectPresentation::Renderer::FlameBreath;
+        auto& breath = effect.flameBreath;
+        if (effect.loop) {
+            error = "flame_breath cannot loop";
+            return false;
+        }
+        if (!ReadString(state, table, "wav", breath.wavPath, false, error)
+            || (!breath.wavPath.empty() && !ValidateResourcePath(breath.wavPath, "data\\wav\\", ".wav", error))
+            || !ReadInteger(state, table, "duration_ms", breath.durationMs, error)
+            || !ReadInteger(state, table, "travel_ms", breath.travelMs, error)
+            || !ReadInteger(state, table, "color", breath.color, error)
+            || !ReadInteger(state, table, "core_color", breath.coreColor, error)
+            || !ReadNumber(state, table, "radius", breath.radius, 0.1f, 32.0f, error)
+            || !ReadNumber(state, table, "height", breath.height, 0.0f, 100.0f, error)) return false;
+        if (breath.travelMs <= 0 || breath.travelMs >= breath.durationMs || breath.durationMs > 5000
+            || breath.color < 0 || breath.color > 0xFFFFFF
+            || breath.coreColor < 0 || breath.coreColor > 0xFFFFFF) {
+            error = "invalid flame_breath timing or color";
+            return false;
+        }
+        return true;
     }
     if (renderer == "soul_exchange") {
         effect.renderer = SkillEffectPresentation::Renderer::SoulExchange;
@@ -835,7 +888,8 @@ bool IsServerSkillWaveIgnored(const std::string& wavPath)
         const SkillEffectPresentation& effect = entry.second;
         if (!effect.ignoreServerWav) continue;
         if (matches(effect.directionalStr.wavPath) || matches(effect.bodyBurst.wavPath)
-            || matches(effect.guardSphere.wavPath) || matches(effect.sonicWave.wavPath)) return true;
+            || matches(effect.guardSphere.wavPath) || matches(effect.sonicWave.wavPath)
+            || matches(effect.flameBreath.wavPath)) return true;
         for (const SkillEffectVariant& variant : effect.variants) {
             if (matches(variant.wavPath)) return true;
         }

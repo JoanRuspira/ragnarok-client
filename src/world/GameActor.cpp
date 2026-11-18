@@ -4826,6 +4826,21 @@ bool CGameActor::HasActiveChatBubble(u32 now) const
         && static_cast<s32>(m_chatTick - now) > 0;
 }
 
+void CGameActor::NoteElementalSummonRequest(int level)
+{
+    if (level <= 0) return;
+    m_pendingElementalSummonLevel = level;
+    m_pendingElementalSummonTick = timeGetTime();
+}
+
+int CGameActor::ConsumeElementalSummonRequestLevel()
+{
+    const int level = timeGetTime() - m_pendingElementalSummonTick < 10000u ? m_pendingElementalSummonLevel : 0;
+    m_pendingElementalSummonLevel = 0;
+    m_pendingElementalSummonTick = 0;
+    return level;
+}
+
 void CGameActor::ResetSkillPresentationForCast(int skillId)
 {
     m_presentedCastSkillIds.erase(skillId);

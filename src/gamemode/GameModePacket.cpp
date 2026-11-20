@@ -82,9 +82,16 @@ constexpr u32 kActorChatBubbleMinLifetimeMs = 4500;
 constexpr u32 kActorChatBubbleMaxLifetimeMs = 8000;
 constexpr u32 kActorNameRequestCooldownMs = 1000;
 constexpr u16 kSkillIdSpellFist = 2445;
+constexpr u16 kSkillIdElementalJupitelThunder = 84;
 constexpr u16 kSkillIdElementalControl = 905;
 constexpr u16 kSkillIdElementalIcicle = 906;
+constexpr u16 kSkillIdElementalFireball = 907;
+constexpr u16 kSkillIdElementalInferno = 914;
+constexpr u16 kSkillIdElementalRockTomb = 915;
+constexpr u16 kSkillIdElementalHydroPump = 916;
+constexpr u16 kSkillIdElementalWindSlash = 8434;
 constexpr u16 kSkillIdElementalEarthSpike = 8439;
+constexpr u16 kSkillIdBookRead = 5078;
 
 PendingDisconnectAction g_pendingDisconnectAction = PendingDisconnectAction::None;
 u32 g_lastLocalLevelUpEffectId = 0;
@@ -542,6 +549,8 @@ constexpr u32 kEffectIdGrimtoothImpact = 132;
 constexpr int kRecoveryNumberKind = 114;
 constexpr u32 kRecoveryHpNumberColor = 0xFF00FF00u;
 constexpr u32 kRecoverySpNumberColor = 0xFF0000FFu;
+constexpr u32 kEffectIdElementalTransfusion = 864;
+constexpr u32 kElementalTransfusionSpRecoveryDelayMs = 250;
 constexpr u32 kEffectIdBaseLevelUp = 371;
 constexpr u32 kEffectIdJobLevelUp = 158;
 constexpr u32 kEffectIdBaseLevelUpSuperNovice = 338;
@@ -604,17 +613,18 @@ u32 ResolveRecoveryNumberColor(u32 statusType)
     return statusType == kStatusSp ? kRecoverySpNumberColor : kRecoveryHpNumberColor;
 }
 
-void EmitRecoveryNumber(CGameActor* sourceActor, CGameActor* targetActor, u32 amount, u32 color)
+void EmitRecoveryNumber(CGameActor* sourceActor, CGameActor* targetActor, u32 amount, u32 color,
+    u32 delayMs = 0)
 {
     if (!targetActor || amount == 0) {
         return;
     }
 
-    targetActor->SendMsg(sourceActor ? sourceActor : targetActor,
-        88,
+    targetActor->QueueDamageNumber(sourceActor ? sourceActor : targetActor,
         static_cast<int>(amount),
-        static_cast<int>(color),
-        kRecoveryNumberKind);
+        color,
+        kRecoveryNumberKind,
+        delayMs);
 }
 
 std::string ToLowerAsciiStatus(std::string value)
@@ -868,6 +878,11 @@ void HandleNotifyEffect2(CGameMode& mode, const PacketView& packet)
     if ((effectId == 538 || effectId == 841) && actor->m_vigorEffectSuppressUntilTick != 0
         && static_cast<s32>(actor->m_vigorEffectSuppressUntilTick - timeGetTime()) > 0) {
         return;
+    }
+
+    // Transfusion sends this effect before its separate HP and SP recovery packets.
+    if (effectId == kEffectIdElementalTransfusion && actor->m_objectType == 10) {
+        actor->m_pendingElementalTransfusionSpRecovery = true;
     }
 
     if (!actor->LaunchEffect(static_cast<int>(effectId), vector3d{ 0.0f, 0.0f, 0.0f }, 0.0f)) {
@@ -4153,6 +4168,11 @@ CombatHitAudio ResolveCombatHitAudio(const PacketView& packet, CGameActor* sourc
     u16 skillId = 0, bool offhand = false)
 {
     CombatHitAudio hit;
+    if (skillId == 0 && sourceActor && sourceActor->m_objectType == 10) {
+        // Regular elemental attacks have their own impact WAV regardless of
+        // the weapon, range, or element reported by the server.
+        hit.waveOverride = CombatElementalAttackWave(sourceActor->m_job);
+    }
     if ((packet.packetId == kActorDamageAudioPacket || packet.packetId == kSkillDamageAudioPacket)
         && packet.packetLength >= kDamageAudioPacketSize) {
         const u8 flags = packet.data[33];
@@ -4237,7 +4257,7 @@ void EmitElementalHitEffects(CGameActor* targetActor, u16 skillId, int damage, u
 }
 
 std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
-    const std::vector<int>& hitDamages, u8 actionType, u32 impactDelayMs = 0)
+    const std::vector<int>& hitDamages, u8 actionType, u32 impactDelayMs = 0, u32 numberDelayMs = 0)
 {
     std::vector<u32> hitDelays;
     if (!targetActor || actionType == kNotifyActLuckyDodge) {
@@ -4258,8 +4278,9 @@ std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetAc
         // behind earlier attacks makes frequent autocasts accumulate latency;
         // these delays also control the spell's projectiles and hit audio.
         const u32 displayDelayMs = EmitCombatNumber(sourceActor, targetActor, hitDamage, actionType,
-            impactDelayMs + static_cast<u32>(hitIndex) * intervalMs, false);
-        hitDelays.push_back(displayDelayMs);
+            impactDelayMs + numberDelayMs + static_cast<u32>(hitIndex) * intervalMs, false);
+        // Audio, projectiles, and elemental effects retain their existing hit timing.
+        hitDelays.push_back((std::max)(displayDelayMs, numberDelayMs) - numberDelayMs);
         if (hitDamage > 0) {
             totalDamage += hitDamage;
             if (hitDamages.size() > 1) {
@@ -4292,12 +4313,12 @@ u16 ResolveDisplayedSkillHitCount(u16 skillId, u16 level, u16 div)
 }
 
 std::vector<u32> EmitCombatNumbers(CGameActor* sourceActor, CGameActor* targetActor,
-    int damage, u8 actionType, u16 hitCountRaw, u32 impactDelayMs = 0)
+    int damage, u8 actionType, u16 hitCountRaw, u32 impactDelayMs = 0, u32 numberDelayMs = 0)
 {
     std::vector<int> hitDamages;
     hitDamages.reserve((std::max)(1, static_cast<int>(hitCountRaw)));
     AppendCombatDamageHits(hitDamages, damage, hitCountRaw);
-    return EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType, impactDelayMs);
+    return EmitCombatNumbers(sourceActor, targetActor, hitDamages, actionType, impactDelayMs, numberDelayMs);
 }
 
 void SpawnSoulStrikeProjectiles(CGameMode& mode, u16 skillId, CGameActor* sourceActor,
@@ -5293,6 +5314,9 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
         return;
     }
 
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    if (presentation && !presentation->sourcePresentation) return;
+
     if (skillId == kSpellFistAttackSkillId) {
         int weaponMotionMs = attackMotionMs > 0 ? attackMotionMs : kDefaultAttackMotionTime;
         if (IsLocalActorId(actor->m_gid) && g_session.m_aspd > 0 && g_session.m_aspd <= 200) {
@@ -5306,7 +5330,6 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
     }
 
     const UseSkillPacketInfo packetInfo = skillId != 0 ? ResolveUseSkillPacketInfo(skillId) : UseSkillPacketInfo{};
-    const SkillPresentation* presentation = FindSkillPresentation(skillId);
     if (skillId != 0) {
         g_skillMgr.EnsureLoaded();
         const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(skillId);
@@ -5714,8 +5737,8 @@ static void PlaySkillDamageSounds(CGameMode& mode, u16 skillId, CGameActor* sour
     const SkillPresentation* presentation = FindSkillPresentation(skillId);
     if (presentation && (presentation->passive || !presentation->hitSoundEnabled)) return;
     if (UsesDedicatedMagicHitAudio(skillId, hitAudio, hitDelays.size())) {
-        // Single-hit magic owns its dedicated sound, without a weapon or
-        // elemental layer. Effect-authored WAVs remain valid for these skills.
+        // Single-hit magic with its own element uses its dedicated sound.
+        // Weapon-element magic keeps its elemental layer; effect WAVs remain valid.
         if (!playedSkillSound && presentation && !presentation->hitWavPath.empty()) {
             mode.m_world->m_gameObjectList.push_back(new CScheduledSkillSounds(
                 positionDamage ? nullptr : targetActor, position, presentation->hitWavPath, {hitDelays.front()}));
@@ -5937,6 +5960,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         ? targetActor->m_pos
         : ResolveSkillCellWorldPosition(mode.m_world, cellX, cellY);
 
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    if (presentation && !presentation->sourcePresentation) return;
+
     const int castSkillLevel = skillId == kSkillIdSummonElemental
         ? sourceActor->ConsumeElementalSummonRequestLevel() : 0;
     const u16 elementalTintLevel = skillId == kSkillIdElementalControl
@@ -5969,6 +5995,11 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
             StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultSkillMotionTime, skillId, targetActor);
             EmitSkillImpactEffects(targetActor, skillId, 1);
         }
+        // Reading Spellbook has no successful-use notification after this acknowledgement.
+        if (skillId == kSkillIdBookRead) {
+            StartSkillSourceAnimation(sourceActor, &sourceActor->m_pos, kDefaultSkillMotionTime,
+                skillId, sourceActor);
+        }
         if (skillId == kSkillIdElementalControl && elementalTintLevel != 0) {
             StartSkillSourceAnimation(sourceActor, &sourceActor->m_pos, kDefaultSkillMotionTime,
                 skillId, sourceActor, 1, elementalTintLevel);
@@ -5983,7 +6014,6 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     int beginEffectId = 16;
     int motionType = kGameActorCastingStateId;
-    const SkillPresentation* presentation = FindSkillPresentation(skillId);
     if (presentation) {
         beginEffectId = presentation->beginEffectId;
         motionType = presentation->motionType;
@@ -6176,8 +6206,10 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         }
     }
     const u32 impactDelayMs = UsesSoulStrikeProjectiles(skillId) ? kSoulStrikeFirstImpactMs : 0;
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    const u32 numberDelayMs = presentation ? static_cast<u32>(presentation->damageNumberDelayMs) : 0;
     std::vector<u32> hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount,
-        impactDelayMs);
+        impactDelayMs, numberDelayMs);
     if (UsesSoulStrikeProjectiles(skillId)) {
         SpawnSoulStrikeProjectiles(mode, skillId, sourceActor, targetActor, targetActor->m_pos,
             displayHitCount, hitDelays);
@@ -6263,11 +6295,14 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
         return;
     }
     const u32 impactDelayMs = UsesSoulStrikeProjectiles(skillId) ? kSoulStrikeFirstImpactMs : 0;
+    const SkillPresentation* presentation = FindSkillPresentation(skillId);
+    const u32 numberDelayMs = presentation ? static_cast<u32>(presentation->damageNumberDelayMs) : 0;
     std::vector<u32> hitDelays;
     if (targetActor) {
         QueueCombatHitReaction(sourceActor, targetActor, attackedMT, damage, actionType);
         EmitSkillImpactEffects(targetActor, skillId, displayHitCount);
-        hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount, impactDelayMs);
+        hitDelays = EmitCombatNumbers(sourceActor, targetActor, damage, actionType, displayHitCount,
+            impactDelayMs, numberDelayMs);
     } else {
         hitDelays.resize(displayHitCount);
         if (UsesSoulStrikeProjectiles(skillId)) {
@@ -6390,10 +6425,17 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     // statuses. It still needs the configured invocation motion and name shout.
     const bool sphereSummonCompleted = skillId == kSkillIdSummonElementalSpheres
         && sourceActor && sourceActor == targetActor;
+    // Elemental attack skills notify the master first. The following animation
+    // packet supplies the actual victim and the elemental's attack timing.
+    const bool elementalAttackAck = sourceActor && sourceActor->m_objectType == 10
+        && (skillId == kSkillIdElementalEarthSpike || skillId == kSkillIdElementalRockTomb
+            || skillId == kSkillIdElementalIcicle || skillId == kSkillIdElementalHydroPump
+            || skillId == kSkillIdElementalWindSlash || skillId == kSkillIdElementalJupitelThunder
+            || skillId == kSkillIdElementalFireball || skillId == kSkillIdElementalInferno);
     // Automatic blocks keep the actor's current action and attached cast effects.
     // Their target barrier is emitted independently below.
     if (sourceActor && (result != 0 || sphereSummonCompleted)
-        && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
+        && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger && !elementalAttackAck) {
         const u16 skillLevel = skillId == kSkillIdSummonElemental ? levelOrAmount
             : (skillId == kSkillIdElementalControl ? ResolveActiveElementalTintLevel(mode, *sourceActor) : 0);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
@@ -6452,13 +6494,19 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         targetActor->LaunchEffect(kEffectIdTetraVortexMixedConflagration, vector3d{}, 0.0f);
         targetActor->LaunchEffect(kEffectIdTetraVortexMixedPsychicWave, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && skillId == 9) { // SK_SM_SRECOVERY: server SP restoration
-        EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
+        const u32 numberDelayMs = targetActor->m_pendingElementalTransfusionSpRecovery
+            ? kElementalTransfusionSpRecoveryDelayMs : 0;
+        targetActor->m_pendingElementalTransfusionSpRecovery = false;
+        EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor, numberDelayMs);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && FindSkillPresentation(skillId)) {
         // Elemental attack notifications target the summoner; their damage packets
         // identify the victim. Soul Burn also supplies its target effects with damage.
         if (skillId != kSkillIdSoulBurn && skillId != kSkillIdElementalIcicle
-            && skillId != kSkillIdElementalEarthSpike) {
+            && skillId != kSkillIdElementalFireball && skillId != kSkillIdElementalInferno
+            && skillId != kSkillIdElementalRockTomb && skillId != kSkillIdElementalHydroPump
+            && skillId != kSkillIdElementalWindSlash && skillId != kSkillIdElementalEarthSpike
+            && skillId != kSkillIdElementalJupitelThunder) {
             EmitSkillImpactEffects(targetActor, skillId, 1);
         }
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {

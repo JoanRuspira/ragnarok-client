@@ -252,6 +252,7 @@ private:
     u32 m_castingTargetGid = 0;
     std::optional<vector3d> m_fixedWorldPosition;
     float m_presentationOffsetY = 0.0f;
+    float m_presentationScreenOffsetYPx = 0.0f;
     int m_presentationHueShiftDegrees = 0;
     int m_presentationSaturationPercent = 100;
     u32 m_presentationTint = 0xFFFFFF;

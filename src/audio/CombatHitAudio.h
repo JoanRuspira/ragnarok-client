@@ -16,6 +16,7 @@ struct CombatHitAudio {
     bool player = false;
     bool longRange = false;
     int weaponImpactElement = -1; // Resolved property for the additional neutral impact.
+    const char* waveOverride = nullptr; // Replaces all default hit-audio layers.
 };
 
 inline constexpr std::uint16_t kActorDamageAudioPacket = 0x7F10;
@@ -52,8 +53,19 @@ inline const char* CombatElementWave(int element, bool weaponHit = false)
     case 4: return "data\\wav\\effect\\s\xC0\xCF\xB7\xBA\xC6\xAE\xB8\xAF\xBF\xF6\xC5\xA9.wav";
     case 5: return "data\\wav\\_poison.wav";
     case 6: return "data\\wav\\effect\\dk_chargingpierce2.wav";
-    case 7: return weaponHit ? "data\\wav\\effect\\ef_firearrow1.wav" : "data\\wav\\effect\\bo_hell_howling.wav";
+    case 7: return "data\\wav\\effect\\ef_firearrow1.wav";
     case 8: return "data\\wav\\effect\\dk_servant_w_demol.wav";
+    default: return nullptr;
+    }
+}
+
+inline const char* CombatElementalAttackWave(int actorJob)
+{
+    switch (actorJob) {
+    case 2116: return CombatElementWave(3); // Agni.
+    case 2119: return "data\\wav\\effect\\wizard_icewall.wav"; // Aqua.
+    case 2122: return CombatElementWave(4); // Ventus; preserve the legacy filename bytes.
+    case 2125: return CombatElementWave(2); // Tera.
     default: return nullptr;
     }
 }
@@ -61,7 +73,15 @@ inline const char* CombatElementWave(int element, bool weaponHit = false)
 inline const char* CombatWeaponWave(int weaponType, std::uint32_t randomValue)
 {
     switch (weaponType) {
-    case 0: // Bare hands.
+    case 0: { // Bare hands.
+        static constexpr const char* waves[] = {
+            "data\\wav\\_enemy_hit1.wav",
+            "data\\wav\\_enemy_hit2.wav",
+            "data\\wav\\_enemy_hit3.wav",
+            "data\\wav\\_enemy_hit4.wav",
+        };
+        return waves[randomValue % 4];
+    }
     case 12: return "data\\wav\\attack_fist.wav";
     case 1: return "data\\wav\\_attack_dagger.wav";
     case 2: return "data\\wav\\attack_sword.wav";
@@ -128,6 +148,7 @@ inline const char* CombatNeutralWeaponWave(const CombatHitAudio& hit, std::uint3
 inline std::array<const char*, 3> CombatHitWaves(const CombatHitAudio& hit,
     std::uint32_t randomValue, bool spellFistAttack = false)
 {
+    if (hit.waveOverride) return { hit.waveOverride, nullptr, nullptr };
     if (hit.kind == CombatDamageKind::Magic) return { CombatElementWave(hit.element, spellFistAttack), nullptr };
     if (hit.kind != CombatDamageKind::Physical) return { nullptr, nullptr };
     if (!hit.player && hit.element == 0) {
@@ -173,6 +194,8 @@ inline bool UsesDedicatedMagicHitAudio(int skillId, const CombatHitAudio& hit, s
 {
     if (hit.kind != CombatDamageKind::Magic || skillId == kSpellFistAttackSkillId) return false;
     const SkillDamageAudio* skill = FindSkillDamageAudio(skillId);
+    // Weapon-element magic keeps its elemental impact even for single-hit skills.
+    if (skill && skill->element == -1) return false;
     return hitCount == 1 && (!skill || skill->singleHit);
 }
 

@@ -241,6 +241,8 @@ shared resource loader breaks character previews and map resources as well.
 Existing minimal-effect variants remain selected when `/mineffect` is enabled.
 Skill damage presentation accepts an unresolved source when the target is
 known, and server SP-restoration notifications show blue recovery numbers.
+Elemental Transfusion's server effect `864` marks its following recovery pair:
+the green HP number appears immediately, and the blue SP number starts 250 ms later.
 
 Multi-hit skill damage numbers appear 160 ms apart by default, matching the
 bolt-effect timing. White numbers use the `[WhiteDamageNumbers]` settings in
@@ -350,6 +352,13 @@ silences that effect. Damage skills also play per-hit audio unless disabled with
 and audio paths so both use the same random variant. `offset_y` sets the vertical
 attachment offset, and `loop` controls repetition; STR playback uses the
 animation's authored FPS.
+
+STR effects also accept `screen_offset_y_px`, a vertical shift in screen pixels
+that stays constant across camera zoom levels. Negative values move the effect
+upward; positive values move it downward. For example, `screen_offset_y_px = -25`
+raises Rock Tomb's effect `50166` by 25 pixels. The default is `0`; finite values
+from `-10000` to `10000` are supported. This adds to `offset_y` and any bottom
+pixel offset without changing draw order, sound position, or playback timing.
 
 STR effects can set `additional_strs = { [[data\texture\effect\path\layer.str]] }`
 to add up to 16 simultaneous visual layers. These share the main effect's
@@ -677,6 +686,19 @@ apply to every playback, and leaving the map clears pending audio.
 Future changes to the WAV, count, spacing, delay, or trigger need only an edit
 to `skill_presentation.lua`.
 
+Regular attacks from the four elementals replace the default weapon and monster
+hit-audio layers with one WAV at each successful hit's scheduled impact:
+
+| Elemental | Regular attack WAV |
+| --- | --- |
+| Agni | `data\wav\effect\ef_fireball.wav` |
+| Tera | `data\wav\_stone_explosion.wav` |
+| Aqua | `data\wav\effect\wizard_icewall.wav` |
+| Ventus | `data\wav\effect\s\xC0\xCF\xB7\xBA\xC6\xAE\xB8\xAF\xBF\xF6\xC5\xA9.wav` (legacy filename bytes) |
+
+This selection applies to both legacy and extended damage packets. Skill audio
+continues to follow its skill presentation, and sprite animation WAVs stay muted.
+
 Damage skills automatically play one hit WAV per reported hit, alongside any
 completion sound configured in this file. Player casters use the same sound
 selection as normal attacks, including equipped weapons and the normal
@@ -770,6 +792,16 @@ reported. The fields are independent: omitting either (or setting it to `-1`)
 preserves that stage's existing `motion_type` behavior. Explicit stage settings
 bypass the legacy cast-pose substitutions and skill-motion fallback.
 
+Set `source_presentation = false` for target-only skills such as Illusionary Blades
+(`469`). This skips caster motion, skill-name shouts, and casting/source effects
+without interrupting the caster's current action. Target/ground effects, damage
+numbers, and impact audio still play. The setting defaults to true.
+
+Set `damage_number_delay_ms = 250` to display a skill's damage numbers 250 ms
+later, as Illusionary Blades (`469`) does. The nonnegative setting defaults to
+`0` and shifts individual numbers and their total together. It does not delay
+the skill's effects, projectiles, or sound.
+
 Set `source_once_per_cast = true` for skills that send repeated ground or damage
 notifications for a single cast, such as Meteor Storm. Only the first successful
 notification starts the caster's motion, shout, and `source` effects. Later
@@ -803,6 +835,18 @@ Both fields accept these motion IDs:
 | `16` | Dance (currently uses the generic skill animation) |
 | `17` | Sing (currently uses the generic skill animation) |
 
+For non-player sprites, motion `9` selects the secondary attack in ACT band `40`,
+falling back to the primary attack when the secondary sequence is absent.
+Earth Spike (`8439`) and Rock Tomb (`915`) use this for Tera's 17-frame rock-spike
+attack. Tera's primary attack in band `16` contains the large white cloud layers.
+Fireball (`907`) and Inferno (`914`) use Agni's 18-frame secondary attack.
+Icicle/Frostbite (`906`), Hydro Pump (`916`), Wind Slash (`8434`), and Jupitel
+Thunder (`84`) also select motion `9`; Aqua and Ventus have no secondary sequence
+and use their primary attacks (13 and eight frames respectively).
+For all eight skills, completion notifications to the summoner do not start the
+caster presentation with the short default duration. The following animation
+packet starts it with the real target and the server's attack timing.
+
 Motion `1` holds the first frame of the player's job-specific skill action (ACT
 band `96`). This is the hand-raising invocation pose for the male Paladin and
 Lord Knight. It holds until casting ends, then successful use restarts and holds
@@ -820,6 +864,10 @@ duration or animation ends; attacks retain the existing weapon and attack timing
 Instant skills skip `cast_motion_type` and play only `skill_motion_type`.
 These settings control the caster; effect
 attachments remain configured by the four effect arrays.
+
+Elementals (Tera, Aqua, Ventus, and Agni; actor type `10`) suppress all WAV events
+embedded in their sprite animations, including idle, movement, attack, hit, and
+death sounds. Audio configured in `skill_presentation.lua` still plays normally.
 
 Swords to Plowshares (`71`, `SK_CR_SWORDSTOPLOWSHARES`) uses the installed
 Increasing Activity cast clip (`2045`, with `cd_reparatio1.wav`) and Competentia

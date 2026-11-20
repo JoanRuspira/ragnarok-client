@@ -50,6 +50,11 @@ Item {
         return source
     }
 
+    function shortcutItemIconSource(itemId) {
+        const source = itemIconSource(itemId)
+        return source !== "" ? source + "?collection=1" : ""
+    }
+
     function collectionImageSource(itemId, identified) {
         if (!(itemId > 0)) {
             return ""
@@ -1159,11 +1164,11 @@ Item {
                     id: shortCutIcon
                     anchors.fill: parent
                     anchors.margins: 1
-                    fillMode: Image.PreserveAspectFit
+                    fillMode: modelData.isSkill ? Image.PreserveAspectFit : Image.Stretch
                     smooth: false
                     source: modelData.isSkill
                         ? root.skillIconSource(modelData.skillId || 0)
-                        : root.itemIconSource(modelData.itemId || 0)
+                        : root.shortcutItemIconSource(modelData.itemId || 0)
                     visible: modelData.occupied && source !== ""
                 }
 

@@ -45,6 +45,8 @@ float WaveVolumeScale(const char* path)
     std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
     });
+    if (name == "doom.wav" || name == "doom2.wav") return 0.4f;
+    if (name == "wizard_waterball_chulung.wav") return 1.3f;
     return name == "ef_beginspell.wav" ? 0.5f : 1.0f;
 }
 

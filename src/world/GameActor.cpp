@@ -409,6 +409,11 @@ bool IsMonsterLikeWaveActor(const CGameActor& actor)
 
 bool ShouldPlayMotionWaveForActor(const CGameActor& actor)
 {
+    // Elementals use configured skill audio instead of embedded sprite WAVs,
+    // including idle, attack, hit, and death animation events.
+    if (actor.m_objectType == 10) {
+        return false;
+    }
     return actor.m_isPc != 0 || IsMonsterLikeWaveActor(actor);
 }
 
@@ -5595,17 +5600,29 @@ void CGameActor::SetState(int state) {
         SetAction(24, 6, 1);
         break;
     case kGameActorAttackStateId:
-    case kSecondAttackStateId:
+    case kSecondAttackStateId: {
         m_isMoving = 0;
         m_path.Reset();
         m_isMotionFinished = 0;
-        SetAction(state == kSecondAttackStateId
-                ? 88
-                : (m_isPc != 0 ? ResolvePcAttackAction(*this) : 16),
-            3,
-            1);
+        int attackAction = m_isPc != 0 ? ResolvePcAttackAction(*this) : 16;
+        // Tera uses its rock-spike sequence for regular attacks too.
+        const bool teraAttack = m_objectType == 10 && m_job == 2125;
+        if (state == kSecondAttackStateId || teraAttack) {
+            if (m_isPc != 0) {
+                attackAction = 88;
+            } else {
+                // Non-player secondary attacks use ACT band 40. Keep the
+                // primary attack when the sprite has no secondary sequence.
+                CActRes* actRes = ResolveRuntimeActorActRes(this);
+                if (actRes && actRes->GetMotionCount(40 + Get8Dir(m_roty)) > 0) {
+                    attackAction = 40;
+                }
+            }
+        }
+        SetAction(attackAction, 3, 1);
         m_attackMotion = static_cast<float>(GetAttackMotion());
         break;
+    }
     case kGameActorCastingStateId:
         m_isMoving = 0;
         m_path.Reset();

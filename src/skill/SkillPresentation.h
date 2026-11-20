@@ -115,6 +115,7 @@ struct SkillEffectPresentation {
     bool drawOverActors = false;
     float bottomOffsetPx = 4.0f;
     float offsetY = 0.0f;
+    float screenOffsetYPx = 0.0f; // STR screen-pixel shift: negative moves upward.
     int hueShiftDegrees = 0; // STR texture and layer RGB; 0 preserves authored colors.
     int saturationPercent = 100; // STR color saturation; 0 makes a white/gray glow.
     int tint = 0xFFFFFF;
@@ -137,6 +138,8 @@ struct SkillPresentation {
     // silence_hit_sound = false disables hit audio; omitted or true enables it.
     bool hitSoundEnabled = true;
     std::string hitWavPath; // Optional replacement for the default per-hit WAV.
+    int damageNumberDelayMs = 0; // Additional display delay, independent of hit audio and effects.
+    bool sourcePresentation = true; // Caster motion, skill-name shout, and attached source effects.
     bool sourceServerNotified = false;
     bool sourceOncePerCast = false; // Later impact notifications preserve the caster's current action.
     bool targetServerNotified = false;

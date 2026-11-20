@@ -804,7 +804,10 @@ public:
             const unsigned int itemId = baseId.mid(QStringLiteral("item/").size()).toUInt(&ok);
             if (ok) {
                 const bool identified = !id.contains(QStringLiteral("identified=0"));
-                TryBuildItemIconImage(itemId, identified, &image);
+                if (!id.contains(QStringLiteral("collection=1"))
+                    || !TryBuildItemCollectionImage(itemId, identified, &image)) {
+                    TryBuildItemIconImage(itemId, identified, &image);
+                }
             }
         } else if (baseId.startsWith(QStringLiteral("collection/"))) {
             bool ok = false;

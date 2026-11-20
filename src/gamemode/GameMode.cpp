@@ -10212,15 +10212,9 @@ msgresult_t CGameMode::SendMsg(int msg, msgparam_t wparam, msgparam_t lparam, ms
 
         if (TrySelectPcTargetFromScreenPoint(*this, mouseX, mouseY)) {
             ClearPendingSkillUse(*this);
-            m_isLeftButtonHeld = 0;
-            m_hasHeldMoveTarget = 0;
-            m_lastMoveRequestCellX = -1;
-            m_lastMoveRequestCellY = -1;
-            m_lastMoveRequestTick = 0;
-            m_lastAttackRequestTick = 0;
-            return 1;
         }
 
+        // Player selection also allows movement to the ground cell behind the sprite.
         ClearPickupIntent(*this);
         m_lastMonGid = 0;
         m_lastLockOnMonGid = 0;

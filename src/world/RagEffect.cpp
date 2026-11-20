@@ -4179,6 +4179,7 @@ void CRagEffect::RenderAniClip(int layerIndex, const KAC_LAYER& layer, const KAC
             vert.x = rotatedX + m_tlvertX;
             vert.y = rotatedY + m_tlvertY;
         }
+        vert.y += m_presentationScreenOffsetYPx;
         // Overlay depth keeps terrain from cutting through the artwork.
         // The bottom-effect pass still puts actors on top.
         vert.z = 0.000031f;
@@ -4214,6 +4215,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_castingTargetGid = 0;
     m_fixedWorldPosition.reset();
     m_presentationOffsetY = 0.0f;
+    m_presentationScreenOffsetYPx = 0.0f;
     m_presentationHueShiftDegrees = 0;
     m_presentationSaturationPercent = 100;
     m_presentationTint = 0xFFFFFF;
@@ -4299,6 +4301,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_presentationBottomOrder = presentation->bottomOrder;
         m_presentationDrawOverActors = presentation->drawOverActors;
         m_presentationBottomOffsetPx = presentation->bottomOffsetPx;
+        m_presentationScreenOffsetYPx = presentation->screenOffsetYPx;
         if (presentation->renderer == SkillEffectPresentation::Renderer::GroundCircle) {
             m_handler = Handler::GroundCircle;
             m_proceduralPresentation = presentation;
@@ -4412,6 +4415,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             component->m_strPlaysRemaining = presentation->playCount;
             component->m_startDelayMs = m_startDelayMs;
             component->m_presentationOffsetY = m_presentationOffsetY;
+            component->m_presentationScreenOffsetYPx = m_presentationScreenOffsetYPx;
             component->m_presentationHueShiftDegrees = m_presentationHueShiftDegrees;
             component->m_presentationSaturationPercent = m_presentationSaturationPercent;
             component->m_presentationTint = m_presentationTint;

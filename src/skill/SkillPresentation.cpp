@@ -405,6 +405,15 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     lua_pop(state, 1);
     std::string renderer;
     if (!ReadString(state, table, "renderer", renderer, false, error)) return false;
+    lua_getfield(state, table, "screen_offset_y_px");
+    const bool hasScreenOffsetY = !lua_isnil(state, -1);
+    lua_pop(state, 1);
+    if (hasScreenOffsetY && !ReadNumber(state, table, "screen_offset_y_px",
+            effect.screenOffsetYPx, -10000.0f, 10000.0f, error)) return false;
+    if (effect.screenOffsetYPx != 0 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
+        error = "screen_offset_y_px requires an STR renderer";
+        return false;
+    }
     if (!ReadAdditionalStrs(state, table, effect.additionalStrPaths, error)) return false;
     if (!effect.additionalStrPaths.empty() && !renderer.empty() && renderer != "str") {
         error = "additional_strs requires an STR renderer";
@@ -751,10 +760,12 @@ struct PresentationCatalog {
                 || !ReadString(state, entry, "name", skill.name, true, error)
                 || !ReadBoolean(state, entry, "passive", skill.passive, error)
                 || !ReadBoolean(state, entry, "silence_hit_sound", skill.hitSoundEnabled, error)
+                || !ReadInteger(state, entry, "damage_number_delay_ms", skill.damageNumberDelayMs, error)
                 || !ReadString(state, entry, "hit_wav", skill.hitWavPath, false, error)
                 || (!skill.hitWavPath.empty()
                     && !ValidateResourcePath(skill.hitWavPath, "data\\wav\\", ".wav", error))
                 || !ReadBoolean(state, entry, "server_notified", serverNotified, error)
+                || !ReadBoolean(state, entry, "source_presentation", skill.sourcePresentation, error)
                 || !ReadBoolean(state, entry, "source_once_per_cast", skill.sourceOncePerCast, error)
                 || !ReadInteger(state, entry, "begin_effect_id", skill.beginEffectId, error)
                 || !ReadInteger(state, entry, "motion_type", skill.motionType, error)
@@ -767,6 +778,10 @@ struct PresentationCatalog {
                 || !ReadSkillEffects(state, entry, "target", skill.targetEffects, error)
                 || !ReadSkillEffects(state, entry, "ground", skill.groundEffects, error)
                 || !ReadSelectionEffects(state, entry, skill.selectionEffects, error)) return false;
+            if (skill.damageNumberDelayMs < 0) {
+                error = "expected a nonnegative damage_number_delay_ms";
+                return false;
+            }
             skill.sourceServerNotified = serverNotified;
             skill.targetServerNotified = serverNotified;
             skill.groundServerNotified = serverNotified;

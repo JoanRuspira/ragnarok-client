@@ -63,7 +63,17 @@ HFONT GetShortcutLabelFont(int fontSize)
 
 void DrawBitmapFit(HDC hdc, const shopui::BitmapPixels& bitmap, const RECT& rect)
 {
-    shopui::DrawBitmapPixelsTransparent(hdc, bitmap, rect);
+    if (!bitmap.IsValid() || rect.right <= rect.left || rect.bottom <= rect.top) {
+        return;
+    }
+
+    const float scale = (std::min)(static_cast<float>(rect.right - rect.left) / bitmap.width,
+        static_cast<float>(rect.bottom - rect.top) / bitmap.height);
+    const int width = (std::max)(1, static_cast<int>(bitmap.width * scale));
+    const int height = (std::max)(1, static_cast<int>(bitmap.height * scale));
+    const int left = rect.left + (rect.right - rect.left - width) / 2;
+    const int top = rect.top + (rect.bottom - rect.top - height) / 2;
+    shopui::DrawBitmapPixelsTransparent(hdc, bitmap, RECT{ left, top, left + width, top + height });
 }
 
 #if RO_ENABLE_QT6_UI
@@ -465,7 +475,7 @@ void UIShortCutWnd::OnDraw()
             const ITEM_INFO* item = g_session.GetInventoryItemByItemId(slot->id);
             const ITEM_INFO& iconSource = item ? *item : fallbackItem;
             if (const shopui::BitmapPixels* icon = GetItemIcon(iconSource)) {
-                DrawBitmapFit(hdc, *icon, iconRect);
+                shopui::DrawBitmapPixelsTransparent(hdc, *icon, iconRect);
             }
         }
     }
@@ -719,8 +729,21 @@ std::string UIShortCutWnd::GetSlotKeyLabel(int visibleSlot) const
 std::string UIShortCutWnd::GetSlotQuantityText(int visibleSlot) const
 {
     const SHORTCUT_SLOT* slot = g_session.GetShortcutSlotByVisibleIndex(visibleSlot);
-    if (!slot || slot->id == 0 || slot->isSkill != 0) {
+    if (!slot || slot->id == 0) {
         return {};
+    }
+
+    if (slot->isSkill != 0) {
+        g_skillMgr.EnsureLoaded();
+        const SkillMetadata* metadata = g_skillMgr.GetSkillMetadata(static_cast<int>(slot->id));
+        if (!metadata || !metadata->separateLevels) {
+            return {};
+        }
+
+        const PLAYER_SKILL_INFO* skill = g_session.GetSkillItemBySkillId(static_cast<int>(slot->id));
+        const int selectedLevel = slot->count > 0 ? static_cast<int>(slot->count) : (skill ? skill->level : 0);
+        const int level = skill ? (std::min)(skill->level, selectedLevel) : selectedLevel;
+        return level > 0 ? std::to_string(level) : std::string{};
     }
 
     if (const ITEM_INFO* item = g_session.GetInventoryItemByItemId(slot->id)) {
@@ -740,14 +763,8 @@ const shopui::BitmapPixels* UIShortCutWnd::GetItemIcon(const ITEM_INFO& item)
     }
 
     shopui::BitmapPixels bitmap;
-    for (const std::string& candidate : shopui::BuildItemIconCandidates(item)) {
-        if (!g_fileMgr.IsDataExist(candidate.c_str())) {
-            continue;
-        }
-        bitmap = shopui::LoadBitmapPixelsFromGameData(candidate, true);
-        if (bitmap.IsValid()) {
-            break;
-        }
+    if (!shopui::TryLoadItemCollectionPixels(item, &bitmap)) {
+        shopui::TryLoadItemIconPixels(item, &bitmap);
     }
 
     auto inserted = m_itemIconCache.emplace(itemId, std::move(bitmap));

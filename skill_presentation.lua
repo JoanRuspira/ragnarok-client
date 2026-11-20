@@ -4,7 +4,7 @@
 -- Bow/instrument properties come from arrows. Neutral monsters use randomized enemy hit WAVs.
 -- Magic damage plays the element WAV per hit, including each ground/AoE damage tick.
 -- Hit audio follows WhiteDamageNumbers.DelayBetweenNumbersMs in open-midgard.ini.
--- Single-impact targeted magic uses its dedicated audio without a generic hit layer.
+-- Single-impact targeted magic with a fixed element uses dedicated audio without a generic hit layer.
 -- Skill WAVs, hit_wav, and effect audio retain their existing triggers and timing.
 -- Casting WAVs belong to the casting stage; omit wav and loop_wav for a silent effect.
 -- loop_wav repeats independently of visual timing while the effect is looping.
@@ -12,6 +12,8 @@
 -- already sends each effect_id: skill-use packets must not launch them again.
 -- Per-attachment *_server_notified overrides allow locally played caster effects.
 -- source_once_per_cast = true plays the caster's motion, shout, and source effects once per cast.
+-- source_presentation = false skips caster motion, skill-name shouts, and casting/source effects.
+-- damage_number_delay_ms = 0 adds a display-only delay to skill damage numbers.
 -- casting effects attach to the caster for the cast's duration and stop together.
 -- casting_ground effects share that lifetime but stay at the targeted ground cell.
 -- Add casting_ground = { { effect_id = 50048 } } to reuse the shared ground circle.
@@ -23,6 +25,7 @@
 -- Effect entries support bottom_effect = true to draw behind actors, with
 -- bottom_offset_px = 4 (default) shifting the visual down in screen pixels.
 -- Bottom STRs can set draw_over_actors = true to keep the offset and overlay actors.
+-- STR screen_offset_y_px = 0 shifts in screen pixels; negative moves up, positive moves down.
 -- once_per_hit = true repeats an effect at the damage packet's hit cadence.
 -- For server-notified effects, the server supplies the first playback.
 -- delay_ms = 0 (default) delays the visual and its first WAV; per-hit visual delays accumulate.
@@ -95,6 +98,14 @@ return {
     -- play_count (default 1), interval_ms, and delay_ms control sound-only playback.
     -- ignore_server_wav = true prevents matching server sound packets from adding copies.
     sounds = {
+        [906] = { -- SK_SA_ICICLE
+            wav = [[data\wav\effect\ef_frostdiver2.wav]],
+            trigger = "damage",
+        },
+        [907] = { -- SK_SA_FIREBALL
+            wav = [[data\wav\effect\ef_firehit.wav]],
+            trigger = "damage",
+        },
         [8439] = { -- SK_SA_EARTHSPIKE
             wav = [[data\wav\effect\em_summon_elemental_terremotus_2.wav]],
             trigger = "damage",
@@ -264,8 +275,35 @@ return {
         },
     },
     skills = {
+        [5078] = { -- SK_MG_BOOK_READ
+            name = "Reading Spellbook",
+            source = {
+                {
+                    effect_id = 50187,
+                    str = [[data\texture\effect\new_fatal_menace\new_fatal_menace\new_fatal_menace.str]],
+                    saturation_percent = 0,
+                    tint = 0x4080FF,
+                },
+            },
+        },
+        [469] = { -- SK_WZ_ILLUSIONARYBLADES
+            name = "Illusionary Blades",
+            source_presentation = false,
+            damage_number_delay_ms = 250,
+            target = {
+                {
+                    effect_id = 50165,
+                    str = [[data\texture\effect\twister_cutter\twister_cutter\twister_cutter.str]],
+                    wav = [[data\wav\effect\wh_wind_sign.wav]],
+                    saturation_percent = 0,
+                    tint = 0x80C0FF,
+                },
+            },
+        },
         [905] = { -- SK_SA_ELEMENTALCONTROL
             name = "Elemental Control",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             source_once_per_cast = true,
             source = {
                 {
@@ -285,6 +323,16 @@ return {
         },
         [906] = { -- SK_SA_ICICLE
             name = "Frostbite",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50182,
+                    str = [[data\texture\effect\wooden_warrior\wooden_warrior_cast_bottom\wooden_warrior_cast_bottom.str]],
+                    bottom_effect = true,
+                    saturation_percent = 0,
+                    tint = 0x4080FF,
+                },
+            },
             target = {
                 {
                     effect_id = 50162,
@@ -297,8 +345,159 @@ return {
                 },
             },
         },
+        [907] = { -- SK_SA_FIREBALL
+            name = "Fireball",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50179,
+                    str = [[data\texture\effect\helltree\helltree_cast_bottom\helltree_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50170,
+                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock\new_crimsonrock.str]],
+                },
+                {
+                    effect_id = 50171,
+                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock_bottom\new_crimsonrock_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [914] = { -- SK_PF_INFERNO
+            name = "Inferno",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50178,
+                    str = [[data\texture\effect\helltree\helltree_cast_bottom\helltree_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50172,
+                    str = [[data\texture\effect\new_hellinferno\new_hellinferno_cast_bottom\new_hellinferno_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 50173,
+                    str = [[data\texture\effect\new_hellinferno\new_hellinferno\new_hellinferno.str]],
+                    wav = [[data\wav\effect\em_elemetal_buster_fire.wav]],
+                },
+            },
+        },
+        [915] = { -- SK_PF_ROCKTOMB
+            name = "Rock Tomb",
+            skill_motion_type = 9, -- Tera's rock-spike attack, shared with Earth Spike.
+            source = {
+                {
+                    effect_id = 50181,
+                    str = [[data\texture\effect\wooden_warrior\wooden_warrior_cast_bottom\wooden_warrior_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50166,
+                    str = [[data\texture\effect\new_strantumtremor\new_strantumtremor\new_strantumtremor.str]],
+                    wav = [[data\wav\rocktomb.wav]],
+                    screen_offset_y_px = -125,
+                },
+                {
+                    effect_id = 50174,
+                    str = [[data\texture\effect\terremotus\terremotus_earth_care_bottom\terremotus_earth_care_bottom.str]],
+                    bottom_effect = true,
+                    play_count = 2,
+                },
+            },
+        },
+        [916] = { -- SK_PF_HYDROPUMP
+            name = "Hydro Pump",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50183,
+                    str = [[data\texture\effect\wooden_warrior\wooden_warrior_cast_bottom\wooden_warrior_cast_bottom.str]],
+                    bottom_effect = true,
+                    saturation_percent = 0,
+                    tint = 0x4080FF,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50168,
+                    str = [[data\texture\effect\diluvio\diluvio_ice_bottom\diluvio_ice_bottom.str]],
+                    bottom_effect = true,
+                },
+                {
+                    effect_id = 50169,
+                    str = [[data\texture\effect\diluvio\diluvio_cold_force\diluvio_cold_force.str]],
+                    wav = [[data\wav\effect\wizard_waterball_chulung.wav]],
+                    play_count = 2,
+                },
+            },
+        },
+        [84] = { -- SK_PF_JUPITELTHUNDER
+            name = "Jupitel Thunder",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50186,
+                    str = [[data\texture\effect\lightning_land\lightning_land_cast_bottom\lightning_land_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50184,
+                    str = [[data\texture\effect\new_spellfist\new_spellfist_wind\new_spellfist_wind.str]],
+                    wav = [[data\wav\effect\ef_thunderstorm.wav]],
+                    play_count = 2,
+                },
+                {
+                    effect_id = 50185,
+                    str = [[data\texture\effect\new_tornadostorm\new_tornadostorm_cast_bottom\new_tornadostorm_cast_bottom.str]],
+                    bottom_effect = true,
+                    play_count = 2,
+                },
+            },
+        },
+        [8434] = { -- SK_SA_WINDSLASH
+            name = "Wind Slash",
+            skill_motion_type = 9,
+            source = {
+                {
+                    effect_id = 50177,
+                    str = [[data\texture\effect\lightning_land\lightning_land_cast_bottom\lightning_land_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+            target = {
+                {
+                    effect_id = 50175,
+                    str = [[data\texture\effect\new_tornadostorm\new_tornadostorm_cast\new_tornadostorm_cast.str]],
+                    wav = [[data\wav\effect\wh_wind_sign.wav]],
+                },
+                {
+                    effect_id = 50176,
+                    str = [[data\texture\effect\lightning_land\lightning_land_cast\lightning_land_cast.str]],
+                },
+            },
+        },
         [8439] = { -- SK_SA_EARTHSPIKE
             name = "Earth Spike",
+            skill_motion_type = 9, -- Tera's rock-spike attack; primary attack uses white clouds.
+            source = {
+                {
+                    effect_id = 50180,
+                    str = [[data\texture\effect\wooden_warrior\wooden_warrior_cast_bottom\wooden_warrior_cast_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
             target = {
                 {
                     effect_id = 50160,
@@ -316,9 +515,12 @@ return {
         },
         [2445] = { -- SK_PF_SPELLFIST: the interrupted cast selects the visual pair.
             name = "Spell Fist",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
         },
         [2460] = { -- SK_SA_SUMMONELEMENTAL
             name = "Summon Elemental",
+            cast_motion_type = 1,
             casting = {
                 {
                     effect_id = 50155,
@@ -345,6 +547,8 @@ return {
         },
         [482] = { -- SK_PF_MAGICSQUARED
             name = "Magic Squared",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             casting = {
                 {
                     effect_id = 50151,
@@ -376,6 +580,8 @@ return {
         },
         [3] = {
             name = "Two-Handed Sword Mastery", -- SK_SM_TWOHAND
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             passive = true, -- A passive weapon bonus, with no cast visual or sound.
         },
         [13] = { -- SK_MG_SOULSTRIKE
@@ -490,6 +696,11 @@ return {
                     effect_id = 50028,
                     str = [[data\texture\effect\new_jackfrost\new_jackfrost_cast\new_jackfrost_cast.str]],
                 },
+                {
+                    effect_id = 50164,
+                    str = [[data\texture\effect\new_spellfist\new_spellfist_water_bottom\new_spellfist_water_bottom.str]],
+                    bottom_effect = true,
+                },
             },
         },
         [16] = { -- SK_MG_STONECURSE
@@ -505,6 +716,7 @@ return {
                 {
                     effect_id = 2088,
                     str = [[data\texture\effect\terremotus\terremotus\terremotus.str]],
+                    wav = [[data\wav\_stonecurse.wav]],
                     once_per_hit = false,
                 },
             },
@@ -561,6 +773,7 @@ return {
         },
         [288] = { -- SK_PF_LANDPROTECTOR
             name = "Land Protector",
+            cast_motion_type = 1,
             casting = {
                 { effect_id = 2023 },
                 { effect_id = 50104 },
@@ -572,6 +785,7 @@ return {
         },
         [894] = { -- SK_PF_STASIS
             name = "Stasis",
+            cast_motion_type = 1,
             casting = {
                 { effect_id = 2023 },
                 { effect_id = 50104 },
@@ -630,7 +844,6 @@ return {
         [374] = { -- SK_PF_SOULEXHALE
             name = "Soul Exhale",
             cast_motion_type = 1,
-            skill_motion_type = 1,
             casting = {
                 {
                     effect_id = 50118,
@@ -904,11 +1117,11 @@ return {
             target = {
                 {
                     effect_id = 50046,
-                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock\new_crimsonrock.str]],
+                    str = [[data\texture\effect\rockdown\rockdown\rockdown.str]],
                 },
                 {
                     effect_id = 50047,
-                    str = [[data\texture\effect\new_crimsonrock\new_crimsonrock_bottom\new_crimsonrock_bottom.str]],
+                    str = [[data\texture\effect\rockdown\rockdown_bottom\rockdown_bottom.str]],
                     bottom_effect = true,
                 },
             },
@@ -1111,8 +1324,6 @@ return {
         },
         [403] = { -- SK_WZ_FORESIGHT
             name = "Foresight",
-            cast_motion_type = 1,
-            skill_motion_type = 2,
             source = {
                 {
                     effect_id = 50065,
@@ -1326,8 +1537,6 @@ return {
             casting = {
                 { effect_id = 50080 }, -- White casting clip with begin-spell sound.
             },
-            cast_motion_type = 1,
-            skill_motion_type = 2,
             source = {
                 {
                     effect_id = 50067,
@@ -1440,6 +1649,8 @@ return {
         },
         [946] = { -- SK_PA_SHIELDCHAIN_ATK
             name = "Shield Chain",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             -- Follow-up damage advances the shield without replaying the caster.
             target = {
                 { effect_id = 2075 }, -- absolute_zephyr_hit.str on every damaged target.
@@ -1541,6 +1752,7 @@ return {
         },
         [949] = { -- SK_CR_RETALIATION
             name = "Retaliation",
+            skill_motion_type = 2,
             source = {
                 {
                     effect_id = 2073,
@@ -1745,8 +1957,10 @@ return {
         },
         [398] = {
             name = "Traumatic Strike", 
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 2003,
@@ -1762,13 +1976,16 @@ return {
         },
         [942] = {
             name = "Magnum Break", -- SK_SM_MAGNUM
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true, -- The server sends the caster effects and magnumbr.wav.
         },
         [5] = {
             name = "Bash",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 2000,
@@ -1784,6 +2001,8 @@ return {
         },
         [813] = {
             name = "Spear Stance",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1796,8 +2015,10 @@ return {
         },
         [58] = {
             name = "Spear Stab", 
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true, 
+            target_server_notified = false,
             target = {         
                 { 
                     effect_id = 2005, 
@@ -1817,6 +2038,7 @@ return {
         },
         [59] = {
             name = "Spear Cannon", -- SK_KN_SPEARCANNON / Spear Boomerang
+            skill_motion_type = 1,
             motion_type = 1,
             target = {
                 {
@@ -1836,12 +2058,15 @@ return {
         },
         [399] = {
             name = "Arcane Strike", 
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
+            target_server_notified = false,
             target = {
                 {
                     effect_id = 1537,
                     str = [[data\texture\effect\new_comet\new_comet_sub_explosion\new_comet_sub_explosion.str]],
+                    wav = [[data\wav\effect\abc_unlucky_rush.wav]],
                 },
                 {
                     effect_id = 1538,
@@ -1857,6 +2082,8 @@ return {
         },
         [819] = {
             name = "Spirit Growth",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1869,6 +2096,7 @@ return {
         },
         [368] = {
             name = "Reckoning",
+            skill_motion_type = 2,
             motion_type = 2,
             target = {
                 {
@@ -1885,6 +2113,8 @@ return {
         },
         [835] = {
             name = "Adrenaline Rush",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1903,6 +2133,8 @@ return {
         },
         [876] = {
             name = "Fury",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1920,6 +2152,7 @@ return {
         },
         [61] = {
             name = "Storm Slash",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target_server_notified = false,
@@ -1927,11 +2160,14 @@ return {
                 {
                     effect_id = 2011,
                     str = [[data\texture\effect\weakness.str]],
+                    saturation_percent = 0,
+                    tint = 0xFF4040,
                 }
             },
         },  
         [62] = {
             name = "Bowling Bash",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target_server_notified = false,
@@ -1950,6 +2186,7 @@ return {
         },   
         [355] = {
             name = "Enchant Blade",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target = {
@@ -1968,6 +2205,8 @@ return {
         },     
         [2016] = {
             name = "Vigor",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1980,6 +2219,8 @@ return {
         },
         [2015] = {
             name = "Stone Skin",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -1992,6 +2233,7 @@ return {
         },
         [57] = {
             name = "Brandish Spear",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             source_server_notified = false,
@@ -2012,6 +2254,7 @@ return {
         },
         [56] = {
             name = "Pierce",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = false,
             source = {
@@ -2032,6 +2275,8 @@ return {
         },
         [2005] = {
             name = "Wind Cutter",
+            cast_motion_type = 1,
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target_server_notified = false,
@@ -2051,6 +2296,7 @@ return {
         },
         [2002] = { -- SK_KN_SONICWAVE; skill IDs and effect IDs are separate.
             name = "Sonic Wave",
+            skill_motion_type = 2,
             motion_type = 2,
             -- The server sends skill damage, without a separate effect notification.
             source = {
@@ -2077,6 +2323,8 @@ return {
         },
         [146] = {
             name = "Counterstrike", -- SK_SM_AUTOBERSERK in this server's skill database.
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             server_notified = true,
             source = { { effect_id = 1032 }, {effect_id = 2016, str = [[data\texture\effect\attack_stance\attack_stance\attack_stance.str]]} }, -- The server sends EF_MAXPAIN once on the caster.
         },
@@ -2095,6 +2343,8 @@ return {
         },
         [356] = { -- SK_CM_PARRY
             name = "Parry",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             server_notified = false, -- Activation and blocks send skill-use packets, without effect packets.
             target = { -- Target attachment also plays when a block occurs during another cast.
                 {
@@ -2125,6 +2375,8 @@ return {
         },
         [359] = { -- SK_CM_FRENZY; 2015 belongs to Stone Skin.
             name = "Frenzy",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 2,
             server_notified = true,
             target = {
@@ -2143,6 +2395,7 @@ return {
         },
         [863] = {
             name = "Release the Beast",
+            skill_motion_type = 2,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -2160,6 +2413,7 @@ return {
         },
         [397] = {
             name = "Clashing Spiral",
+            skill_motion_type = 2,
             motion_type = 2,
             target = {
                 {
@@ -2170,6 +2424,7 @@ return {
         },
         [953] = { -- SK_CM_REND; the server must preserve this ID in damage packets.
             name = "Rend",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target_server_notified = false,
@@ -2189,6 +2444,8 @@ return {
         },
         [2001] = {
             name = "Blood Sport",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             server_notified = true,
             target = {
@@ -2207,6 +2464,8 @@ return {
         },
         [5004] = { -- SK_CM_DRAGONBREATH
             name = "Dragon Breath",
+            cast_motion_type = 1,
+            skill_motion_type = 1,
             motion_type = 1,
             source_once_per_cast = true,
             source = {
@@ -2231,6 +2490,7 @@ return {
         },
         [2312] = {
             name = "A Hundred Spears",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             source_server_notified = false,
@@ -2256,6 +2516,7 @@ return {
         },
         [943] = {
             name = "Ignition Break",
+            skill_motion_type = 2,
             motion_type = 2,
             server_notified = true,
             target = {
@@ -2372,6 +2633,11 @@ return {
             saturation_percent = 0,
             tint = 0xB478FF,
         },
+        [864] = { -- Elemental Transfusion: the server sends this to caster and elemental.
+            str = [[data\texture\effect\new_soulexpansion\new_soulexpansion_cast\new_soulexpansion_cast.str]],
+            saturation_percent = 0,
+            tint = 0x40FF40,
+        },
         [507] = { -- Mind Games: the server launches this visual; keep it silent.
             str = [[data\texture\effect\mapae.str]],
         },
@@ -2455,6 +2721,10 @@ return {
         },
         [1260] = {
             str = [[data\texture\effect\tetravortex\tetra_cast\tetra_cast.str]],
+        },
+        [1275] = {
+            str = [[data\texture\effect\new_soulexpansion\new_soulexpansion_hit_bottom\new_soulexpansion_hit_bottom.str]],
+            bottom_effect = true,
         },
         [1277] = {
             str = [[data\texture\effect\4abc_abyss_slayer\abyss_slayer_cast\abyss_slayer_cast.str]],

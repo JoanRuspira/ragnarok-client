@@ -1899,7 +1899,8 @@ std::vector<ElementalVitalsRect> CollectElementalVitalsRects(CGameMode& mode)
         const auto actorIt = mode.m_runtimeActors.find(gid);
         if (actorIt == mode.m_runtimeActors.end()) continue;
         const CGameActor* actor = actorIt->second;
-        if (!actor || !actor->m_isVisible || actor->m_stateId == kGameActorDeathStateId
+        if (!actor || !actor->m_isVisible
+            || actor->m_stateId == kGameActorDeathStateId || actor->m_isElementalDeathCorpse
             || (vitals.maxHp == 0 && vitals.maxSp == 0)) continue;
         int centerX = 0, topY = 0, labelY = 0;
         if (!mode.m_world->GetActorScreenMarker(mode.m_view->GetViewMatrix(),

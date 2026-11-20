@@ -339,6 +339,8 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     if (!lua_istable(state, table)
         || !ReadBoolean(state, table, "loop", effect.loop, error)
         || !ReadInteger(state, table, "play_count", effect.playCount, error)
+        || !ReadInteger(state, table, "fade_out_frame", effect.fadeOutFrame, error)
+        || !ReadInteger(state, table, "fade_out_frames", effect.fadeOutFrames, error)
         || !ReadBoolean(state, table, "replay_wav", effect.replayWav, error)
         || !ReadBoolean(state, table, "ignore_server_wav", effect.ignoreServerWav, error)
         || !ReadString(state, table, "loop_wav", effect.loopWavPath, false, error)
@@ -364,6 +366,11 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     }
     if (effect.playCount < 1 || (effect.loop && effect.playCount > 1)) {
         error = "play_count must be positive and cannot exceed 1 with loop = true";
+        return false;
+    }
+    if (effect.fadeOutFrames < 0 || ((effect.fadeOutFrame >= 0) != (effect.fadeOutFrames > 0))
+        || static_cast<long long>(effect.fadeOutFrame) + effect.fadeOutFrames > (std::numeric_limits<int>::max)() - 8LL) {
+        error = "fade_out_frame requires a nonnegative frame and positive fade_out_frames within the frame range";
         return false;
     }
     if (effect.replayWav && effect.playCount <= 1) {
@@ -409,6 +416,10 @@ bool ReadEffect(lua_State* state, int table, SkillEffectPresentation& effect, st
     }
     if (effect.playCount > 1 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
         error = "play_count requires an STR renderer";
+        return false;
+    }
+    if (effect.fadeOutFrame >= 0 && !renderer.empty() && renderer != "str" && renderer != "directional_str") {
+        error = "fade_out_frame requires an STR renderer";
         return false;
     }
     if (effect.drawOverActors && !renderer.empty() && renderer != "str" && renderer != "directional_str") {

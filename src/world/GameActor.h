@@ -309,6 +309,9 @@ public:
     int m_isSitting;
     float m_damageDestX, m_damageDestZ;
     u32 m_effectLaunchCnt, m_vanishTime;
+    u32 m_elementalRemoveAfterTick = 0;
+    u32 m_elementalCorpseHoldUntilTick = 0;
+    bool m_isElementalDeathCorpse = false;
     u32 m_hideFadeStartTick, m_hideFadeEndTick;
     int m_actorType, m_bIsMemberAndVisible, m_gdid, m_emblemVersion;
     void* m_homunAI; // CMercenaryAI
@@ -330,6 +333,7 @@ public:
     int m_lastPresentedSkillId = 0;
     std::set<int> m_presentedCastSkillIds;
     u16 m_castingSkillId = 0;
+    u32 m_elementalControlPresentationTick = 0;
     int m_pendingElementalSummonLevel = 0;
     u32 m_pendingElementalSummonTick = 0;
     u16 m_spellFistCastSkillId = 0;

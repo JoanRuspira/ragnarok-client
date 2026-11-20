@@ -82,6 +82,9 @@ constexpr u32 kActorChatBubbleMinLifetimeMs = 4500;
 constexpr u32 kActorChatBubbleMaxLifetimeMs = 8000;
 constexpr u32 kActorNameRequestCooldownMs = 1000;
 constexpr u16 kSkillIdSpellFist = 2445;
+constexpr u16 kSkillIdElementalControl = 905;
+constexpr u16 kSkillIdElementalIcicle = 906;
+constexpr u16 kSkillIdElementalEarthSpike = 8439;
 
 PendingDisconnectAction g_pendingDisconnectAction = PendingDisconnectAction::None;
 u32 g_lastLocalLevelUpEffectId = 0;
@@ -547,6 +550,8 @@ constexpr u32 kEffectIdBaseLevelUpTaekwon = 582;
 constexpr u32 kLocalLevelUpNotifySuppressMs = 1200;
 constexpr u32 kDeathFadeDurationMs = 510;
 constexpr u32 kDeathCorpseHoldMs = 1290;
+constexpr u32 kElementalRemovalGraceMs = 200;
+constexpr u32 kElementalCorpseHoldMs = 0;
 
 struct RemoteMoveApplyTrace {
     u32 lastClientTick = 0;
@@ -891,6 +896,7 @@ void HandleSkillCastCancel(CGameMode& mode, const PacketView& packet)
     }
 
     ClearAttachedSkillEffects(actor);
+    actor->m_elementalControlPresentationTick = 0;
     actor->m_spellFistCastSkillId = 0;
     actor->m_spellFistEffectUntilTick = 0;
     actor->m_vigorEffectSuppressUntilTick = 0;
@@ -1113,6 +1119,7 @@ void HandleElementalInfo(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 22) return;
     const u32 gid = ReadLE32(packet.data + 2);
+    if (const CGameActor* actor = ResolveNotifyEffectActor(mode, gid); actor && actor->m_isElementalDeathCorpse) return;
     if (mode.m_ownedElementalGid != 0 && mode.m_ownedElementalGid != gid) {
         mode.m_elementalVitals.erase(mode.m_ownedElementalGid);
     }
@@ -1146,9 +1153,33 @@ void HandleFriendlyElementalVitals(CGameMode& mode, const PacketView& packet)
     const u32 gid = ReadLE32(packet.data + 2);
     const u32 ownerAid = ReadLE32(packet.data + 6);
     if (gid == 0 || ownerAid == 0) return;
+    if (const CGameActor* actor = ResolveNotifyEffectActor(mode, gid); actor && actor->m_isElementalDeathCorpse) return;
     mode.m_elementalVitals[gid] = { ownerAid,
         ReadLE32(packet.data + 10), ReadLE32(packet.data + 14),
         ReadLE32(packet.data + 18), ReadLE32(packet.data + 22) };
+}
+
+u16 ResolveActiveElementalTintLevel(const CGameMode& mode, const CGameActor& caster)
+{
+    for (const auto& [gid, vitals] : mode.m_elementalVitals) {
+        if (vitals.ownerAid != caster.m_gid
+            && !(IsLocalActorId(caster.m_gid) && IsLocalActorId(vitals.ownerAid))) {
+            continue;
+        }
+        const auto it = mode.m_runtimeActors.find(gid);
+        if (it == mode.m_runtimeActors.end()) continue;
+        const CGameActor* elemental = it->second;
+        if (!elemental || elemental->m_objectType != 10 || elemental->m_isElementalDeathCorpse
+            || elemental->m_stateId == kGameActorDeathStateId) continue;
+        switch (elemental->m_job) {
+        case 2116: return 4; // Agni
+        case 2119: return 3; // Aqua
+        case 2122: return 2; // Ventus
+        case 2125: return 1; // Tera
+        default: break;
+        }
+    }
+    return 0;
 }
 
 void HandleUseItemAck2(CGameMode& mode, const PacketView& packet)
@@ -4734,6 +4765,9 @@ void HandleSkillFailAck(CGameMode& mode, const PacketView& packet)
 
     const u16 skillId = ReadLE16(packet.data + 2);
     if (skillId == kSkillIdSummonElementalSpheres) g_session.CancelElementalSphereSkillRequest();
+    if (skillId == kSkillIdElementalControl && mode.m_world && mode.m_world->m_player) {
+        mode.m_world->m_player->m_elementalControlPresentationTick = 0;
+    }
     if (skillId == 2016 && mode.m_world && mode.m_world->m_player) {
         mode.m_world->m_player->m_vigorEffectSuppressUntilTick = 0;
     }
@@ -5285,6 +5319,8 @@ void StartSkillSourceAnimation(CGameActor* actor, const vector3d* targetPos, int
             return;
         }
     }
+
+    actor->m_elementalControlPresentationTick = 0;
 
     // Repeated impacts that skip the source presentation also preserve an
     // in-progress cast's effects, movement, facing, and casting bar.
@@ -5843,6 +5879,36 @@ float ResolveActorHeight(const CWorld* world, float worldX, float worldZ)
     return 0.0f;
 }
 
+// Elemental Control has a cast acknowledgement but no skill-use response.
+// Complete its presentation locally, allowing cancellation and actor removal.
+class CElementalControlPresentation : public CGameObject {
+public:
+    CElementalControlPresentation(CGameActor* caster, u16 tintLevel)
+        : m_caster(caster), m_tintLevel(tintLevel),
+          m_castEndTick(caster->m_elementalControlPresentationTick) {}
+
+    u8 OnProcess() override
+    {
+        if (!m_caster || m_caster->m_elementalControlPresentationTick != m_castEndTick
+            || m_caster->m_stateId == kGameActorDeathStateId) return 0;
+        if (static_cast<s32>(timeGetTime() - m_castEndTick) < 0) return 1;
+        m_caster->m_elementalControlPresentationTick = 0;
+        StartSkillSourceAnimation(m_caster, &m_caster->m_pos, kDefaultSkillMotionTime,
+            kSkillIdElementalControl, m_caster, 1, m_tintLevel);
+        return 0;
+    }
+
+    void OnActorDeleted(const CGameActor* actor) override
+    {
+        if (actor == m_caster) m_caster = nullptr;
+    }
+
+private:
+    CGameActor* m_caster;
+    u16 m_tintLevel;
+    u32 m_castEndTick;
+};
+
 void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 24) {
@@ -5873,6 +5939,9 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
 
     const int castSkillLevel = skillId == kSkillIdSummonElemental
         ? sourceActor->ConsumeElementalSummonRequestLevel() : 0;
+    const u16 elementalTintLevel = skillId == kSkillIdElementalControl
+        ? ResolveActiveElementalTintLevel(mode, *sourceActor) : 0;
+    sourceActor->m_elementalControlPresentationTick = 0;
 
     // A fresh acknowledgement re-arms only this skill, including instant casts.
     sourceActor->ResetSkillPresentationForCast(skillId);
@@ -5899,6 +5968,10 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
         if (skillId == kSkillIdStoneCurse) {
             StartSkillSourceAnimation(sourceActor, &targetPos, kDefaultSkillMotionTime, skillId, targetActor);
             EmitSkillImpactEffects(targetActor, skillId, 1);
+        }
+        if (skillId == kSkillIdElementalControl && elementalTintLevel != 0) {
+            StartSkillSourceAnimation(sourceActor, &sourceActor->m_pos, kDefaultSkillMotionTime,
+                skillId, sourceActor, 1, elementalTintLevel);
         }
         DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
             srcGid, dstGid, static_cast<unsigned int>(skillId), static_cast<unsigned int>(property),
@@ -6008,6 +6081,10 @@ void HandleSkillCastAck(CGameMode& mode, const PacketView& packet)
     }
 
     sourceActor->m_castingSkillId = skillId;
+    if (skillId == kSkillIdElementalControl && elementalTintLevel != 0 && mode.m_world) {
+        sourceActor->m_elementalControlPresentationTick = sourceActor->m_skillRechargeEndTick;
+        mode.m_world->m_gameObjectList.push_back(new CElementalControlPresentation(sourceActor, elementalTintLevel));
+    }
     DbgLog("[GameMode] skill cast ack src=%u dst=%u skill=%u property=%u castMs=%d cell=(%d,%d)\n",
         srcGid,
         dstGid,
@@ -6052,6 +6129,12 @@ void HandleSkillDamageNotify(CGameMode& mode, const PacketView& packet)
         return;
     }
 
+    // Elementals first notify their summoner, which can already start the motion.
+    // Apply the real target's facing even when that presentation is deduplicated.
+    if (sourceActor && sourceActor->m_objectType == 10) {
+        FaceActorTowardPosition(sourceActor, targetActor->m_pos);
+        InvalidateActorBillboard(sourceActor);
+    }
     const CombatHitAudio hitAudio = ResolveCombatHitAudio(packet, sourceActor, skillId);
 
     if (skillId == kSkillIdShieldChainAttack) {
@@ -6145,6 +6228,10 @@ void HandleSkillDamagePositionNotify(CGameMode& mode, const PacketView& packet)
     const CombatHitAudio hitAudio = ResolveCombatHitAudio(packet, sourceActor, skillId);
 
     if (sourceActor) {
+        if (sourceActor->m_objectType == 10) {
+            FaceActorTowardPosition(sourceActor, impactPos);
+            InvalidateActorBillboard(sourceActor);
+        }
         if (skillId == kSkillIdShieldChainAttack) {
             if (mode.m_world && damage != kSkillAnimationOnlyDamage) {
                 mode.m_world->SpawnShieldChainEffect(sourceActor->m_pos, impactPos,
@@ -6307,7 +6394,8 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
     // Their target barrier is emitted independently below.
     if (sourceActor && (result != 0 || sphereSummonCompleted)
         && !receivingBuffDuringCast && !parryTrigger && !autoGuardTrigger) {
-        const u16 skillLevel = skillId == kSkillIdSummonElemental ? levelOrAmount : 0;
+        const u16 skillLevel = skillId == kSkillIdSummonElemental ? levelOrAmount
+            : (skillId == kSkillIdElementalControl ? ResolveActiveElementalTintLevel(mode, *sourceActor) : 0);
         StartSkillSourceAnimation(sourceActor, targetActor ? &targetActor->m_pos : nullptr,
             kDefaultSkillMotionTime, skillId, targetActor, 1, skillLevel);
     }
@@ -6367,8 +6455,10 @@ void HandleSkillNoDamageNotify(CGameMode& mode, const PacketView& packet)
         EmitRecoveryNumber(sourceActor, targetActor, levelOrAmount, kRecoverySpNumberColor);
         targetActor->LaunchEffect(332, vector3d{}, 0.0f);
     } else if (targetActor && result != 0 && FindSkillPresentation(skillId)) {
-        // Soul Burn's following damage packet supplies its target effects.
-        if (skillId != kSkillIdSoulBurn) {
+        // Elemental attack notifications target the summoner; their damage packets
+        // identify the victim. Soul Burn also supplies its target effects with damage.
+        if (skillId != kSkillIdSoulBurn && skillId != kSkillIdElementalIcicle
+            && skillId != kSkillIdElementalEarthSpike) {
             EmitSkillImpactEffects(targetActor, skillId, 1);
         }
     } else if (targetActor && result != 0 && packetInfo.launchUseSkill) {
@@ -7241,6 +7331,55 @@ void BeginActorDeath(CGameMode& mode, CGameActor& actor, u32 gid)
     }
 }
 
+bool IsElementalOwnerDead(CGameMode& mode, u32 ownerAid)
+{
+    if (const CGameActor* owner = FindRuntimeActorForVanish(mode, ownerAid)) {
+        return owner->m_stateId == kGameActorDeathStateId;
+    }
+    const FRIEND_INFO* member = g_session.FindPartyMemberByAid(ownerAid);
+    return member && member->partyMaxHp > 0 && member->partyHp == 0;
+}
+
+void BeginElementalDeathCorpse(CGameMode& mode, CGameActor& actor, u32 gid)
+{
+    if (actor.m_isElementalDeathCorpse) return;
+    actor.m_isElementalDeathCorpse = true;
+    actor.m_elementalRemoveAfterTick = 0;
+    actor.m_elementalCorpseHoldUntilTick = 0;
+    actor.m_Hp = 0;
+    actor.m_Sp = 0;
+    actor.m_isVisible = 1;
+    actor.m_vanishTime = 0;
+    actor.m_willBeAttackList.clear();
+    actor.m_willBeAttackedList.clear();
+    actor.m_isPlayHitWave = 0;
+    actor.m_hitWaveName[0] = '\0';
+    actor.SetState(kGameActorDeathStateId);
+    actor.m_willBeDead = 1;
+    actor.m_shouldAddPickInfo = 0;
+    if (auto vitals = mode.m_elementalVitals.find(gid); vitals != mode.m_elementalVitals.end()) {
+        vitals->second.hp = 0;
+        vitals->second.sp = 0;
+    }
+    if (mode.m_ownedElementalGid == gid) mode.m_ownedElementalGid = 0;
+    if (mode.m_world && mode.m_world->m_player && mode.m_world->m_player->m_proceedTargetGid == gid) {
+        mode.m_world->m_player->m_proceedTargetGid = 0;
+    }
+    if (CPc* pc = dynamic_cast<CPc*>(&actor)) pc->InvalidateBillboard();
+    DbgLog("[GameMode] elemental owner death gid=%u hp=0 sp=0 holdMs=%u\n", gid, kElementalCorpseHoldMs);
+}
+
+void BeginSummonerElementalDeaths(CGameMode& mode, u32 ownerGid)
+{
+    for (const auto& [gid, vitals] : mode.m_elementalVitals) {
+        if (vitals.ownerAid != ownerGid
+            && !(IsLocalPlayerActor(mode, ownerGid) && IsLocalPlayerActor(mode, vitals.ownerAid))) continue;
+        if (CGameActor* actor = FindRuntimeActorForVanish(mode, gid); actor && actor->m_objectType == 10) {
+            BeginElementalDeathCorpse(mode, *actor, gid);
+        }
+    }
+}
+
 void HandleActorResurrection(CGameMode& mode, const PacketView& packet)
 {
     if (!packet.data || packet.packetLength < 8) {
@@ -7334,6 +7473,10 @@ void ApplyRuntimeActorState(CGameMode& mode, const RuntimeActorState& state)
         return;
     }
 
+    if (actor->m_isElementalDeathCorpse) actor->SendMsg(actor, 98, 0, 0, 0);
+    actor->m_elementalRemoveAfterTick = 0;
+    actor->m_elementalCorpseHoldUntilTick = 0;
+    actor->m_isElementalDeathCorpse = false;
     const bool hadResolvedIdentity = actor->m_job != 0 || actor->m_objectType != 0 || actor->m_isPc != 0;
     // The first actor snapshot initializes visibility; it is not a hide transition.
     // Ground effects use actors that spawn invisible and must not emit a hiding flash.
@@ -8356,6 +8499,8 @@ bool ShouldIgnoreRedundantLocalFixPosition(const CGameActor& actor, int tileX, i
 
 void RemoveRuntimeActor(CGameMode& mode, u32 gid)
 {
+    mode.m_elementalVitals.erase(gid);
+    if (mode.m_ownedElementalGid == gid) mode.m_ownedElementalGid = 0;
     mode.m_actorPosList.erase(gid);
     mode.m_aidList.erase(gid);
     mode.m_actorNameList.erase(gid);
@@ -9500,8 +9645,27 @@ void HandleActorVanish(CGameMode& mode, const PacketView& packet)
 
     const u32 gid = ReadLE32(packet.data + 2);
     const u8 reason = packet.data[6];
-    mode.m_elementalVitals.erase(gid);
-    if (mode.m_ownedElementalGid == gid) mode.m_ownedElementalGid = 0;
+    bool retainElemental = false;
+    if (CGameActor* actor = FindRuntimeActorForVanish(mode, gid); actor && reason == 0) {
+        if (actor->m_isElementalDeathCorpse) {
+            retainElemental = true;
+        } else if (const auto vitals = mode.m_elementalVitals.find(gid);
+            vitals != mode.m_elementalVitals.end() && actor->m_objectType == 10) {
+            if (IsElementalOwnerDead(mode, vitals->second.ownerAid)) {
+                BeginElementalDeathCorpse(mode, *actor, gid);
+            } else if (actor->m_elementalRemoveAfterTick == 0) {
+                // The server removes the elemental before announcing its summoner's death.
+                actor->m_elementalRemoveAfterTick = GetTickCount() + kElementalRemovalGraceMs;
+                DbgLog("[GameMode] defer elemental removal gid=%u owner=%u until=%u\n",
+                    gid, vitals->second.ownerAid, actor->m_elementalRemoveAfterTick);
+            }
+            retainElemental = true;
+        }
+    }
+    if (!retainElemental) {
+        mode.m_elementalVitals.erase(gid);
+        if (mode.m_ownedElementalGid == gid) mode.m_ownedElementalGid = 0;
+    }
     DbgLog("[GameMode] vanish gid=%u reason=%u\n", gid, static_cast<unsigned int>(reason));
     if (const auto groundItemIt = mode.m_groundItemList.find(gid); groundItemIt != mode.m_groundItemList.end()) {
         DbgLog("[GroundItem] vanish overlaps item obj=%u item=%u amount=%u reason=%u\n",
@@ -9513,27 +9677,30 @@ void HandleActorVanish(CGameMode& mode, const PacketView& packet)
     mode.m_actorPosList.erase(gid);
     mode.m_aidList.erase(gid);
 
-    if (reason == 0) {
-        DbgLog("[GameMode] remove vanish gid=%u reason=0\n", gid);
-        RemoveRuntimeActor(mode, gid);
-    } else if (reason == 1) {
-        if (CGameActor* actor = FindRuntimeActorForVanish(mode, gid)) {
-            BeginActorDeath(mode, *actor, gid);
-            if (IsLocalPlayerActor(mode, gid)) {
-                mode.m_isOnQuest = 1;
-                mode.m_isPlayerDead = 1;
-            }
+    if (!retainElemental) {
+        if (reason == 0) {
+            DbgLog("[GameMode] remove vanish gid=%u reason=0\n", gid);
+            RemoveRuntimeActor(mode, gid);
+        } else if (reason == 1) {
+            if (CGameActor* actor = FindRuntimeActorForVanish(mode, gid)) {
+                BeginActorDeath(mode, *actor, gid);
+                if (IsLocalPlayerActor(mode, gid)) {
+                    mode.m_isOnQuest = 1;
+                    mode.m_isPlayerDead = 1;
+                }
 
-            DbgLog("[GameMode] death vanish gid=%u self=%d despawnAt=%u\n",
-                gid,
-                IsLocalPlayerActor(mode, gid) ? 1 : 0,
-                static_cast<unsigned int>(actor->m_vanishTime));
+                DbgLog("[GameMode] death vanish gid=%u self=%d despawnAt=%u\n",
+                    gid,
+                    IsLocalPlayerActor(mode, gid) ? 1 : 0,
+                    static_cast<unsigned int>(actor->m_vanishTime));
+            } else {
+                RemoveRuntimeActor(mode, gid);
+            }
         } else {
             RemoveRuntimeActor(mode, gid);
         }
-    } else {
-        RemoveRuntimeActor(mode, gid);
     }
+    if (reason == 1) BeginSummonerElementalDeaths(mode, gid);
 
     if (mode.m_lastPcGid == gid) {
         mode.m_lastPcGid = 0;
@@ -9564,8 +9731,27 @@ void CleanupPendingActorDespawns(CGameMode& mode)
             continue;
         }
 
+        if (actor->m_elementalRemoveAfterTick != 0 && !actor->m_isElementalDeathCorpse) {
+            const auto vitals = mode.m_elementalVitals.find(gid);
+            if (vitals != mode.m_elementalVitals.end() && IsElementalOwnerDead(mode, vitals->second.ownerAid)) {
+                BeginElementalDeathCorpse(mode, *actor, gid);
+            } else {
+                if (static_cast<s32>(now - actor->m_elementalRemoveAfterTick) >= 0) expiredActors.push_back(gid);
+                continue;
+            }
+        }
+
         if (actor->m_willBeDead == 1 && actor->m_vanishTime == 0) {
-            const u32 deathFadeStart = actor->m_stateStartTick + kDeathCorpseHoldMs;
+            if (actor->m_isElementalDeathCorpse) {
+                if (!actor->m_isMotionFinished && actor->m_actRes) continue;
+                if (actor->m_elementalCorpseHoldUntilTick == 0) {
+                    actor->m_elementalCorpseHoldUntilTick = now + kElementalCorpseHoldMs;
+                    DbgLog("[GameMode] elemental corpse hold gid=%u fadeAt=%u\n",
+                        gid, actor->m_elementalCorpseHoldUntilTick);
+                }
+            }
+            const u32 deathFadeStart = actor->m_isElementalDeathCorpse
+                ? actor->m_elementalCorpseHoldUntilTick : actor->m_stateStartTick + kDeathCorpseHoldMs;
             if (now >= deathFadeStart) {
                 actor->m_vanishTime = now + kDeathFadeDurationMs;
                 actor->m_willBeDead = 2;

@@ -123,6 +123,8 @@ struct SkillEffectPresentation {
     float rotationSpeed = 0.0f; // Additional STR rotation, in radians per second.
     bool loop = false;
     int playCount = 1; // Total STR playbacks, including the first.
+    int fadeOutFrame = -1;
+    int fadeOutFrames = 0;
     bool replayWav = false; // Replay the WAV when a finite STR playback restarts.
     bool ignoreServerWav = false; // Locally owned WAVs ignore matching server sound packets.
     bool oncePerHit = false;

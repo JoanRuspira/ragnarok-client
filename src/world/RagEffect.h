@@ -258,6 +258,8 @@ private:
     bool m_presentationGroundPlane = false;
     float m_presentationRotationSpeed = 0.0f;
     int m_strPlaysRemaining = 1;
+    int m_strFadeOutFrame = -1;
+    int m_strFadeOutFrames = 0;
     bool m_presentationBottomEffect = false;
     int m_presentationBottomOrder = 0;
     bool m_presentationDrawOverActors = false;
@@ -364,6 +366,7 @@ private:
     void ClearPrims();
     void LoadEzEffect(const char* fName);
     void InitEZ2STRFrame();
+    int GetStrFrameCount() const;
     bool ProcessEZ2STR();
     void SpawnGroundSurface();
     void SpawnSprite();

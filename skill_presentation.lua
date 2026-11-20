@@ -71,6 +71,13 @@ local elemental_summon_tints = {
     [4] = 0xFF4040, -- Igni: red.
 }
 
+local elemental_invocation_tints = {
+    [1] = 0xFFFF40,
+    [2] = elemental_summon_tints[2],
+    [3] = elemental_summon_tints[3],
+    [4] = elemental_summon_tints[4],
+}
+
 local tetra_vortex_presentation = {
     name = "Tetra Vortex",
     cast_motion_type = 1,
@@ -88,6 +95,10 @@ return {
     -- play_count (default 1), interval_ms, and delay_ms control sound-only playback.
     -- ignore_server_wav = true prevents matching server sound packets from adding copies.
     sounds = {
+        [8439] = { -- SK_SA_EARTHSPIKE
+            wav = [[data\wav\effect\em_summon_elemental_terremotus_2.wav]],
+            trigger = "damage",
+        },
         [2460] = { -- SK_SA_SUMMONELEMENTAL
             wav = [[data\wav\effect\ef_beginspell.wav]],
             trigger = "casting",
@@ -253,6 +264,56 @@ return {
         },
     },
     skills = {
+        [905] = { -- SK_SA_ELEMENTALCONTROL
+            name = "Elemental Control",
+            source_once_per_cast = true,
+            source = {
+                {
+                    effect_id = 50158,
+                    str = [[data\texture\effect\roki_capriccio\roki_capriccio_cast_bottom\roki_capriccio_cast_bottom.str]],
+                    wav = [[data\wav\effect\]] .. "t_\189\180\191\244.wav",
+                    bottom_effect = true,
+                    bottom_offset_px = 0,
+                    skill_level_tints = elemental_invocation_tints,
+                },
+                {
+                    effect_id = 50159,
+                    str = [[data\texture\effect\new_fatal_menace\new_fatal_menace_cast\new_fatal_menace_cast.str]],
+                    skill_level_tints = elemental_invocation_tints,
+                },
+            },
+        },
+        [906] = { -- SK_SA_ICICLE
+            name = "Frostbite",
+            target = {
+                {
+                    effect_id = 50162,
+                    str = [[data\texture\effect\diluvio\diluvio_cast\diluvio_cast.str]],
+                },
+                {
+                    effect_id = 50163,
+                    str = [[data\texture\effect\new_spellfist\new_spellfist_water_bottom\new_spellfist_water_bottom.str]],
+                    bottom_effect = true,
+                },
+            },
+        },
+        [8439] = { -- SK_SA_EARTHSPIKE
+            name = "Earth Spike",
+            target = {
+                {
+                    effect_id = 50160,
+                    str = [[data\texture\effect\acidified_zone_ground\acidified_zone_ground_water\acidified_zone_ground_water.str]],
+                },
+                {
+                    effect_id = 50161,
+                    str = [[data\texture\effect\state_effect\crystallization\crystallization.str]],
+                    bottom_effect = true,
+                    bottom_offset_px = 35,
+                    fade_out_frame = 55,
+                    fade_out_frames = 12,
+                },
+            },
+        },
         [2445] = { -- SK_PF_SPELLFIST: the interrupted cast selects the visual pair.
             name = "Spell Fist",
         },
@@ -278,12 +339,7 @@ return {
                 {
                     effect_id = 50157,
                     str = [[data\texture\effect\new_fatal_menace\new_fatal_menace_cast\new_fatal_menace_cast.str]],
-                    skill_level_tints = {
-                        [1] = 0xFFFF40, -- Tera: yellow.
-                        [2] = elemental_summon_tints[2], -- Ventus: cerulean.
-                        [3] = elemental_summon_tints[3], -- Aqua: blue.
-                        [4] = elemental_summon_tints[4], -- Agni: red.
-                    },
+                    skill_level_tints = elemental_invocation_tints,
                 },
             },
         },

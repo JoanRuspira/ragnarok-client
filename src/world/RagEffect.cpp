@@ -3978,6 +3978,13 @@ void CRagEffect::InitEZ2STRFrame()
     m_activeAniKeyZeroBlend.fill(0);
 }
 
+int CRagEffect::GetStrFrameCount() const
+{
+    const int frameCount = m_aniClips ? m_aniClips->cFrame : 0;
+    return m_strFadeOutFrame >= 0
+        ? (std::min)(frameCount, m_strFadeOutFrame + m_strFadeOutFrames) : frameCount;
+}
+
 bool CRagEffect::ProcessEZ2STR()
 {
     m_isLayerDrawn.fill(0);
@@ -3993,7 +4000,7 @@ bool CRagEffect::ProcessEZ2STR()
         const int phaseFrames = slot * m_aniClips->cFrame / slotCount;
         animationFrame = static_cast<int>((sharedFrame + phaseFrames) % m_aniClips->cFrame);
     }
-    if (animationFrame >= m_aniClips->cFrame) return false;
+    if (animationFrame >= GetStrFrameCount()) return false;
 
     for (int layerIndex = 0; layerIndex < m_aniClips->cLayer; ++layerIndex) {
         const KAC_LAYER& layer = m_aniClips->aLayer[static_cast<size_t>(layerIndex)];
@@ -4039,6 +4046,15 @@ bool CRagEffect::ProcessEZ2STR()
             default: break;
             }
             if (xform.aniframe < 0.0f) xform.aniframe += textures;
+        }
+        if (m_strFadeOutFrame >= 0 && animationFrame > m_strFadeOutFrame) {
+            const float opacity = 1.0f - static_cast<float>(animationFrame - m_strFadeOutFrame) / m_strFadeOutFrames;
+            xform.crA *= opacity;
+            if (ResolveAniClipBlendMode(xform.srcalpha) == D3DBLEND_ONE) {
+                xform.crR *= opacity;
+                xform.crG *= opacity;
+                xform.crB *= opacity;
+            }
         }
         m_isLayerDrawn[static_cast<size_t>(layerIndex)] = 1;
     }
@@ -4204,6 +4220,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
     m_presentationGroundPlane = false;
     m_presentationRotationSpeed = 0.0f;
     m_strPlaysRemaining = 1;
+    m_strFadeOutFrame = -1;
+    m_strFadeOutFrames = 0;
     m_presentationBottomEffect = false;
     m_presentationBottomOrder = 0;
     m_presentationDrawOverActors = false;
@@ -4274,6 +4292,8 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         m_presentationGroundPlane = presentation->groundPlane;
         m_presentationRotationSpeed = presentation->rotationSpeed;
         m_strPlaysRemaining = presentation->playCount;
+        m_strFadeOutFrame = presentation->fadeOutFrame;
+        m_strFadeOutFrames = presentation->fadeOutFrames;
         m_startDelayMs = static_cast<u32>(presentation->delayMs);
         m_presentationBottomEffect = presentation->bottomEffect;
         m_presentationBottomOrder = presentation->bottomOrder;
@@ -4355,7 +4375,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             InitEZ2STRFrame();
             if (m_aniClips && m_aniClips->cFrame > 0 && m_aniClips->nFPS > 0) {
                 m_handler = Handler::EzStr;
-                m_duration = m_aniClips->cFrame + 1;
+                m_duration = GetStrFrameCount() + 1;
                 m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
                 m_pendingPresentationSound = presentation->directionalStr.wavPath;
                 if (presentation->replayWav) m_replayPresentationSound = m_pendingPresentationSound;
@@ -4369,7 +4389,7 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
         InitEZ2STRFrame();
         if (m_aniClips && m_aniClips->cFrame > 0 && m_aniClips->nFPS > 0) {
             m_handler = Handler::EzStr;
-            m_duration = m_aniClips->cFrame + 1;
+            m_duration = GetStrFrameCount() + 1;
             m_tickCarryMs = 1000.0f / static_cast<float>(m_aniClips->nFPS);
             m_pendingPresentationSound = variant.wavPath;
             if (presentation->replayWav) m_replayPresentationSound = m_pendingPresentationSound;
@@ -4385,7 +4405,9 @@ void CRagEffect::Init(CRenderObject* master, int effectId, const vector3d& delta
             }
             component->InitEZ2STRFrame();
             component->m_handler = Handler::EzStr;
-            component->m_duration = component->m_aniClips->cFrame + 1;
+            component->m_strFadeOutFrame = m_strFadeOutFrame;
+            component->m_strFadeOutFrames = m_strFadeOutFrames;
+            component->m_duration = component->GetStrFrameCount() + 1;
             component->m_tickCarryMs = 1000.0f / static_cast<float>(component->m_aniClips->nFPS);
             component->m_strPlaysRemaining = presentation->playCount;
             component->m_startDelayMs = m_startDelayMs;
@@ -7357,6 +7379,7 @@ u8 CRagEffect::OnProcess()
     const bool frameDrivenStrHandler =
         m_handler == Handler::EzStr
         || m_handler == Handler::JobLevelUp50;
+    const int strFrameCount = frameDrivenStrHandler ? GetStrFrameCount() : 0;
 
     const float frameMs = frameDrivenStrHandler && m_aniClips && m_aniClips->nFPS > 0
         ? 1000.0f / static_cast<float>(m_aniClips->nFPS)
@@ -7389,13 +7412,13 @@ u8 CRagEffect::OnProcess()
         }
         const bool ezActive = frameDrivenStrHandler
             && m_aniClips
-            && m_stateCnt <= (m_aniClips->cFrame + 8);
+            && m_stateCnt <= (strFrameCount + 8);
         return (ezActive || !m_primList.empty() || !m_componentEffects.empty() || m_stateCnt <= m_duration) ? 1 : 0;
     }
 
     for (int step = 0; step < steps && alive; ++step) {
         if ((m_loop || m_strPlaysRemaining > 1) && m_handler == Handler::EzStr
-            && m_aniClips && m_stateCnt >= m_aniClips->cFrame) {
+            && m_aniClips && m_stateCnt >= strFrameCount) {
             if (!m_loop) --m_strPlaysRemaining;
             InitEZ2STRFrame();
             if (!m_loop && !m_replayPresentationSound.empty()) {
@@ -7538,7 +7561,7 @@ u8 CRagEffect::OnProcess()
 
         const bool ezActive = frameDrivenStrHandler
             && m_aniClips
-            && m_stateCnt <= (m_aniClips->cFrame + 8);
+            && m_stateCnt <= (strFrameCount + 8);
         const bool primActive = !m_primList.empty();
         alive = ezActive || primActive || m_stateCnt <= m_duration;
     }
